@@ -57,6 +57,8 @@ graph TD
 
 At launch, RWML collects the extension jars, orders them by the dependencies they declare, loads each one in its own class loader, and applies their class patches. The game then starts as usual, with the patches already in place.
 
+Class patches are declared in the annotation style of Fabric Mixin, and are applied by [IronCore ASM-Framework](https://github.com/RELAY-CN/ASM-Framework), an ASM-based bytecode framework. RWML bundles the framework, so an extension declares its patches once. They apply at class load time on desktop and at build time on Android.
+
 ## Installation
 
 > [!IMPORTANT]
@@ -203,8 +205,10 @@ public final class GameRuntimeMixin {
 
 `@AsmInject` takes a method descriptor and an injection point, and optionally accepts finer placement parameters: `ordinal`, `slice`, `cancellable`, `allow`, `expect`, `require` and `inline`.
 
+The annotations come from [IronCore ASM-Framework](https://github.com/RELAY-CN/ASM-Framework), the bytecode framework RWML uses for class patching. Its [API reference](https://github.com/RELAY-CN/ASM-Framework/blob/main/API.md) and [guide](https://github.com/RELAY-CN/ASM-Framework/blob/main/GUIDE.md) document the whole annotation set, which covers injection, redirection, wrapping, argument and constant modification, `@Shadow` references and generated accessors. The framework jar RWML compiles against is kept at the root of this repository.
+
 > [!WARNING]
-> An extension should depend on RWML with `compileOnly`. Do not bundle RWML or the bytecode framework into an extension jar; the host provides both.
+> An extension should depend on RWML with `compileOnly`. Do not bundle RWML or IronCore ASM-Framework into an extension jar; the host provides both.
 
 ## Building
 
@@ -256,3 +260,5 @@ Before starting on anything large, please open an issue so that the approach can
 ## License
 
 [Apache License 2.0](./LICENSE).
+
+RWML bundles [IronCore ASM-Framework](https://github.com/RELAY-CN/ASM-Framework), Copyright 2020-2025 Dr (dr@der.kim) and contributors, under the terms of the [RELAY-CN License](https://github.com/RELAY-CN/ASM-Framework/blob/main/LICENSE), which requires attribution to the authors in any redistribution.

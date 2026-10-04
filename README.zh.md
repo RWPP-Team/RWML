@@ -58,6 +58,8 @@ graph TD
 
 启动时，RWML 会收集所有扩展 jar，按照它们声明的依赖关系进行排序，在各自的类加载器中逐个加载，并施加它们的类修补。随后游戏照常启动，此时补丁已经就位。
 
+类修补以 Fabric Mixin 风格的注解声明，由 [IronCore ASM-Framework](https://github.com/RELAY-CN/ASM-Framework) 施加。该框架基于 ASM 实现。RWML 内附该框架，因此扩展只需声明一次修补，桌面端在类加载时生效，Android 端在构建时生效。
+
 ## 安装
 
 > [!IMPORTANT]
@@ -204,8 +206,10 @@ public final class GameRuntimeMixin {
 
 `@AsmInject` 接收方法描述符与注入点，并可选用更精细的定位参数：`ordinal`、`slice`、`cancellable`、`allow`、`expect`、`require`、`inline`。
 
+以上注解来自 [IronCore ASM-Framework](https://github.com/RELAY-CN/ASM-Framework)，即 RWML 用于类修补的字节码框架。其[API 参考](https://github.com/RELAY-CN/ASM-Framework/blob/main/API.md)与[使用指南](https://github.com/RELAY-CN/ASM-Framework/blob/main/GUIDE.md)记录了完整的注解集合，涵盖注入、重定向、包裹、参数与常量修改、`@Shadow` 引用以及生成式访问器。RWML 编译所用的框架 jar 保存在本仓库根目录。
+
 > [!WARNING]
-> 扩展应以 `compileOnly` 方式依赖 RWML。请勿将 RWML 或字节码框架打包进扩展 jar，这两者已由宿主提供。
+> 扩展应以 `compileOnly` 方式依赖 RWML。请勿将 RWML 或 IronCore ASM-Framework 打包进扩展 jar，两者均由宿主提供。
 
 ## 构建
 
@@ -257,3 +261,5 @@ public final class GameRuntimeMixin {
 ## 许可
 
 [Apache License 2.0](./LICENSE).
+
+RWML 内附 [IronCore ASM-Framework](https://github.com/RELAY-CN/ASM-Framework)，版权归 Dr (dr@der.kim) 及贡献者所有（2020-2025），按其 [RELAY-CN 许可](https://github.com/RELAY-CN/ASM-Framework/blob/main/LICENSE)使用，该许可要求任何再分发均保留对作者的署名。
