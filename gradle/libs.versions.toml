@@ -1,0 +1,30 @@
+[versions]
+kotlin = "2.4.20"
+org-ow2-asm-asm = "9.10.1"
+ow2-asm-tree = "9.10.1"
+org-ow2-asm-asm-commons = "9.10.1"
+ow2-asm-util = "9.10.1"
+tiny-remapper = "0.14.1"
+mapping-io = "0.9.1"
+android-tools-r8 = "8.2.47"
+android-gradle-plugin = "9.0.1"
+android-compile-sdk = "35"
+android-min-sdk = "26"
+android-target-sdk = "35"
+junit = "5.11.3"
+junit-platform = "1.11.3"
+
+[libraries]
+fabricmc-tiny-remapper = { module = "net.fabricmc:tiny-remapper", version.ref = "tiny-remapper" }
+fabricmc-mapping-io = { module = "net.fabricmc:mapping-io", version.ref = "mapping-io" }
+android-tools-r8 = { module = "com.android.tools:r8", version.ref = "android-tools-r8" }
+kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit-platform" }
+org-ow2-asm-asm-util = { module = "org.ow2.asm:asm-util", version.ref = "ow2-asm-util" }
+org-ow2-asm-asm-commons3 = { module = "org.ow2.asm:asm-commons", version.ref = "org-ow2-asm-asm-commons" }
+org-ow2-asm-asm-tree = { module = "org.ow2.asm:asm-tree", version.ref = "ow2-asm-tree" }
+org-ow2-asm-asm3 = { module = "org.ow2.asm:asm", version.ref = "org-ow2-asm-asm" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "android-gradle-plugin" }
