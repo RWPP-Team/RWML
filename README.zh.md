@@ -223,7 +223,6 @@ public final class GameRuntimeMixin {
 ./gradlew build                    # 编译全部模块并运行单元测试
 ./gradlew test                     # 仅运行单元测试
 ./gradlew packageGameJar           # 生成可部署的 build/dist/game-lib.jar
-./gradlew :example:runDemo         # 在桌面端运行示例扩展
 ./gradlew :android:assembleDebug   # 构建 Android APK
 ```
 
@@ -242,7 +241,6 @@ public final class GameRuntimeMixin {
 
 ```bash
 ./gradlew test          # 测试套件，请保持通过
-./gradlew :example:runDemo
 ```
 
 进行较大改动之前，请先提交 issue 以对齐方案。

@@ -29,7 +29,7 @@ plugins {
 
 group = "io.github.rwpp-team"
 version = "1.0.0"
-description = "RWML - a hot-reloadable, mixin-capable extension framework for the RTS engine."
+description = "RWML - a mixin loader framework for the Rusted Warfare."
 
 buildscript {
     dependencies {

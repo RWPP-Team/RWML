@@ -222,7 +222,6 @@ public final class GameRuntimeMixin {
 ./gradlew build                    # compile every module and run the unit tests
 ./gradlew test                     # run the unit tests only
 ./gradlew packageGameJar           # produce the deployable build/dist/game-lib.jar
-./gradlew :example:runDemo         # run the sample extension on the desktop
 ./gradlew :android:assembleDebug   # build the Android APK
 ```
 
@@ -241,7 +240,6 @@ Issues and pull requests are welcome.
 
 ```bash
 ./gradlew test          # the test suite; keep it passing
-./gradlew :example:runDemo
 ```
 
 Before starting on anything large, please open an issue so that the approach can be agreed.
