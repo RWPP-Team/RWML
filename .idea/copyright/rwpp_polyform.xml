@@ -1,0 +1,6 @@
+<component name="CopyrightManager">
+  <copyright>
+    <option name="notice" value="Copyright (c) &amp;#36;originalComment.match(&quot;Copyright \(c\) (\d+)&quot;, 1, &quot;-&quot;, &quot;&amp;#36;today.year&quot;)&amp;#36;today.year RWPP-Team. All rights reserved.&#10;&#10;Licensed under the RWPP-Team Shield License 1.0.0.&#10;Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md" />
+    <option name="myName" value="rwpp-polyform" />
+  </copyright>
+</component>

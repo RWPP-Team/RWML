@@ -1,7 +1,14 @@
+/*
+ * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
+ * Licensed under the RWPP-Team Shield License 1.0.0.
+ * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
+ */
+
 package io.github.rwml.hello.mixin;
 
 import com.corrodinggames.rts.java.MainLauncher;
-import io.github.rwml.RwmlLauncher;
+import io.github.rwml.api.Rwml;
 import kim.der.asm.api.annotation.AsmInject;
 import kim.der.asm.api.annotation.AsmMixin;
 
@@ -9,7 +16,7 @@ import kim.der.asm.api.annotation.AsmMixin;
 public class MainLauncherMixin {
     @AsmInject(method = "parseArguments")
     public static void parseArguments() {
-        int handles = RwmlLauncher.manager.handles().size();
+        int handles = Rwml.get().manager().handles().size();
         MainLauncher.gameTitle = "Rusted Warfare [RWML - " + handles + " loaded]";
     }
 }

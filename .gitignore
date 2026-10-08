@@ -4,6 +4,7 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 .kotlin
+__pycache__/
 
 ### IntelliJ IDEA ###
 .idea/modules.xml
@@ -46,3 +47,5 @@ bin/
 # Machine-specific SDK location; ANDROID_HOME or the `android.sdk` Gradle property works too.
 local.properties
 .cxx/
+/android/src/main/res/
+/android/src/main/assets/

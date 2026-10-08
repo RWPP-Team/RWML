@@ -1,4 +1,5 @@
 [versions]
+asm-framework = "0.0.1"
 kotlin = "2.4.20"
 org-ow2-asm-asm = "9.10.1"
 ow2-asm-tree = "9.10.1"
@@ -6,18 +7,24 @@ org-ow2-asm-asm-commons = "9.10.1"
 ow2-asm-util = "9.10.1"
 tiny-remapper = "0.14.1"
 mapping-io = "0.9.1"
-android-tools-r8 = "8.2.47"
+dalvik-dx = "7.1.0_r7"
 android-gradle-plugin = "9.0.1"
+android-java-version = "17"
 android-compile-sdk = "35"
 android-min-sdk = "26"
 android-target-sdk = "35"
 junit = "5.11.3"
 junit-platform = "1.11.3"
+game-lib = "1.15"
+vineflower = "1.11.2"
 
 [libraries]
+asm-framework = { module = "kim.der.relay-cn:ASM-Framework", version.ref = "asm-framework" }
+game-lib = { module = "io.github.rwpp-team:game-lib", version.ref = "game-lib" }
+vineflower = { module = "org.vineflower:vineflower", version.ref = "vineflower" }
 fabricmc-tiny-remapper = { module = "net.fabricmc:tiny-remapper", version.ref = "tiny-remapper" }
 fabricmc-mapping-io = { module = "net.fabricmc:mapping-io", version.ref = "mapping-io" }
-android-tools-r8 = { module = "com.android.tools:r8", version.ref = "android-tools-r8" }
+dalvik-dx = { module = "com.jakewharton.android.repackaged:dalvik-dx", version.ref = "dalvik-dx" }
 kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit-platform" }

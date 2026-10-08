@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (c) 2026 RWPP-Team. All rights reserved.
+  ~
+  ~ Licensed under the RWPP-Team Shield License 1.0.0.
+  ~ Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
+  -->
+
+<!--
+  The application is the bootstrapper. It owns the process, prepares the runtime, and starts whatever
+  the loaded extensions ask to start: a UI when one of them is a UI framework, otherwise nothing.
+
+  What the platform has to know about a game screen is declared here rather than in the game, because
+  the game is mounted as dex after this process is already running.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!-- The game reads maps, replays, mods and saves from shared storage, so it asks for the whole
+         of it rather than for media access alone. -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <application
+        android:allowBackup="false"
+        android:hardwareAccelerated="true"
+        android:icon="@drawable/ic_rwml"
+        android:label="RWML"
+        android:largeHeap="true"
+        android:requestLegacyExternalStorage="true"
+        android:supportsRtl="true"
+        android:theme="@style/app_theme"
+        android:usesCleartextTraffic="true">
+
+        <!-- The game bundles its own copy of Apache HttpClient. -->
+        <uses-library
+            android:name="org.apache.http.legacy"
+            android:required="false" />
+
+        <!-- The bootstrapper: it prepares the runtime, then hands control to the game. The game is
+             landscape on every device it shipped on, so the app is too: the engine's zoom and its
+             layouts are authored for a wide screen, and sensorLandscape keeps both landscape
+             directions available instead of locking one of them. -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden"
+            android:exported="true"
+            android:screenOrientation="sensorLandscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".RestartActivity" android:process=":restart"
+            android:exported="false" android:excludeFromRecents="true"
+            android:screenOrientation="sensorLandscape" />
+
+        <!-- The screens of the interface RWML carries inside the app. They have to be declared here
+             because the manifest is fixed when the APK is built, while the extension that declares
+             the interface is only read at run time, and because an activity that is not declared
+             cannot be started at all. The configChanges set is the game's: rotating the device, or
+             opening and closing the keyboard, must not restart a screen the engine is drawing into. -->
+        <activity
+            android:name="io.github.rwml.android.builtin.LauncherActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.IntroScreen"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.MainMenuActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.InGameActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <!-- The screen the game's own in-game settings menu opens to change which folder the game
+             reads and writes in. It belongs to the game rather than to this app, and it is declared
+             here for the same reason every screen the game opens is: an activity the platform has
+             not been told about cannot be started at all, and the game's own manifest is not the one
+             that is built into this APK. -->
+        <activity
+            android:name="com.corrodinggames.rts.appFramework.FolderSelectActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.QuickHelpActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.SettingsActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.ModsActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.CreditsActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <!-- The single-player path: the mode chooser, then the map grid of the chosen mode, and the
+             save list, which is reached from the chooser as well. -->
+        <activity
+            android:name="io.github.rwml.android.builtin.LevelGroupSelectActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.LevelSelectActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.LoadLevelActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.ReplaySelectActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <!-- The multiplayer path: the lobby hosts or joins, and the battleroom sets the game up. -->
+        <activity
+            android:name="io.github.rwml.android.builtin.MultiplayerLobbyActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.MultiplayerBattleroomActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <!-- The keyboard bindings, reached from the settings screen, and the mission starter. The
+             bindings screen keeps the keyboard configuration change itself: a key press is what it
+             is waiting for, so the screen must not be rebuilt underneath it. -->
+        <activity
+            android:name="io.github.rwml.android.builtin.SettingsKeysActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
+            android:name="io.github.rwml.android.builtin.NewMissionStarterActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <!-- The screen the game leaves through: it closes itself as soon as it is up. -->
+        <activity
+            android:name="io.github.rwml.android.builtin.ClosingActivity"
+            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
+            android:exported="false" />
+    </application>
+
+</manifest>
