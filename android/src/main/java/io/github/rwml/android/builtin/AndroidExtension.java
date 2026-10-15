@@ -10,6 +10,7 @@ package io.github.rwml.android.builtin;
 import io.github.rwml.api.Extension;
 import io.github.rwml.api.ExtensionContext;
 import io.github.rwml.core.ExtensionDescriptor;
+import io.github.rwml.core.ExtensionDescriptorReader;
 
 /**
  * The extension RWML carries inside an Android app: the counterpart of
@@ -25,15 +26,11 @@ import io.github.rwml.core.ExtensionDescriptor;
  */
 public final class AndroidExtension implements Extension {
 
-    /** The extension id, which is also the key the disabled flag is stored under. */
-    public static final String ID = "io.github.rwml.android.builtin";
+    private static final ExtensionDescriptor DESCRIPTOR = ExtensionDescriptorReader.readBuiltIn(
+        AndroidExtension.class, "/META-INF/rwml/builtin-android.properties");
 
-    private static final String NAME = "RWML Android Interface";
-    private static final String VERSION = "1.0.0";
-    private static final String DESCRIPTION =
-        "Ships with the Android app. Declares the ui-framework that shows the game's interface on "
-            + "Android, which is what lets a fresh install start a game with nothing else installed. "
-            + "Disable it by id to run headless.";
+    /** The extension id, read from the bundled properties. */
+    public static final String ID = DESCRIPTOR.id();
 
     /** Public because the manager instantiates the class reflectively, as it does any extension. */
     public AndroidExtension() {
@@ -45,10 +42,7 @@ public final class AndroidExtension implements Extension {
      * @return the descriptor, with the interface declared
      */
     public static ExtensionDescriptor descriptor() {
-        return ExtensionDescriptor.builtIn(
-            ID, NAME, VERSION, DESCRIPTION,
-            AndroidExtension.class.getName(),
-            AndroidInterface.class.getName());
+        return DESCRIPTOR;
     }
 
     @Override

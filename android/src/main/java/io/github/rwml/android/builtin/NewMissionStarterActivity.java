@@ -32,7 +32,7 @@ import io.github.rwml.android.R;
  * closes as soon as it is left, so this one does the part that can be done without inventing an
  * action the layout does not carry - it shows the choices and leaves the screen.</p>
  */
-public final class NewMissionStarterActivity extends Activity {
+public final class NewMissionStarterActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
@@ -45,7 +45,7 @@ public final class NewMissionStarterActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("New mission");
+        setTitle(LocalizedText.ui("ui.newMission"));
         AndroidApp.prepare(this, true);
         setContentView(R.layout.new_mission_starter);
 

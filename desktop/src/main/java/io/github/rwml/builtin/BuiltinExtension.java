@@ -10,6 +10,7 @@ package io.github.rwml.builtin;
 import io.github.rwml.api.Extension;
 import io.github.rwml.api.ExtensionContext;
 import io.github.rwml.core.ExtensionDescriptor;
+import io.github.rwml.core.ExtensionDescriptorReader;
 
 /**
  * The extension RWML carries inside itself.
@@ -26,14 +27,11 @@ import io.github.rwml.core.ExtensionDescriptor;
  */
 public final class BuiltinExtension implements Extension {
 
-    /** The extension id, which is also the key the disabled flag is stored under. */
-    public static final String ID = "io.github.rwml.builtin";
+    private static final ExtensionDescriptor DESCRIPTOR = ExtensionDescriptorReader.readBuiltIn(
+        BuiltinExtension.class, "/META-INF/rwml/builtin-desktop.properties");
 
-    private static final String NAME = "RWML Interface";
-    private static final String VERSION = "1.0.0";
-    private static final String DESCRIPTION =
-        "Ships with RWML. Declares the ui-framework that shows the game, which is what lets a fresh "
-            + "install start a game with nothing else installed. Disable it by id to run headless.";
+    /** The extension id, read from the bundled properties. */
+    public static final String ID = DESCRIPTOR.id();
 
     /**
      * The no-argument constructor every entry point must have.
@@ -54,10 +52,7 @@ public final class BuiltinExtension implements Extension {
      * @return the descriptor, with the interface declared
      */
     public static ExtensionDescriptor descriptor() {
-        return ExtensionDescriptor.builtIn(
-            ID, NAME, VERSION, DESCRIPTION,
-            BuiltinExtension.class.getName(),
-            VanillaInterface.class.getName());
+        return DESCRIPTOR;
     }
 
     @Override

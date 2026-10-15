@@ -72,12 +72,19 @@ public final class GameBoot {
     private Thread contributionThread;
 
     private StageReport report;
+    private boolean stopOnFailure;
 
     public GameBoot(GameContext context) {
         if (context == null) {
             throw new IllegalArgumentException("A boot needs a context");
         }
         this.context = context;
+    }
+
+    /** Hosts recovering from partially initialized game classes stop before subsequent stages run. */
+    public synchronized void stopOnFailure() {
+        if (running || report != null) { throw new IllegalStateException("The boot has already run"); }
+        stopOnFailure = true;
     }
 
     /** @return what every stage is handed while it runs. */
@@ -260,6 +267,7 @@ public final class GameBoot {
             } catch (Throwable t) {
                 String reason = describe(t);
                 failed.put(stage.name(), reason);
+                if (stopOnFailure) { break; }
             }
         }
         int stageCount;

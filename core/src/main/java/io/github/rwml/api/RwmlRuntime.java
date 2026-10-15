@@ -8,6 +8,7 @@
 package io.github.rwml.api;
 
 import io.github.rwml.api.game.GameBoot;
+import io.github.rwml.api.ui.UiServices;
 import io.github.rwml.core.ExtensionManager;
 import io.github.rwml.core.LoadReport;
 
@@ -22,6 +23,11 @@ import io.github.rwml.core.LoadReport;
  * the host without knowing which platform it runs on.</p>
  */
 public interface RwmlRuntime {
+
+    /** Available before game preparation; older/custom runtimes may opt out. */
+    default UiServices ui() {
+        throw new UnsupportedOperationException("This runtime does not provide UI services");
+    }
 
     /** @return the manager the extensions are loaded through, or {@code null} before the host prepared one */
     ExtensionManager manager();

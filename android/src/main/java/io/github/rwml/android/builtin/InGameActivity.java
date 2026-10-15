@@ -250,9 +250,9 @@ public final class InGameActivity extends GameActivity {
             .setView(content)
             .setPositiveButton(teamOnly ? "Send Team" : "Send", (clicked, which) ->
                 sendChat(engine, text, teamOnly, false))
-            .setNeutralButton("Send & Ping Map", (clicked, which) ->
+            .setNeutralButton(LocalizedText.ui("ui.sendPing"), (clicked, which) ->
                 sendChat(engine, text, teamOnly, true))
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(LocalizedText.ui("common.cancel"), null)
             .create();
         dialog.setOnDismissListener(closed -> {
             chatDialog = null;

@@ -171,6 +171,135 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         } finally { manager.shutdown(); }
     }
 
+    @Test void unresolvedVersionsDoNotRunCallbacksOrRegisterMixinsAndChoiceLoadsExactlyOne() throws Exception {
+        CountingEntry.ids.clear();
+        Path one = writeExtension("one", CountingEntry.class, "id=versioned\nversion=1\nmainClass=" + CountingEntry.class.getName());
+        Path two = writeExtension("two", CountingEntry.class, "id=versioned\nversion=2\nmainClass=" + CountingEntry.class.getName());
+        Path dependent = writeExtension("dependent", CountingEntry.class, "id=dependent\ndependsOn=versioned\nmainClass=" + CountingEntry.class.getName());
+        TestHost firstHost = new TestHost();
+        ExtensionManager first = new ExtensionManager(root, firstHost);
+        try {
+            LoadReport unresolved = first.loadAll(List.of(one, two, dependent), null);
+            assertTrue(unresolved.failed().containsKey("versioned"));
+            assertTrue(unresolved.failed().containsKey("dependent"));
+            assertTrue(CountingEntry.ids.isEmpty());
+            assertTrue(firstHost.registered.isEmpty());
+        } finally { first.shutdown(); }
+        io.github.rwml.core.ExtensionStateStore.open(root.resolve("data")).setSelectedVersion("versioned",
+            io.github.rwml.core.ExtensionDescriptorReader.read(two).sourceSha256());
+        TestHost nextHost = new TestHost();
+        ExtensionManager next = new ExtensionManager(root, nextHost);
+        try {
+            assertThrows(io.github.rwml.api.ExtensionException.class, () -> next.load(one, null));
+            assertTrue(nextHost.registered.isEmpty());
+            LoadReport loaded = next.loadAll(List.of(one, two, dependent), null);
+            assertTrue(loaded.failed().isEmpty());
+            assertEquals("2", next.handle("versioned").descriptor().version());
+            assertEquals(List.of("versioned", "dependent"), CountingEntry.ids);
+            assertEquals(List.of(two, dependent), nextHost.registered);
+            assertThrows(io.github.rwml.api.ExtensionException.class, () -> next.load(one, null));
+        } finally { next.shutdown(); }
+    }
+
+    @Test void selectedUiVersionAndDependencyAreIdenticalForEarlyAndRemainingLoads() throws Exception {
+        CountingEntry.ids.clear();
+        Path one = writeExtension("one", CountingEntry.class, "id=ui\nversion=1\nmainClass="
+            + CountingEntry.class.getName() + "\nui-framework=" + CustomUi.class.getName());
+        Path two = writeExtension("two", CountingEntry.class, "id=ui\nversion=2\ndependsOn=dep\nmainClass="
+            + CountingEntry.class.getName() + "\nui-framework=" + CustomUi.class.getName());
+        Path dep = writeExtension("dep", CountingEntry.class, "id=dep\nmainClass=" + CountingEntry.class.getName());
+        Path later = writeExtension("later", CountingEntry.class, "id=later\nmainClass=" + CountingEntry.class.getName());
+        List<Path> archives = List.of(one, two, dep, later);
+        io.github.rwml.core.ExtensionStateStore state = io.github.rwml.core.ExtensionStateStore.open(root.resolve("data"));
+        state.setSelectedVersion("ui", io.github.rwml.core.ExtensionDescriptorReader.read(two).sourceSha256());
+        java.util.ArrayList<ExtensionDescriptor> descriptors = new java.util.ArrayList<>();
+        for (Path archive : archives) { descriptors.add(io.github.rwml.core.ExtensionDescriptorReader.read(archive)); }
+        io.github.rwml.core.ExtensionSelection plan = io.github.rwml.core.ExtensionSelection.resolve(descriptors,
+            state.disabledIds(), state.selectedVersions());
+        List<Path> early = plan.interfaceArchives().stream().map(ExtensionDescriptor::source).toList();
+        assertEquals(List.of(dep, two), early);
+        TestHost host = new TestHost();
+        ExtensionManager manager = new ExtensionManager(root, host);
+        try {
+            assertTrue(manager.loadAll(early, null).failed().isEmpty());
+            assertEquals("2", manager.handle("ui").descriptor().version());
+            assertTrue(manager.loadRemaining(archives, null).failed().isEmpty());
+            assertEquals(List.of("dep", "ui", "later"), CountingEntry.ids);
+            assertEquals(List.of(dep, two, later), host.registered);
+        } finally { manager.shutdown(); }
+    }
+
+    @Test void mixinRegistrationFailureDisablesOnlyItsOwnerAndClosesTheLoader() throws Exception {
+        CountingEntry.ids.clear();
+        Path broken = writeExtension("broken", CountingEntry.class, "id=broken\nmainClass=" + CountingEntry.class.getName());
+        Path dependent = writeExtension("dependent", CountingEntry.class, "id=dependent\ndependsOn=broken\nmainClass=" + CountingEntry.class.getName());
+        TestHost host = new TestHost();
+        host.failRegistration = broken;
+        ExtensionManager manager = new ExtensionManager(root, host);
+        try {
+            LoadReport report = manager.loadAll(List.of(broken, dependent), null);
+            assertEquals(java.util.Set.of("broken", "dependent"), report.failed().keySet());
+            assertTrue(manager.recoveryRequired());
+            assertTrue(manager.isDisabled("broken"));
+            assertTrue(!manager.isDisabled("dependent"), "Unavailable dependencies must not disable their dependents");
+            assertTrue(CountingEntry.ids.isEmpty(), "onLoad must not run after mixin registration fails");
+            assertEquals(List.of(broken), host.closed);
+            assertEquals(java.util.Set.of("broken"), io.github.rwml.core.ExtensionStateStore.open(root.resolve("data")).disabledIds());
+        } finally { manager.shutdown(); }
+        TestHost nextHost = new TestHost();
+        ExtensionManager next = new ExtensionManager(root, nextHost);
+        try {
+            assertTrue(next.loadAll(List.of(broken), null).failed().isEmpty());
+            assertTrue(nextHost.registered.isEmpty(), "A failed extension is skipped in the next process");
+        } finally { next.shutdown(); }
+    }
+
+    @Test void malformedArchivesAreQuarantinedByContentWithoutDeletingThem() throws Exception {
+        Path archive = root.resolve("broken.jar");
+        Files.write(archive, new byte[]{1, 2, 3});
+        ExtensionManager first = new ExtensionManager(root, new TestHost());
+        try {
+            assertTrue(first.loadAll(List.of(archive), null).failed().containsKey("broken.jar"));
+            assertTrue(first.recoveryRequired());
+            assertTrue(io.github.rwml.core.ExtensionStateStore.open(root.resolve("data")).isArchiveDisabled(archive));
+            assertTrue(Files.exists(archive));
+        } finally { first.shutdown(); }
+        ExtensionManager next = new ExtensionManager(root, new TestHost());
+        try {
+            LoadReport report = next.loadAll(List.of(archive), null);
+            assertTrue(report.isClean());
+            assertEquals(List.of("broken.jar"), report.disabled());
+            assertTrue(!next.recoveryRequired());
+        } finally { next.shutdown(); }
+    }
+
+    @Test void linkageErrorsInOnLoadAreRecoveredAndPersisted() throws Exception {
+        Path archive = writeExtension("linkage", LinkageFailure.class, "id=linkage\nmainClass=" + LinkageFailure.class.getName());
+        ExtensionManager manager = new ExtensionManager(root, new TestHost());
+        try {
+            assertTrue(manager.loadAll(List.of(archive), null).failed().containsKey("linkage"));
+            assertTrue(manager.isDisabled("linkage"));
+            assertTrue(manager.recoveryRequired());
+            assertEquals(java.util.Set.of("linkage"), io.github.rwml.core.ExtensionStateStore.open(root.resolve("data")).disabledIds());
+        } finally { manager.shutdown(); }
+    }
+
+    @Test void invalidUiDeclarationIsDisabledBeforeReturningToTheHost() throws Exception {
+        Path archive = writeExtension("bad-ui", UiEntry.class, "id=bad-ui\nmainClass=" + UiEntry.class.getName()
+            + "\nui-framework=java.lang.String");
+        ExtensionManager manager = new ExtensionManager(root, new TestHost());
+        try {
+            assertTrue(manager.loadAll(List.of(archive), null).failed().isEmpty());
+            assertThrows(io.github.rwml.api.ExtensionException.class, manager::uiFramework);
+            assertTrue(manager.isDisabled("bad-ui"));
+            assertTrue(manager.recoveryRequired());
+        } finally { manager.shutdown(); }
+    }
+
+    public static final class LinkageFailure implements Extension {
+        public void onLoad(io.github.rwml.api.ExtensionContext context) { throw new NoClassDefFoundError("missing optional library"); }
+    }
+
     public static final class CountingEntry implements Extension {
         static final java.util.List<String> ids = new java.util.ArrayList<>();
         public void onLoad(io.github.rwml.api.ExtensionContext context) { ids.add(context.extensionId()); }
@@ -317,6 +446,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
     private static final class TestHost implements HostPlatform {
         private final List<ExtensionDescriptor> builtins;
         private final java.util.List<Path> registered = new java.util.ArrayList<>();
+        private final java.util.List<Path> closed = new java.util.ArrayList<>();
+        private Path failRegistration;
 
         TestHost() { this(Collections.emptyList()); }
         TestHost(List<ExtensionDescriptor> builtins) { this.builtins = builtins; }
@@ -327,7 +458,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
             }
 
             @Override
-            public void registerArchive(Path archive) { registered.add(archive); }
+            public void registerArchive(Path archive) throws io.github.rwml.api.ExtensionException {
+                registered.add(archive);
+                if (archive.equals(failRegistration)) { throw new io.github.rwml.api.ExtensionException("deliberate mixin failure"); }
+            }
 
             @Override
             public void register(Class<?> mixin) {
@@ -357,7 +491,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         @Override
         public ClassLoader createExtensionLoader(ExtensionDescriptor descriptor) throws IOException {
             return new URLClassLoader(new URL[] {descriptor.source().toUri().toURL()},
-                ExtensionLoadTest.class.getClassLoader());
+                ExtensionLoadTest.class.getClassLoader()) {
+                @Override public void close() throws IOException { closed.add(descriptor.source()); super.close(); }
+            };
         }
 
         @Override

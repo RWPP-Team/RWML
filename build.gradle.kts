@@ -37,7 +37,7 @@ plugins {
 }
 
 group = "io.github.rwpp-team"
-version = "1.0.0"
+version = providers.gradleProperty("version").get()
 description = "RWML - a mixin loader framework for the Rusted Warfare."
 
 buildscript {

@@ -25,6 +25,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -67,6 +68,48 @@ public final class ExtensionManager {
     private UiFramework uiFrameworkEntry;
     private String uiFrameworkReservation;
     private final Set<String> loadingIds = new LinkedHashSet<>();
+    private final Map<String, String> recoveredFailures = new LinkedHashMap<>();
+    private final Map<String, Throwable> recoveredCauses = new LinkedHashMap<>();
+    private volatile boolean recoveryRequired;
+
+    /** A failed load may have already registered mixins; only a fresh process is safe to boot. */
+    public boolean recoveryRequired() { return recoveryRequired; }
+
+    public Map<String, String> recoveredFailures() {
+        synchronized (recoveredFailures) { return Collections.unmodifiableMap(new LinkedHashMap<>(recoveredFailures)); }
+    }
+
+    /** Preserves original callback and mixin causes for the bootstrap's diagnostic log. */
+    public ExtensionException recoveryFailure(String message) {
+        ExtensionException result = new ExtensionException(message);
+        synchronized (recoveredFailures) {
+            for (Throwable failure : recoveredCauses.values()) { result.addSuppressed(failure); }
+        }
+        return result;
+    }
+
+    private static String failureReason(Throwable failure) {
+        Throwable cause = failure;
+        Set<Throwable> seen = Collections.newSetFromMap(new java.util.IdentityHashMap<Throwable, Boolean>());
+        while (cause.getCause() != null && seen.add(cause)) { cause = cause.getCause(); }
+        String reason = failure.getMessage() == null ? failure.toString() : failure.getMessage();
+        return cause == failure ? reason : reason + ": " + cause;
+    }
+
+    /** Records the offending extension and persists its disabled flag before returning to the host. */
+    public void quarantine(String id, Throwable failure) throws ExtensionException {
+        recoveryRequired = true;
+        String reason = failureReason(failure);
+        synchronized (recoveredFailures) {
+            recoveredFailures.put(id, reason);
+            recoveredCauses.put(id, failure);
+        }
+        synchronized (knownIds) { knownIds.add(id); }
+        try { stateStore.setDisabled(id, true); }
+        catch (IOException persistenceFailure) {
+            throw new ExtensionException("Cannot persist the disabled flag for failed extension '" + id + "'", persistenceFailure);
+        }
+    }
 
     /**
      * Manages extensions the way {@code platform} describes.
@@ -97,6 +140,11 @@ public final class ExtensionManager {
 
     public Path dataDirectory() {
         return dataDirectory;
+    }
+
+    /** The same state used by startup and management, including not-yet-loaded archives. */
+    ExtensionStateStore extensionStates() {
+        return stateStore;
     }
 
     /** @return every {@code .jar} found in the extension directory, sorted by name. */
@@ -189,19 +237,27 @@ public final class ExtensionManager {
             }
             ExtensionHandle handle = handle(id);
             String entry = handle.descriptor().uiFramework().trim();
-            Class<?> type = loadUiFrameworkEntry(entry, handle);
-            if (!UiFramework.class.isAssignableFrom(type)) {
-                throw new ExtensionException("Extension '" + id + "' declares ui-framework '" + entry
-                    + "', which does not implement " + UiFramework.class.getName());
-            }
             try {
-                uiFrameworkEntry = (UiFramework) type.getDeclaredConstructor().newInstance();
-            } catch (Exception e) {
-                throw new ExtensionException("Extension '" + id + "' declares ui-framework '" + entry
-                    + "', which could not be instantiated: " + e, e);
+                Class<?> type = loadUiFrameworkEntry(entry, handle);
+                if (!UiFramework.class.isAssignableFrom(type)) {
+                    throw new ExtensionException("Extension '" + id + "' declares ui-framework '" + entry
+                        + "', which does not implement " + UiFramework.class.getName());
+                }
+                try {
+                    uiFrameworkEntry = (UiFramework) type.getDeclaredConstructor().newInstance();
+                } catch (Exception e) {
+                    throw new ExtensionException("Extension '" + id + "' declares ui-framework '" + entry
+                        + "', which could not be instantiated: " + e, e);
+                }
+                uiFrameworkId = id;
+                return uiFrameworkEntry;
+            } catch (Throwable failure) {
+                ExtensionException error = failure instanceof ExtensionException ? (ExtensionException) failure
+                    : new ExtensionException("Interface of '" + id + "' failed", failure);
+                try { quarantine(id, error); }
+                catch (ExtensionException persistenceFailure) { error.addSuppressed(persistenceFailure); }
+                throw error;
             }
-            uiFrameworkId = id;
-            return uiFrameworkEntry;
         }
     }
 
@@ -267,8 +323,9 @@ public final class ExtensionManager {
 
         // ---------- Phase 1: descriptors ----------
         progress.onProgress(1, "Scanning " + archives.size() + " archive(s)");
-        Map<String, ExtensionDescriptor> descriptors = new LinkedHashMap<>();
+        List<ExtensionDescriptor> descriptors = new ArrayList<>();
         Map<String, String> failures = new LinkedHashMap<>();
+        List<String> quarantinedArchives = new ArrayList<>();
 
         int totalArchives = Math.max(1, archives.size());
         for (int i = 0; i < archives.size(); i++) {
@@ -277,36 +334,38 @@ public final class ExtensionManager {
             progress.onProgress(percent, "Reading " + archive.getFileName());
             try {
                 ExtensionDescriptor descriptor = ExtensionDescriptorReader.read(archive);
-                if (descriptors.containsKey(descriptor.id())) {
-                    failures.put(archive.getFileName().toString(),
-                        "Duplicate extension id '" + descriptor.id() + "'");
-                } else {
-                    descriptors.put(descriptor.id(), descriptor);
-                }
+                descriptors.add(descriptor);
             } catch (ExtensionException e) {
+                try {
+                    if (stateStore.isArchiveDisabled(archive)) {
+                        quarantinedArchives.add(archive.getFileName().toString());
+                        continue;
+                    }
+                    recoveryRequired = true;
+                    stateStore.quarantineArchive(archive, e.getMessage());
+                    synchronized (recoveredFailures) {
+                        recoveredCauses.put(archive.getFileName().toString(), e);
+                    }
+                } catch (IOException persistenceFailure) { e.addSuppressed(persistenceFailure); }
                 failures.put(archive.getFileName().toString(), e.getMessage());
             }
         }
 
         // ---------- Phase 1b: extensions the host carries inside itself ----------
-        // Added after the archives on purpose: an id already taken by an installed archive wins, so
-        // a user can replace the shipped extension with their own build of it.
         for (ExtensionDescriptor builtIn : platform.builtInExtensions()) {
-            if (!descriptors.containsKey(builtIn.id())) {
-                descriptors.put(builtIn.id(), builtIn);
-                progress.onProgress(29, "Staged the built-in " + builtIn.name());
-            }
+            descriptors.add(builtIn);
+            progress.onProgress(29, "Staged the built-in " + builtIn.name());
         }
 
         // ---------- Phase 2: dependency ordering ----------
         progress.onProgress(30, "Resolving extension load order");
         ExtensionSelection selection = ExtensionSelection.resolve(
-            new ArrayList<>(descriptors.values()), stateStore.disabledIds());
+            descriptors, stateStore.disabledIds(), stateStore.selectedVersions());
 
         if (keepLoaded) {
             String active = uiFrameworkExtensionId();
             String selected = selection.framework() == null ? null : selection.framework().id();
-            if (!java.util.Objects.equals(active, selected)) {
+            if (!Objects.equals(active, selected)) {
                 throw new IllegalStateException("UI selection changed; restart the host before loading remaining extensions");
             }
         }
@@ -320,10 +379,11 @@ public final class ExtensionManager {
         List<ExtensionDescriptor> order = selection.enabled();
         List<ExtensionHandle> loaded = new ArrayList<>(order.size());
         List<String> disabled = new ArrayList<>(selection.disabled());
+        disabled.addAll(quarantinedArchives);
         Set<String> disabledIds = stateStore.disabledIds();
         int totalToLoad = Math.max(1, order.size());
 
-        for (ExtensionDescriptor descriptor : descriptors.values()) {
+        for (ExtensionDescriptor descriptor : descriptors) {
             synchronized (knownIds) {
                 knownIds.add(descriptor.id());
             }
@@ -371,7 +431,7 @@ public final class ExtensionManager {
                     handles.put(descriptor.id(), handle);
                 }
             } catch (ExtensionException e) {
-                failures.put(descriptor.id(), e.getMessage());
+                failures.put(descriptor.id(), failureReason(e));
             }
         }
 
@@ -419,6 +479,11 @@ public final class ExtensionManager {
                 + "' is disabled and will not be loaded");
         }
 
+        String selectedVersion = stateStore.selectedVersions().get(descriptor.id());
+        if (selectedVersion != null && !selectedVersion.equals(ExtensionVersions.identity(descriptor))) {
+            throw new ExtensionException("A different version is selected for '" + descriptor.id()
+                + "'; select this archive and restart before loading it");
+        }
         synchronized (handles) {
             ExtensionHandle existing = handles.get(descriptor.id());
             if (existing != null) {
@@ -472,7 +537,13 @@ public final class ExtensionManager {
             throw new ExtensionException("Extension is already being loaded: " + descriptor.id());
         }
         try { return instantiateNew(descriptor, progress); }
-        finally { loadingIds.remove(descriptor.id()); }
+        catch (Throwable failure) {
+            ExtensionException error = failure instanceof ExtensionException ? (ExtensionException) failure
+                : new ExtensionException("Loading extension '" + descriptor.id() + "' failed", failure);
+            try { quarantine(descriptor.id(), error); }
+            catch (ExtensionException persistenceFailure) { error.addSuppressed(persistenceFailure); }
+            throw error;
+        } finally { loadingIds.remove(descriptor.id()); }
     }
 
     private ExtensionHandle instantiateNew(ExtensionDescriptor descriptor, ProgressListener progress)
@@ -495,58 +566,59 @@ public final class ExtensionManager {
             }
         }
 
-        progress.onProgress(72, "Instantiating " + descriptor.mainClass());
-        Class<?> type;
         try {
-            type = Class.forName(descriptor.mainClass(), true, classLoader);
-        } catch (ClassNotFoundException | LinkageError e) {
-            closeQuietly(classLoader);
-            throw new ExtensionException("Entry point " + descriptor.mainClass()
-                + " could not be loaded: " + e, e);
-        }
-        if (!Extension.class.isAssignableFrom(type)) {
-            closeQuietly(classLoader);
-            throw new ExtensionException("Entry point " + descriptor.mainClass()
-                + " does not implement " + Extension.class.getName());
-        }
+            // Register before the entry class is initialized: static initialization and onLoad may
+            // both use the classes the extension patches.
+            // A built-in extension has no archive to scan; its mixins are already on the host's class
+            // path and are registered by the host.
+            if (!descriptor.isBuiltIn()) {
+                platform.mixins().registerArchive(descriptor.source());
+            }
 
-        Extension instance;
-        try {
-            instance = (Extension) type.getDeclaredConstructor().newInstance();
-        } catch (Exception e) {
-            closeQuietly(classLoader);
-            throw new ExtensionException("Constructor of " + descriptor.mainClass() + " failed", e);
-        }
+            progress.onProgress(72, "Instantiating " + descriptor.mainClass());
+            Class<?> type;
+            try {
+                type = Class.forName(descriptor.mainClass(), true, classLoader);
+            } catch (ClassNotFoundException | LinkageError e) {
+                throw new ExtensionException("Entry point " + descriptor.mainClass()
+                    + " could not be loaded: " + e, e);
+            }
+            if (!Extension.class.isAssignableFrom(type)) {
+                throw new ExtensionException("Entry point " + descriptor.mainClass()
+                    + " does not implement " + Extension.class.getName());
+            }
 
-        ExtensionHandle handle = new ExtensionHandle(descriptor, instance, classLoader);
-        ExtensionContextImpl context;
-        try {
-            context = new ExtensionContextImpl(
-                descriptor.id(), dataDirectory.resolve(descriptor.id()), classLoader, platform.mixins());
-        } catch (IOException e) {
-            closeQuietly(classLoader);
-            throw new ExtensionException("Unable to prepare the data directory for " + descriptor.id(), e);
-        }
-        handle.attachContext(context);
+            Extension instance;
+            try {
+                instance = (Extension) type.getDeclaredConstructor().newInstance();
+            } catch (Exception e) {
+                throw new ExtensionException("Constructor of " + descriptor.mainClass() + " failed", e);
+            }
 
-        // Register the extension's mixins *before* onLoad runs: an extension may well load (and use)
-        // the very classes its mixins patch during startup, so the registry has to be populated first.
-        // A built-in extension has no archive to scan; its mixins are already on the host's class
-        // path and are registered by the host.
-        if (!descriptor.isBuiltIn()) {
-            platform.mixins().registerArchive(descriptor.source());
-        }
+            ExtensionHandle handle = new ExtensionHandle(descriptor, instance, classLoader);
+            ExtensionContextImpl context;
+            try {
+                context = new ExtensionContextImpl(
+                    descriptor.id(), dataDirectory.resolve(descriptor.id()), classLoader, platform.mixins());
+            } catch (IOException e) {
+                throw new ExtensionException("Unable to prepare the data directory for " + descriptor.id(), e);
+            }
+            handle.attachContext(context);
 
-        progress.onProgress(85, "Running onLoad for " + descriptor.id());
-        try {
-            instance.onLoad(context);
-        } catch (Exception e) {
-            closeQuietly(classLoader);
-            throw new ExtensionException("onLoad of '" + descriptor.id() + "' failed", e);
-        }
+            progress.onProgress(85, "Running onLoad for " + descriptor.id());
+            try {
+                instance.onLoad(context);
+            } catch (Exception e) {
+                throw new ExtensionException("onLoad of '" + descriptor.id() + "' failed", e);
+            }
 
-        handle.setState(ExtensionState.ENABLED);
-        return handle;
+            handle.setState(ExtensionState.ENABLED);
+            return handle;
+        } catch (Throwable failure) {
+            if (!descriptor.isBuiltIn()) { closeQuietly(classLoader); }
+            if (failure instanceof ExtensionException) { throw (ExtensionException) failure; }
+            throw new ExtensionException("Loading extension '" + descriptor.id() + "' failed", failure);
+        }
     }
 
     /** @return the first hard dependency of {@code descriptor} that failed, or {@code null}. */

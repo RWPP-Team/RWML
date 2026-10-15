@@ -11,6 +11,9 @@ import android.content.Context;
 import android.content.pm.PackageInfo;
 
 import com.corrodinggames.rts.gameFramework.gui.MinimapHandlerQueuedPointsDrawMixin;
+
+import io.github.rwml.android.builtin.AndroidExtension;
+import io.github.rwml.android.mixin.AndroidSoundFactoryMixin;
 import io.github.rwml.android.mixin.GraphicsEngineAndroidMixin;
 import io.github.rwml.android.mixin.MinimapHandlerMixin;
 import io.github.rwml.android.mixin.NetworkEngineNotificationMixin;
@@ -22,17 +25,19 @@ import io.github.rwml.api.ProgressListener;
 import io.github.rwml.api.Rwml;
 import io.github.rwml.api.RwmlRuntime;
 import io.github.rwml.api.game.GameBoot;
+import io.github.rwml.api.i18n.Messages;
 import io.github.rwml.api.ui.UiFramework;
+import io.github.rwml.api.ui.UiHooks;
+import io.github.rwml.api.ui.UiServices;
+import io.github.rwml.core.DefaultExtensionLibrary;
 import io.github.rwml.core.ExtensionDescriptor;
 import io.github.rwml.core.ExtensionDescriptorReader;
 import io.github.rwml.core.ExtensionManager;
-import io.github.rwml.core.ExtensionStateStore;
 import io.github.rwml.core.ExtensionSelection;
-import io.github.rwml.android.builtin.AndroidExtension;
+import io.github.rwml.core.ExtensionStateStore;
 import io.github.rwml.core.GameContextImpl;
 import io.github.rwml.core.LoadReport;
-
-import io.github.rwml.android.mixin.AndroidSoundFactoryMixin;
+import io.github.rwml.game.LocaleUiMixin;
 
 import kim.der.asm.AsmRegistry;
 
@@ -123,10 +128,12 @@ public final class AndroidBootstrap implements RwmlRuntime {
     private ClassLoader classLoader;
     private LoadReport lastReport;
     private GameBoot gameBoot;
+    private UiServices ui;
     private String cacheKey = "";
     private boolean cacheHit;
     private int patchedClasses;
     private boolean prepared;
+    private final java.util.concurrent.atomic.AtomicBoolean recoveryShown = new java.util.concurrent.atomic.AtomicBoolean();
 
     public AndroidBootstrap(Context context) {
         this.context = context;
@@ -197,6 +204,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
         } catch (Throwable t) {
             HostLog.error("game dex preparation failed", t);
             record("bootstrap failed: " + describe(t));
+            showRecovery(t);
         } finally {
             watchdog.stop();
         }
@@ -243,29 +251,34 @@ public final class AndroidBootstrap implements RwmlRuntime {
         if (descriptors.stream().noneMatch(descriptor -> descriptor.id().equals(AndroidExtension.ID))) {
             descriptors.add(AndroidExtension.descriptor());
         }
-        selection = ExtensionSelection.resolve(descriptors,
-            ExtensionStateStore.open(dataDirectory).disabledIds());
+        ExtensionStateStore states = ExtensionStateStore.open(dataDirectory);
+        selection = ExtensionSelection.resolve(descriptors, states.disabledIds(), states.selectedVersions());
         AsmRegistry.clear();
         classLoader = AndroidBootstrap.class.getClassLoader();
         bridge = new OfflineMixinBridge(classLoader);
-        List<Path> early = new ArrayList<>();
-        List<Path> dex = new ArrayList<>();
-        for (ExtensionDescriptor descriptor : selection.interfaceArchives()) {
-            early.add(descriptor.source());
-            dex.addAll(ensureExtensionDex(descriptor));
-        }
-        classLoader = mount(classLoader, dex);
-        bridge.updateLoader(classLoader);
         host = new AndroidHost(context, bridge, classLoader);
         manager = new ExtensionManager(rootDirectory, host);
+        UiHooks hooks = new UiHooks(
+            failure -> HostLog.error("UI listener failed", failure));
+        ui = new UiServices(
+            new Messages(dataDirectory, hooks),
+            new DefaultExtensionLibrary(manager, sharedExtensionsDirectory(),
+                () -> Arrays.asList(sharedExtensionsDirectory(), extensionsDirectory),
+                () -> lastReport, Dexer::validateCarriedDex, hooks), hooks);
         gameBoot = new GameBoot(new GameContextImpl(context, null, rootDirectory, HostLog::add));
+        gameBoot.stopOnFailure();
         gameBoot.beforeStages("runtime", stage -> {
             preparationProgress = (percent, message) -> stage.subProgress(message);
             try {
                 stage.subProgress("game dex");
                 if (!prepare()) { throw new IllegalStateException("Game preparation failed: " + log()); }
                 stage.subProgress("extensions");
-                load((percent, message) -> stage.subProgress(message));
+                LoadReport loaded = load((percent, message) -> stage.subProgress(message));
+                if (!loaded.isClean() || manager.recoveryRequired()) {
+                    ExtensionException failure = manager.recoveryFailure("Extension preparation failed: " + loaded.failed());
+                    showRecovery(failure);
+                    throw failure;
+                }
             } finally { preparationProgress = ProgressListener.NOOP; }
         });
         gameBoot.add(GameBoot.ENGINE, stage -> {
@@ -275,9 +288,20 @@ public final class AndroidBootstrap implements RwmlRuntime {
             game.getMethod("create", Context.class, ProgressListener.class).invoke(null, context,
                 (ProgressListener) (percent, message) -> stage.subProgress(message));
         });
+        ui.extensions().entries();
         Rwml.install(this);
+        List<Path> early = new ArrayList<>();
+        List<Path> dex = new ArrayList<>();
+        for (ExtensionDescriptor descriptor : selection.interfaceArchives()) {
+            early.add(descriptor.source());
+            dex.addAll(ensureExtensionDex(descriptor));
+        }
+        classLoader = mount(classLoader, dex);
+        bridge.updateLoader(classLoader);
+        host.updateLoader(classLoader);
         LoadReport earlyReport = manager.loadAll(early, (percent, message) -> record("ui " + message));
-        if (selection.framework() != null && manager.handle(selection.framework().id()) == null) {
+        if (!earlyReport.isClean() || manager.recoveryRequired()) {
+            lastReport = earlyReport;
             throw new ExtensionException("Selected UI could not load: " + earlyReport.failed());
         }
         interfacePrepared = true;
@@ -317,6 +341,12 @@ public final class AndroidBootstrap implements RwmlRuntime {
     @Override
     public GameBoot gameBoot() {
         return gameBoot;
+    }
+
+    @Override
+    public UiServices ui() {
+        if (ui == null) { throw new IllegalStateException("UI services are not prepared"); }
+        return ui;
     }
 
     /**
@@ -486,7 +516,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
         // The class comes from the app's dex, which this loader already sees, so nothing has to
         // be mounted for it.
         List<Class<?>> carried = Arrays.<Class<?>>asList(
-            AndroidSoundFactoryMixin.class, GraphicsEngineAndroidMixin.class,
+            AndroidSoundFactoryMixin.class, GraphicsEngineAndroidMixin.class, LocaleUiMixin.class,
             NetworkEngineNotificationMixin.class, ServerListNotifyMixin.class,
             MinimapHandlerMixin.class, MinimapHandlerQueuedPointsDrawMixin.class,
             io.github.rwml.android.mixin.MasterServerListLifecycleMixin.class);
@@ -499,7 +529,11 @@ public final class AndroidBootstrap implements RwmlRuntime {
             for (String mixin : OfflineMixinBridge.mixinClassNames(descriptor.source())) {
                 record("mixin      " + mixin + "  [" + descriptor.id() + "]");
             }
-            bridge.registerArchive(descriptor.source());
+            try { bridge.registerArchive(descriptor.source()); }
+            catch (ExtensionException failure) {
+                recoverArchive(descriptor.source(), failure);
+                throw failure;
+            }
         }
 
         if (gameArchives.isEmpty()) {
@@ -580,6 +614,8 @@ public final class AndroidBootstrap implements RwmlRuntime {
                         // A class the registry cannot handle ends the build. Leaving it unchanged
                         // would ship dex in which one mixin quietly did not apply, and the game would
                         // then fail somewhere that says nothing about why.
+                        Path failed = this.bridge.failedArchive(t);
+                        if (failed != null) { recoverArchive(failed, t); }
                         throw new ExtensionException("The mixins could not be applied to "
                             + internalName, t);
                     }
@@ -614,18 +650,12 @@ public final class AndroidBootstrap implements RwmlRuntime {
             record("cannot read the disabled flags (" + e + "); treating every extension as enabled");
             disabled = Collections.emptySet();
         }
-        Set<String> seen = new LinkedHashSet<>();
         List<ExtensionDescriptor> enabled = new ArrayList<>();
         for (Path archive : archives) {
             try {
                 ExtensionDescriptor descriptor = ExtensionDescriptorReader.read(archive);
                 if (disabled.contains(descriptor.id())) {
                     record("disabled   " + descriptor.id());
-                    continue;
-                }
-                if (!seen.add(descriptor.id())) {
-                    record("skipped    " + archive.getFileName() + "  (duplicate id "
-                        + descriptor.id() + ")");
                     continue;
                 }
                 enabled.add(descriptor);
@@ -787,19 +817,45 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     private List<Path> ensureExtensionDex(ExtensionDescriptor descriptor) throws IOException {
-        Path output = extensionDexDirectory(descriptor);
-        if (!descriptor.sourceSha256().equals(AssetInstaller.Digest.sha256(descriptor.source()))) {
-            throw new IOException("Extension changed during startup: " + descriptor.id());
+        try {
+            Path output = extensionDexDirectory(descriptor);
+            if (!descriptor.sourceSha256().equals(AssetInstaller.Digest.sha256(descriptor.source()))) {
+                throw new IOException("Extension changed during startup: " + descriptor.id());
+            }
+            List<Path> existing = Dexer.dexFiles(output);
+            Path complete = output.resolve("complete.txt");
+            if (!existing.isEmpty() && Files.isRegularFile(complete)) { return existing; }
+            List<Path> produced = Dexer.carriedDex(descriptor.source(), output);
+            if (!descriptor.sourceSha256().equals(AssetInstaller.Digest.sha256(descriptor.source()))) {
+                throw new IOException("Extension changed during mounting: " + descriptor.id());
+            }
+            Files.write(complete, descriptor.sourceSha256().getBytes(StandardCharsets.UTF_8));
+            return produced;
+        } catch (IOException failure) {
+            recoverArchive(descriptor.source(), failure);
+            throw failure;
         }
-        List<Path> existing = Dexer.dexFiles(output);
-        Path complete = output.resolve("complete.txt");
-        if (!existing.isEmpty() && Files.isRegularFile(complete)) { return existing; }
-        List<Path> produced = Dexer.carriedDex(descriptor.source(), output);
-        if (!descriptor.sourceSha256().equals(AssetInstaller.Digest.sha256(descriptor.source()))) {
-            throw new IOException("Extension changed during mounting: " + descriptor.id());
+    }
+
+    private void recoverArchive(Path archive, Throwable failure) {
+        try {
+            manager.quarantine(ExtensionDescriptorReader.read(archive).id(), failure);
+            ui.hooks().publish(UiHooks.EXTENSIONS_CHANGED, null);
+        } catch (Exception persistenceFailure) {
+            failure.addSuppressed(persistenceFailure);
+            HostLog.error("Cannot disable a failed extension", persistenceFailure);
         }
-        Files.write(complete, descriptor.sourceSha256().getBytes(StandardCharsets.UTF_8));
-        return produced;
+        showRecovery(failure);
+    }
+
+    private void showRecovery(Throwable failure) {
+        if (!interfacePrepared || !recoveryShown.compareAndSet(false, true)) { return; }
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+            context.startActivity(new android.content.Intent(context,
+                io.github.rwml.android.builtin.LauncherActivity.class)
+                .putExtra(io.github.rwml.android.builtin.LauncherActivity.EXTRA_ERROR,
+                    android.util.Log.getStackTraceString(failure))
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)));
     }
 
     private Path gameDexDirectory(Path archive) {

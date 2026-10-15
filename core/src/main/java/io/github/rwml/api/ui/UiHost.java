@@ -22,6 +22,15 @@ import java.util.List;
  */
 public interface UiHost {
 
+    /** Shared translations, extension management, events and host-provided data services. */
+    default UiServices services() {
+        RwmlRuntime runtime = Rwml.get();
+        if (runtime == null) {
+            throw new IllegalStateException("The host has not prepared UI services");
+        }
+        return runtime.ui();
+    }
+
     /**
      * The platform handle.
      *
@@ -65,4 +74,9 @@ public interface UiHost {
      * @param screen the requested screen, e.g. {@code game}
      */
     void openScreen(String screen);
+
+    /** Restarts the host in a fresh process so changed extension classes and mixins can take effect. */
+    default void restart() {
+        throw new UnsupportedOperationException("This host does not support restart");
+    }
 }

@@ -22,6 +22,10 @@ package io.github.rwml.bootstrap;
 public final class BootstrapLog {
 
     private static final String PREFIX = "[rwml] ";
+    private static volatile java.util.function.Consumer<String> sink;
+
+    /** The optional provisioning window mirrors diagnostics without changing their language. */
+    static void sink(java.util.function.Consumer<String> listener) { sink = listener; }
 
     private BootstrapLog() {
     }
@@ -29,6 +33,8 @@ public final class BootstrapLog {
     /** Writes a normal status line. */
     public static void info(String message) {
         System.out.println(PREFIX + message);
+        java.util.function.Consumer<String> listener = sink;
+        if (listener != null) { listener.accept(message); }
     }
 
     /** Writes a line that explains a degraded mode or a recoverable problem. */

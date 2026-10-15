@@ -21,8 +21,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.corrodinggames.rts.gameFramework.GameEngine;
-import com.corrodinggames.rts.gameFramework.SettingsEngine;
-import com.corrodinggames.rts.gameFramework.localization.LocaleEngine;
+import io.github.rwml.api.Rwml;
+import io.github.rwml.api.ui.GameUi;
+import io.github.rwml.api.ui.GameSettings;
 
 import io.github.rwml.android.R;
 
@@ -38,15 +39,12 @@ import io.github.rwml.android.R;
  * <p>The engine is already up by the time this screen appears, so everything asked of it is read, not
  * started, and a missing engine degrades the screen to its layout text.</p>
  */
-public final class MainMenuActivity extends Activity {
+public final class MainMenuActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
     /** The store page the demo's buy button leads to. This build is never the demo. */
     private static final String STORE_PACKAGE = "com.corrodinggames.rts";
-
-    /** Where the game keeps the maps it draws behind this screen. */
-    private static final String MENU_BACKGROUND_PREFIX = "maps/menu_background/";
 
     /** The surface the engine's own menu map is drawn into, behind the layout. */
     private AndroidGameView background;
@@ -128,44 +126,28 @@ public final class MainMenuActivity extends Activity {
      * from reading as a game. The game's own menu reads the same three things.</p>
      */
     private void setup() {
-        GameEngine engine = GameEngine.getInstance();
-
+        GameUi.Snapshot game = Rwml.get().ui().game();
         View buy = findViewById(R.id.buyButton);
-        if (buy != null) {
-            buy.setVisibility(engine != null && engine.demoVersion ? View.VISIBLE : View.GONE);
-        }
+        if (buy != null) { buy.setVisibility(game.demo() ? View.VISIBLE : View.GONE); }
         View mods = findViewById(R.id.modsButton);
-        if (mods != null) {
-            mods.setVisibility(engine != null && engine.demoVersion ? View.GONE : View.VISIBLE);
-        }
+        if (mods != null) { mods.setVisibility(game.demo() ? View.GONE : View.VISIBLE); }
         View resume = findViewById(R.id.startgameButton);
-        if (resume != null) {
-            boolean inProgress = engine != null && engine.gameLoopActive && !engine.gameEnded
-                && !isMenuBackgroundMap(engine.currentMapPath);
-            resume.setVisibility(inProgress ? View.VISIBLE : View.GONE);
-        }
-        TextView version = (TextView) findViewById(R.id.titleInfo);
-        if (version != null) {
-            version.setText(engine == null ? "" : engine.getVersion());
-        }
-    }
-
-    /** Says whether the map the engine holds is one of the game's menu backgrounds. */
-    private static boolean isMenuBackgroundMap(String path) {
-        return path != null && path.startsWith(MENU_BACKGROUND_PREFIX);
+        if (resume != null) { resume.setVisibility(game.canResume() ? View.VISIBLE : View.GONE); }
+        TextView version = findViewById(R.id.titleInfo);
+        if (version != null) { version.setText(game.version()); }
     }
 
     /** Names the buttons in the game's own words; the layout's own text stands when they cannot be read. */
     private void setButtonText() {
         try {
-            text(R.id.buyButton, LocaleEngine.getString("menus.front.buyNow"));
-            text(R.id.startgameButton, LocaleEngine.getString("menus.front.continue"));
-            text(R.id.menuCustomButton, LocaleEngine.getString("menus.front.singlePlayer"));
-            text(R.id.multiplayerButton, LocaleEngine.getString("menus.front.multiplayer"));
-            text(R.id.settingsButton, LocaleEngine.getString("menus.front.settings"));
-            text(R.id.helpButton, LocaleEngine.getString("menus.front.help"));
-            text(R.id.modsButton, LocaleEngine.getString("menus.front.mods"));
-            text(R.id.exitgameButton, LocaleEngine.getString("menus.front.exit"));
+            text(R.id.buyButton, LocalizedText.get("menus.front.buyNow"));
+            text(R.id.startgameButton, LocalizedText.get("menus.front.continue"));
+            text(R.id.menuCustomButton, LocalizedText.get("menus.front.singlePlayer"));
+            text(R.id.multiplayerButton, LocalizedText.get("menus.front.multiplayer"));
+            text(R.id.settingsButton, LocalizedText.get("menus.front.settings"));
+            text(R.id.helpButton, LocalizedText.get("menus.front.help"));
+            text(R.id.modsButton, LocalizedText.get("menus.front.mods"));
+            text(R.id.exitgameButton, LocalizedText.get("menus.front.exit"));
         } catch (Throwable t) {
             Log.w(TAG, "The game's language file did not answer; the layout's text stands.", t);
         }
@@ -215,19 +197,19 @@ public final class MainMenuActivity extends Activity {
      * settings, and viewing the slides marks them seen as well.</p>
      */
     private void checkIfHelpShouldBeShown(Runnable then) {
-        if (SettingsEngine.getInstance(getBaseContext()).hasPlayedGameOrSeenHelp) {
+        if (Rwml.get().ui().find(GameSettings.class).get("hasPlayedGameOrSeenHelp", Boolean.class)) {
             then.run();
             return;
         }
         new AlertDialog.Builder(this)
             .setIcon(android.R.drawable.ic_dialog_info)
-            .setTitle("This appears to be your first time playing")
-            .setMessage("Would you like to view the quick help slides?")
-            .setPositiveButton("Yes", (dialog, which) -> {
+            .setTitle(Rwml.get().ui().messages().text("menu.firstPlay"))
+            .setMessage(Rwml.get().ui().messages().text("menu.helpPrompt"))
+            .setPositiveButton(Rwml.get().ui().messages().text("common.yes"), (dialog, which) -> {
                 openHelp();
                 then.run();
             })
-            .setNegativeButton("No", (dialog, which) -> then.run())
+            .setNegativeButton(Rwml.get().ui().messages().text("common.no"), (dialog, which) -> then.run())
             .show();
     }
 
@@ -241,7 +223,7 @@ public final class MainMenuActivity extends Activity {
                 startActivity(new Intent(Intent.ACTION_VIEW,
                     Uri.parse("http://play.google.com/store/apps/details?id=" + STORE_PACKAGE)));
             } catch (ActivityNotFoundException noBrowser) {
-                Toast.makeText(this, "Failed to open the store page.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, Rwml.get().ui().messages().text("menu.storeFailed"), Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -261,7 +243,7 @@ public final class MainMenuActivity extends Activity {
 
     private void text(int id, String value) {
         View view = findViewById(id);
-        if (view instanceof TextView) {
+        if (view instanceof TextView && value != null) {
             ((TextView) view).setText(value);
         }
     }

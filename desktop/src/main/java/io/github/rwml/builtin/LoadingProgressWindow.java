@@ -56,7 +56,7 @@ public final class LoadingProgressWindow implements AutoCloseable {
         this.headline = new JLabel(title, JLabel.CENTER);
         this.headline.setFont(this.headline.getFont().deriveFont(Font.BOLD, 13f));
 
-        this.status = new JLabel("Starting...", JLabel.CENTER);
+        this.status = new JLabel("", JLabel.CENTER);
         this.status.setFont(this.status.getFont().deriveFont(Font.PLAIN, 11f));
         this.status.setForeground(new Color(0x60, 0x60, 0x60));
 

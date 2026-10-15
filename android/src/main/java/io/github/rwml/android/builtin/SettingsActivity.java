@@ -20,14 +20,15 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.corrodinggames.rts.gameFramework.SettingsEngine;
-import com.corrodinggames.rts.gameFramework.localization.LocaleEngine;
-
 import io.github.rwml.android.R;
+import io.github.rwml.api.Rwml;
+import io.github.rwml.api.ui.GameSettings;
+
+import java.io.IOException;
 
 /**
  * The settings screen, laid out by the game's own settings layout and backed by the game's own
- * {@link SettingsEngine}. Every control the layout carries is read from the engine when the screen
+ * {@link GameSettings}. Every control the layout carries is read from the engine when the screen
  * opens and written back when it is closed with Done; Cancel closes without writing.
  *
  * <p>The layout names its labels with the game's locale keys behind an {@code i:} marker, because a
@@ -36,14 +37,14 @@ import io.github.rwml.android.R;
  * writes into the same engine settings. The external-storage setup belongs to the Android build's
  * file picker, which this host does not carry, so it is hidden.</p>
  */
-public final class SettingsActivity extends Activity {
+public final class SettingsActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
     /** The choices behind the team unit-cap spinners, in the layout's order. */
     private static final int[] UNIT_CAP_OPTIONS = {100, 250, 500, 1000, 2000, 5000, 10000};
 
-    private SettingsEngine settings;
+    private GameSettings settings;
 
     private CheckBox enableSounds;
     private SeekBar musicVolume;
@@ -98,14 +99,14 @@ public final class SettingsActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("Settings");
+        setTitle(LocalizedText.ui("ui.settings"));
         AndroidApp.prepare(this, true);
         setContentView(R.layout.settings);
 
-        settings = SettingsEngine.getInstance(getBaseContext());
+        settings = Rwml.get().ui().find(GameSettings.class);
         if (settings == null) {
             Log.w(TAG, "The settings engine is not up; the screen cannot bind.");
-            Toast.makeText(this, "The game is not loaded yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.notLoaded"), Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
@@ -193,57 +194,57 @@ public final class SettingsActivity extends Activity {
 
     /** Fills every control from the engine's current settings. */
     private void loadFromEngine() {
-        setChecked(enableSounds, settings.enableSounds);
-        musicVolume.setProgress((int) (settings.musicVolume * 100.0F));
+        setChecked(enableSounds, settings.get("enableSounds", Boolean.class));
+        musicVolume.setProgress((int) (settings.get("musicVolume", Float.class) * 100.0F));
         musicVolumeText.setText(musicVolume.getProgress() + "%");
-        gameVolume.setProgress((int) (settings.gameVolume * 100.0F));
+        gameVolume.setProgress((int) (settings.get("gameVolume", Float.class) * 100.0F));
         gameVolumeText.setText(gameVolume.getProgress() + "%");
-        interfaceVolume.setProgress((int) (settings.interfaceVolume * 100.0F));
+        interfaceVolume.setProgress((int) (settings.get("interfaceVolume", Float.class) * 100.0F));
         interfaceVolumeText.setText(interfaceVolume.getProgress() + "%");
-        scrollSpeed.setProgress((int) (settings.scrollSpeed * 100.0F - 20.0F));
+        scrollSpeed.setProgress((int) (settings.get("scrollSpeed", Float.class) * 100.0F - 20.0F));
         scrollSpeedText.setText(scrollSpeed.getProgress() + 20 + "%");
 
-        setChecked(batterySaving, settings.batterySaving);
-        setChecked(highRefreshRate, settings.highRefreshRate);
-        setChecked(unlockedScreenRotation, settings.unlockedScreenRotation);
-        setChecked(showUnitWaypoints, settings.showUnitWaypoints);
-        setChecked(useMinimapAllyColors, settings.useMinimapAllyColors);
-        setChecked(showUnitGroups, settings.showUnitGroups);
-        setChecked(showHp, settings.showHp);
-        setChecked(showUnitIcons, settings.showUnitIcons);
-        setChecked(gestureZoom, settings.gestureZoom);
-        setChecked(useCircleSelect, settings.useCircleSelect);
-        setChecked(smartSelection, settings.smartSelection_v2);
-        setChecked(quickRally, settings.quickRally);
-        setChecked(doubleClickToAttackMove, settings.doubleClickToAttackMove);
-        setChecked(zoomButton, settings.showZoomButton);
-        setChecked(mouseSupport, settings.mouseSupport);
-        setChecked(keyboardSupport, settings.keyboardSupport);
-        setChecked(forceEnglish, settings.forceEnglish);
-        setChecked(saveMultiplayerReplays, settings.saveMultiplayerReplays);
-        setChecked(replaysShowRecordedChat, settings.replaysShowRecordedChat);
-        setChecked(allowGameRecording, settings.allowGameRecording);
-        setChecked(showFps, settings.showFps);
-        setChecked(newRender, settings.newRender);
-        setChecked(shaderEffects, settings.shaderEffects);
-        setChecked(teamShaders, settings.teamShaders);
-        setChecked(sendReports, settings.sendReports);
-        setChecked(immersiveFullScreen, settings.immersiveFullScreen);
-        setChecked(renderDoubleScale, settings.renderDoubleScale);
-        setChecked(renderClouds, settings.renderClouds);
-        setChecked(showWarLogOnScreen, settings.showWarLogOnScreen);
-        setChecked(classicInterface, settings.classicInterface);
-        setChecked(udpInMultiplayer, settings.udpInMultiplayer);
-        setChecked(showMapPingsOnBattlefield, settings.showMapPingsOnBattlefield);
-        setChecked(showMapPingsOnMinimap, settings.showMapPingsOnMinimap);
-        setChecked(showPlayerChatInGame, settings.showPlayerChatInGame);
-        setChecked(autoSaveEnabled, settings.autosaving);
+        setChecked(batterySaving, settings.get("batterySaving", Boolean.class));
+        setChecked(highRefreshRate, settings.get("highRefreshRate", Boolean.class));
+        setChecked(unlockedScreenRotation, settings.get("unlockedScreenRotation", Boolean.class));
+        setChecked(showUnitWaypoints, settings.get("showUnitWaypoints", Boolean.class));
+        setChecked(useMinimapAllyColors, settings.get("useMinimapAllyColors", Boolean.class));
+        setChecked(showUnitGroups, settings.get("showUnitGroups", Boolean.class));
+        setChecked(showHp, settings.get("showHp", Boolean.class));
+        setChecked(showUnitIcons, settings.get("showUnitIcons", Boolean.class));
+        setChecked(gestureZoom, settings.get("gestureZoom", Boolean.class));
+        setChecked(useCircleSelect, settings.get("useCircleSelect", Boolean.class));
+        setChecked(smartSelection, settings.get("smartSelection_v2", Boolean.class));
+        setChecked(quickRally, settings.get("quickRally", Boolean.class));
+        setChecked(doubleClickToAttackMove, settings.get("doubleClickToAttackMove", Boolean.class));
+        setChecked(zoomButton, settings.get("showZoomButton", Boolean.class));
+        setChecked(mouseSupport, settings.get("mouseSupport", Boolean.class));
+        setChecked(keyboardSupport, settings.get("keyboardSupport", Boolean.class));
+        setChecked(forceEnglish, settings.get("forceEnglish", Boolean.class));
+        setChecked(saveMultiplayerReplays, settings.get("saveMultiplayerReplays", Boolean.class));
+        setChecked(replaysShowRecordedChat, settings.get("replaysShowRecordedChat", Boolean.class));
+        setChecked(allowGameRecording, settings.get("allowGameRecording", Boolean.class));
+        setChecked(showFps, settings.get("showFps", Boolean.class));
+        setChecked(newRender, settings.get("newRender", Boolean.class));
+        setChecked(shaderEffects, settings.get("shaderEffects", Boolean.class));
+        setChecked(teamShaders, settings.get("teamShaders", Boolean.class));
+        setChecked(sendReports, settings.get("sendReports", Boolean.class));
+        setChecked(immersiveFullScreen, settings.get("immersiveFullScreen", Boolean.class));
+        setChecked(renderDoubleScale, settings.get("renderDoubleScale", Boolean.class));
+        setChecked(renderClouds, settings.get("renderClouds", Boolean.class));
+        setChecked(showWarLogOnScreen, settings.get("showWarLogOnScreen", Boolean.class));
+        setChecked(classicInterface, settings.get("classicInterface", Boolean.class));
+        setChecked(udpInMultiplayer, settings.get("udpInMultiplayer", Boolean.class));
+        setChecked(showMapPingsOnBattlefield, settings.get("showMapPingsOnBattlefield", Boolean.class));
+        setChecked(showMapPingsOnMinimap, settings.get("showMapPingsOnMinimap", Boolean.class));
+        setChecked(showPlayerChatInGame, settings.get("showPlayerChatInGame", Boolean.class));
+        setChecked(autoSaveEnabled, settings.get("autosaving", Boolean.class));
 
-        aiDifficulty.setSelection(settings.aiDifficulty + 2);
-        storageType.setSelection(settings.storageType);
-        setSpinnerByValue(teamUnitCapSinglePlayer, settings.teamUnitCapSinglePlayer);
-        setSpinnerByValue(teamUnitCapHostedGame, settings.teamUnitCapHostedGame);
-        networkPort.setText(Integer.toString(settings.networkPort));
+        aiDifficulty.setSelection(settings.get("aiDifficulty", Integer.class) + 2);
+        storageType.setSelection(settings.get("storageType", Integer.class));
+        setSpinnerByValue(teamUnitCapSinglePlayer, settings.get("teamUnitCapSinglePlayer", Integer.class));
+        setSpinnerByValue(teamUnitCapHostedGame, settings.get("teamUnitCapHostedGame", Integer.class));
+        networkPort.setText(Integer.toString(settings.get("networkPort", Integer.class)));
 
         updateDependentVisibility();
     }
@@ -265,61 +266,72 @@ public final class SettingsActivity extends Activity {
 
     /** Writes every control back into the engine's settings, saves them, and closes the screen. */
     private void saveSettings() {
-        settings.enableSounds = true;
-        settings.musicVolume = musicVolume.getProgress() / 100.0F;
-        settings.gameVolume = gameVolume.getProgress() / 100.0F;
-        settings.interfaceVolume = interfaceVolume.getProgress() / 100.0F;
-        settings.scrollSpeed = (scrollSpeed.getProgress() + 20.0F) / 100.0F;
-        settings.batterySaving = batterySaving.isChecked();
-        settings.highRefreshRate = highRefreshRate.isChecked();
-        settings.unlockedScreenRotation = unlockedScreenRotation.isChecked();
-        settings.showUnitWaypoints = showUnitWaypoints.isChecked();
-        settings.useMinimapAllyColors = useMinimapAllyColors.isChecked();
-        settings.showUnitGroups = showUnitGroups.isChecked();
-        settings.showHp = showHp.isChecked();
-        settings.showUnitIcons = showUnitIcons.isChecked();
-        settings.gestureZoom = gestureZoom.isChecked();
-        settings.useCircleSelect = useCircleSelect.isChecked();
-        settings.smartSelection_v2 = smartSelection.isChecked();
-        settings.quickRally = quickRally.isChecked();
-        settings.doubleClickToAttackMove = doubleClickToAttackMove.isChecked();
-        settings.showZoomButton = zoomButton.isChecked();
-        settings.mouseSupport = mouseSupport.isChecked();
-        settings.keyboardSupport = keyboardSupport.isChecked();
-        settings.forceEnglish = forceEnglish.isChecked();
-        settings.saveMultiplayerReplays = saveMultiplayerReplays.isChecked();
-        settings.replaysShowRecordedChat = replaysShowRecordedChat.isChecked();
-        settings.allowGameRecording = allowGameRecording.isChecked();
-        settings.showFps = showFps.isChecked();
-        settings.newRender = newRender.isChecked();
-        settings.shaderEffects = shaderEffects.isChecked();
-        settings.teamShaders = teamShaders.isChecked();
-        settings.sendReports = sendReports.isChecked();
-        settings.immersiveFullScreen = immersiveFullScreen.isChecked();
-        settings.renderDoubleScale = renderDoubleScale.isChecked();
-        settings.renderClouds = renderClouds.isChecked();
-        settings.showWarLogOnScreen = showWarLogOnScreen.isChecked();
-        settings.classicInterface = classicInterface.isChecked();
-        settings.udpInMultiplayer = udpInMultiplayer.isChecked();
-        settings.showMapPingsOnBattlefield = showMapPingsOnBattlefield.isChecked();
-        settings.showMapPingsOnMinimap = showMapPingsOnMinimap.isChecked();
-        settings.showPlayerChatInGame = showPlayerChatInGame.isChecked();
-        settings.autosaving = autoSaveEnabled.isChecked();
+        settings.set("enableSounds", true);
+        settings.set("musicVolume", musicVolume.getProgress() / 100.0F);
+        settings.set("gameVolume", gameVolume.getProgress() / 100.0F);
+        settings.set("interfaceVolume", interfaceVolume.getProgress() / 100.0F);
+        settings.set("scrollSpeed", (scrollSpeed.getProgress() + 20.0F) / 100.0F);
+        settings.set("batterySaving", batterySaving.isChecked());
+        settings.set("highRefreshRate", highRefreshRate.isChecked());
+        settings.set("unlockedScreenRotation", unlockedScreenRotation.isChecked());
+        settings.set("showUnitWaypoints", showUnitWaypoints.isChecked());
+        settings.set("useMinimapAllyColors", useMinimapAllyColors.isChecked());
+        settings.set("showUnitGroups", showUnitGroups.isChecked());
+        settings.set("showHp", showHp.isChecked());
+        settings.set("showUnitIcons", showUnitIcons.isChecked());
+        settings.set("gestureZoom", gestureZoom.isChecked());
+        settings.set("useCircleSelect", useCircleSelect.isChecked());
+        settings.set("smartSelection_v2", smartSelection.isChecked());
+        settings.set("quickRally", quickRally.isChecked());
+        settings.set("doubleClickToAttackMove", doubleClickToAttackMove.isChecked());
+        settings.set("showZoomButton", zoomButton.isChecked());
+        settings.set("mouseSupport", mouseSupport.isChecked());
+        settings.set("keyboardSupport", keyboardSupport.isChecked());
+        settings.set("forceEnglish", forceEnglish.isChecked());
+        settings.set("saveMultiplayerReplays", saveMultiplayerReplays.isChecked());
+        settings.set("replaysShowRecordedChat", replaysShowRecordedChat.isChecked());
+        settings.set("allowGameRecording", allowGameRecording.isChecked());
+        settings.set("showFps", showFps.isChecked());
+        settings.set("newRender", newRender.isChecked());
+        settings.set("shaderEffects", shaderEffects.isChecked());
+        settings.set("teamShaders", teamShaders.isChecked());
+        settings.set("sendReports", sendReports.isChecked());
+        settings.set("immersiveFullScreen", immersiveFullScreen.isChecked());
+        settings.set("renderDoubleScale", renderDoubleScale.isChecked());
+        settings.set("renderClouds", renderClouds.isChecked());
+        settings.set("showWarLogOnScreen", showWarLogOnScreen.isChecked());
+        settings.set("classicInterface", classicInterface.isChecked());
+        settings.set("udpInMultiplayer", udpInMultiplayer.isChecked());
+        settings.set("showMapPingsOnBattlefield", showMapPingsOnBattlefield.isChecked());
+        settings.set("showMapPingsOnMinimap", showMapPingsOnMinimap.isChecked());
+        settings.set("showPlayerChatInGame", showPlayerChatInGame.isChecked());
+        settings.set("autosaving", autoSaveEnabled.isChecked());
 
-        settings.teamUnitCapSinglePlayer = valueAt(teamUnitCapSinglePlayer);
-        settings.teamUnitCapHostedGame = valueAt(teamUnitCapHostedGame);
-        settings.aiDifficulty = aiDifficulty.getSelectedItemPosition() - 2;
-        settings.storageType = storageType.getSelectedItemPosition();
+        settings.set("teamUnitCapSinglePlayer", valueAt(teamUnitCapSinglePlayer));
+        settings.set("teamUnitCapHostedGame", valueAt(teamUnitCapHostedGame));
+        settings.set("aiDifficulty", aiDifficulty.getSelectedItemPosition() - 2);
+        settings.set("storageType", storageType.getSelectedItemPosition());
 
         try {
-            settings.networkPort = Integer.parseInt(networkPort.getText().toString().trim());
+            settings.set("networkPort", Integer.parseInt(networkPort.getText().toString().trim()));
         } catch (NumberFormatException notANumber) {
             Log.w(TAG, "The network port is not a number; leaving it unchanged.");
         }
-        if (settings.networkPort < 1024 || settings.networkPort > 65535) {
-            settings.networkPort = 5123;
+        if (settings.get("networkPort", Integer.class) < 1024 || settings.get("networkPort", Integer.class) > 65535) {
+            settings.set("networkPort", 5123);
         }
 
+        try {
+            boolean english = settings.get("forceEnglish", Boolean.class);
+            if (english) { Rwml.get().ui().messages().language("en"); }
+            else if ("en".equals(Rwml.get().ui().messages().language())) {
+                Rwml.get().ui().messages().language("system");
+            }
+        } catch (IOException failure) {
+            Log.w(TAG, "Cannot save UI language", failure);
+            Toast.makeText(this, LocalizedText.ui("common.error") + ": " + failure.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
         settings.save();
         finish();
     }
@@ -345,12 +357,12 @@ public final class SettingsActivity extends Activity {
      */
     private void openDebugOptions() {
         final EditText input = new EditText(this);
-        input.setHint("debug option");
+        input.setHint(LocalizedText.ui("ui.debugHint"));
         new android.app.AlertDialog.Builder(this)
-            .setTitle("Set Debug Options")
+            .setTitle(LocalizedText.ui("ui.debugTitle"))
             .setView(input)
-            .setPositiveButton("Apply", (dialog, which) -> applyDebugOption(input.getText().toString()))
-            .setNegativeButton("Cancel", null)
+            .setPositiveButton(LocalizedText.ui("ui.apply"), (dialog, which) -> applyDebugOption(input.getText().toString()))
+            .setNegativeButton(LocalizedText.ui("common.cancel"), null)
             .show();
     }
 
@@ -358,19 +370,19 @@ public final class SettingsActivity extends Activity {
         String option = raw == null ? "" : raw.toLowerCase().trim().replace("  ", " ");
         String result;
         if (option.equals("show fps")) {
-            settings.showFps = true;
+            settings.set("showFps", true);
             result = "Enabled fps";
         } else if (option.equals("show hp on") || option.equals("showhp on")) {
-            settings.showHp = true;
+            settings.set("showHp", true);
             result = "Enabled showHp";
         } else if (option.equals("show hp off") || option.equals("showhp off")) {
-            settings.showHp = false;
+            settings.set("showHp", false);
             result = "Disabled showHp";
         } else if (option.equals("autosave off")) {
-            settings.autosaving = false;
+            settings.set("autosaving", false);
             result = "Disabled autosave";
         } else if (option.equals("autosave on")) {
-            settings.autosaving = true;
+            settings.set("autosaving", true);
             result = "Enabled autosave";
         } else {
             result = "Unknown debug option: " + option;
@@ -439,42 +451,7 @@ public final class SettingsActivity extends Activity {
      * exists because a layout cannot call into the engine's language file; this is where it is read.
      */
     private void applyLocaleText() {
-        View root = findViewById(android.R.id.content);
-        if (root != null) {
-            applyLocaleText(root);
-        }
-    }
-
-    private void applyLocaleText(View view) {
-        if (view instanceof TextView) {
-            CharSequence text = ((TextView) view).getText();
-            if (isLocaleMarker(text)) {
-                String resolved = translate(text.toString().substring(2));
-                if (resolved != null) {
-                    ((TextView) view).setText(resolved);
-                }
-            }
-        }
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                applyLocaleText(group.getChildAt(i));
-            }
-        }
-    }
-
-    private static boolean isLocaleMarker(CharSequence text) {
-        return text != null && text.length() > 2 && text.charAt(0) == 'i' && text.charAt(1) == ':';
-    }
-
-    private static String translate(String key) {
-        try {
-            String value = LocaleEngine.getString(key);
-            return value == null || value.isEmpty() ? null : value;
-        } catch (Throwable t) {
-            Log.w(TAG, "The language file did not answer for '" + key + "'.", t);
-            return null;
-        }
+        LocalizedText.applyTo(findViewById(android.R.id.content));
     }
 
     /** Keeps a percentage label in step with its seek bar. */

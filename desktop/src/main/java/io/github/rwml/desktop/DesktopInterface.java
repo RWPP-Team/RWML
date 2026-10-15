@@ -16,6 +16,8 @@ import com.corrodinggames.rts.java.JavaCanvas;
 import io.github.rwml.api.game.GameBoot;
 import io.github.rwml.api.game.GameContext;
 import io.github.rwml.bootstrap.GameEntry;
+import io.github.rwml.game.GameUiBridge;
+import io.github.rwml.api.RwmlRuntime;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -61,11 +63,14 @@ public final class DesktopInterface {
     }
 
     /** States the desktop's choices through the statics the engine reads; the launcher sets them too. */
-    private static void choosePlatform(GameContext context) {
+    static void choosePlatform(GameContext context) {
         GameEngine.isDesktopPlatform = true;
         GameEngine.isDesktopCanvas = true;
         GameEngine.graphicsCanvasClass = JavaCanvas.class;
         MasterServerConnector.httpClientFactory = new DesktopHttpClientFactory();
+        // Registration follows extension loading and platform selection. Resolving the game earlier
+        // would define its classes before user mixins were registered.
+        GameUiBridge.install(((RwmlRuntime) context.platform()).ui());
         context.log("The desktop draws through " + JavaCanvas.class.getName() + " (Slick and LWJGL).");
     }
 
@@ -74,7 +79,7 @@ public final class DesktopInterface {
      * audio stack and the {@code Context} and then loads everything. Reached by reflection, through
      * the constant the mappings produce.
      */
-    private static void handOverToTheGame(GameContext context) throws Exception {
+    static void handOverToTheGame(GameContext context) throws Exception {
         context.log("Handing over to " + GameEntry.GAME_MAIN + ".");
         Class<?> launcher = Class.forName(GameEntry.GAME_MAIN);
         launcher.getMethod("main", String[].class)

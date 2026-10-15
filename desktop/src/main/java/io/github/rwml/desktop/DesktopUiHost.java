@@ -10,7 +10,10 @@ package io.github.rwml.desktop;
 import io.github.rwml.api.game.GameBoot;
 import io.github.rwml.api.ui.UiHost;
 import io.github.rwml.bootstrap.GameEntry;
+import io.github.rwml.bootstrap.Relauncher;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -54,12 +57,31 @@ final class DesktopUiHost implements UiHost {
 
     @Override
     public void openScreen(String screen) {
+        if (services().openRegisteredScreen(screen, this)) { return; }
+        if ("extensions".equals(screen)) {
+            javax.swing.SwingUtilities.invokeLater(() ->
+                new io.github.rwml.builtin.ExtensionManagementWindow(null, this).setVisible(true));
+            return;
+        }
         if (GAME_SCREEN.equals(screen) || "main-menu".equals(screen)) {
             startGame();
             return;
         }
         System.out.println("[rwml] The desktop host has no screen called '" + screen + "'. The game "
             + "screen is '" + GAME_SCREEN + "'.");
+    }
+
+    @Override
+    public void restart() {
+        File jar = Relauncher.ownJar();
+        if (jar == null) { throw new IllegalStateException("Restart requires a packaged RWML jar"); }
+        try {
+            new ProcessBuilder(Relauncher.buildCommand(
+                new File(System.getProperty("java.home")), jar, true,
+                arguments.toArray(new String[0])))
+                .directory(runtime.manager().rootDirectory().toFile()).inheritIO().start();
+        } catch (IOException failure) { throw new IllegalStateException("Cannot restart RWML", failure); }
+        System.exit(0);
     }
 
     /**
@@ -84,7 +106,7 @@ final class DesktopUiHost implements UiHost {
         try {
             Class<?> type = Class.forName(GameEntry.GAME_MAIN);
             type.getMethod("main", String[].class)
-                .invoke(null, (Object) arguments.toArray(new String[0]));
+                .invoke(null, (Object) DesktopRuntime.gameArguments(arguments.toArray(new String[0])));
         } catch (Exception e) {
             System.err.println("[rwml] The interface asked for the game, but " + GameEntry.GAME_MAIN
                 + " did not start: " + e);

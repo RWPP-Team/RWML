@@ -123,6 +123,7 @@ android {
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":game-adapter"))
 
     // The bridge implements the game's own view interface, so it compiles against the game's names.
     // At run time those classes never come from here: they come from the dex the app rewrites,

@@ -7,10 +7,19 @@
 
 package io.github.rwml.api;
 
+import io.github.rwml.api.ui.UiServices;
+
 import java.nio.file.Path;
 
 /** Runtime services handed to an extension when it is loaded. */
 public interface ExtensionContext {
+
+    /** UI services are available during onLoad, before game initialization. */
+    default UiServices ui() {
+        RwmlRuntime runtime = Rwml.get();
+        if (runtime == null) { throw new IllegalStateException("No runtime installed"); }
+        return runtime.ui();
+    }
 
     /** @return the id declared by the owning extension. */
     String extensionId();

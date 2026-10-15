@@ -9,31 +9,16 @@ package io.github.rwml.asm;
 
 import io.github.rwml.bootstrap.Relauncher;
 
-import kim.der.asm.agent.AsmBootstrap;
-
 import java.lang.instrument.Instrumentation;
 
 /**
- * RWML's own JVM agent entry point.
- *
- * <p>The framework's {@link AsmBootstrap} installs the class-file transformer, but it does not expose
- * the live {@link Instrumentation} instance. RWML needs that instance for one important reason:
- * {@code AsmScanner.scanJar} loads <em>every</em> class in an extension jar (it must, to read the
- * {@code @AsmMixin} annotation reflectively), and that includes the host <em>target</em> classes the
- * mixins rewrite. Because jar entry order is not guaranteed, a target class is frequently loaded by the
- * scanner <em>before</em> its mixin has been registered, so the live transformer sees an empty registry
- * and skips it. The target then stays cached without the mixin.</p>
- *
- * <p>After an archive is scanned and its mixins are registered we call {@link #retransform(Class[])} on
- * those already-loaded target classes. The transformer fires again, the registry is now populated, and
- * the mixin is applied. Retransform is only possible with the {@link Instrumentation} captured here.</p>
- *
- * <p>This class is declared as the jar's {@code Premain-Class}/{@code Agent-Class}; it stores the
- * instrumentation and then delegates transformer installation to the framework.</p>
+ * Owns the desktop transformer and instrumentation. A failed transform notifies recovery and prevents
+ * the JVM from defining an unpatched class. Registered targets already loaded can be retransformed.
  */
 public final class RwmlAgent {
 
     private static volatile Instrumentation instrumentation;
+    private static boolean installed;
 
     private RwmlAgent() {
     }
@@ -41,15 +26,24 @@ public final class RwmlAgent {
     /** JVM {@code -javaagent} entry point. */
     public static void premain(String agentArgs, Instrumentation inst) {
         instrumentation = inst;
-        AsmBootstrap.premain(agentArgs, inst);
+        install(inst);
         markInstalled();
     }
 
     /** JVM runtime {@code VirtualMachine.attach} entry point. */
     public static void agentmain(String agentArgs, Instrumentation inst) {
         instrumentation = inst;
-        AsmBootstrap.agentmain(agentArgs, inst);
+        install(inst);
         markInstalled();
+    }
+
+    private static synchronized void install(Instrumentation inst) {
+        if (!installed) {
+            // Preserve the framework's explicit AsmCore.transform API without installing a second transformer.
+            new kim.der.asm.agent.AsmBootstrap();
+            inst.addTransformer(new FailureAwareTransformer(MixinSupport.instance()::failed), true);
+            installed = true;
+        }
     }
 
     /**

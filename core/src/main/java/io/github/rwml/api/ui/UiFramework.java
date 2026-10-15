@@ -13,11 +13,12 @@ package io.github.rwml.api.ui;
  * <p>A user interface is always platform specific: the window, the surface, the GL context and the
  * event source belong to the platform, and the desktop and Android hosts provide different ones. An
  * extension declares a class implementing this interface through the {@code ui-framework} property,
- * or through {@link io.github.rwml.api.ExtensionInfo#uiFramework()}, and the host calls
- * {@link #start(UiHost)} once, after every extension has loaded.</p>
+ * and the host calls {@link #start(UiHost)} once, after the selected framework and its dependencies
+ * have loaded.
+ * Android defers the remaining extensions until game preparation.</p>
  *
- * <p>When no loaded extension declares one, no framework is started. Android stays headless;
- * the desktop bootstrap falls back to the original game launcher.</p>
+ * <p>When no loaded extension declares one, no framework is started. A host may still provide
+ * a management/recovery screen; the desktop bootstrap falls back to the original game launcher.</p>
  *
  * <p>The class must be reachable from the declaring extension's own archive; a class supplied by the
  * host itself is accepted as well, so a small extension may request the platform interface without

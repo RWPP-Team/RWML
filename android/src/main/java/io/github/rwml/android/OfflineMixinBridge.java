@@ -12,6 +12,7 @@ import io.github.rwml.api.MixinBridge;
 
 import kim.der.asm.AsmRegistry;
 import kim.der.asm.transformer.AsmProcessor;
+import kim.der.asm.transformer.AsmTransformException;
 
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
@@ -40,6 +41,7 @@ public final class OfflineMixinBridge implements MixinBridge {
     private static final String ASM_MIXIN_DESCRIPTOR = "Lkim/der/asm/api/annotation/AsmMixin;";
 
     private volatile ClassLoader loader;
+    private final java.util.Map<String, Path> owners = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Set<Path> registered = new java.util.HashSet<>();
     private final AsmProcessor processor = new AsmProcessor();
 
@@ -48,6 +50,17 @@ public final class OfflineMixinBridge implements MixinBridge {
     }
 
     void updateLoader(ClassLoader loader) { this.loader = loader; }
+
+    Path failedArchive(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof AsmTransformException) {
+                return owners.get(((AsmTransformException) current).getAsmClassName());
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
 
     @Override
     public void install() {
@@ -60,6 +73,7 @@ public final class OfflineMixinBridge implements MixinBridge {
         if (registered.contains(key)) { return; }
         for (String name : mixinClassNames(archive)) {
             try {
+                owners.put(name, key);
                 AsmRegistry.register(Class.forName(name, false, loader));
             } catch (Throwable t) {
                 throw new ExtensionException("Mixin " + name + " of " + archive.getFileName()
@@ -114,7 +128,7 @@ public final class OfflineMixinBridge implements MixinBridge {
                     names.add(name.substring(0, name.length() - ".class".length()).replace('/', '.'));
                 }
             }
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             throw new ExtensionException("The mixins of " + archive.getFileName()
                 + " cannot be listed", e);
         }
@@ -134,8 +148,8 @@ public final class OfflineMixinBridge implements MixinBridge {
                     return null;
                 }
             }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
-        } catch (Throwable ignored) {
-            // A class that cannot be parsed contributes nothing.
+        } catch (RuntimeException failure) {
+            throw new IllegalArgumentException("Cannot inspect extension class metadata", failure);
         }
         return found[0];
     }

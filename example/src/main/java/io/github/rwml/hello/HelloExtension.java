@@ -9,7 +9,6 @@ package io.github.rwml.hello;
 
 import io.github.rwml.api.Extension;
 import io.github.rwml.api.ExtensionContext;
-import io.github.rwml.api.ExtensionInfo;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -25,19 +24,6 @@ import java.time.Instant;
  *   <li>persist some state in its private data directory;</li>
  * </ol>
  */
-@ExtensionInfo(
-    id = "com.example.rwml.hello",
-    name = "Hello Extension",
-    version = "1.0.0",
-    author = "RWPP Team",
-    description = "Sample RWML extension: writes to its data directory, calls a mixin-patched "
-        + "service, and declares an interface.",
-    homepage = "https://github.com/RWPP-Team/RWML",
-    tags = {"example", "hello"},
-    // The same value the descriptor carries. The descriptor wins; this is what a build without one
-    // falls back to.
-    uiFramework = "io.github.rwml.hello.HelloUi"
-)
 public final class HelloExtension implements Extension {
 
     @Override

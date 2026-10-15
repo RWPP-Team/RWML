@@ -7,9 +7,7 @@
 
 package io.github.rwml.core;
 
-
 import io.github.rwml.api.ExtensionException;
-import io.github.rwml.api.ExtensionInfo;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -20,94 +18,28 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.Properties;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-/**
- * Builds an {@link ExtensionDescriptor} from an extension archive.
- *
- * <p>Resolution order per field: {@code META-INF/extension.properties} wins,
- * then the {@code @ExtensionInfo} annotation found on the entry point class.
- * The entry point class itself is discovered from the {@code mainClass}
- * property or, as a fallback, by scanning the archive for the annotation
- * descriptor.</p>
- */
+/** Reads UTF-8 properties without inspecting or loading extension classes. */
 public final class ExtensionDescriptorReader {
-
-    /** Classpath location of the textual descriptor. */
     public static final String DESCRIPTOR_ENTRY = "META-INF/extension.properties";
 
-    private ExtensionDescriptorReader() {
-    }
+    private ExtensionDescriptorReader() { }
 
     public static ExtensionDescriptor read(Path archive) throws ExtensionException {
         if (archive == null || !Files.isRegularFile(archive)) {
             throw new ExtensionException("Extension archive not found: " + archive);
         }
         try (JarFile jar = new JarFile(archive.toFile())) {
-            Properties properties = loadProperties(jar);
-            String mainClass = properties.getProperty("mainClass");
-            if (isBlank(mainClass)) {
-                mainClass = findAnnotatedClass(jar);
+            JarEntry entry = jar.getJarEntry(DESCRIPTOR_ENTRY);
+            if (entry == null) { throw new ExtensionException("Missing " + DESCRIPTOR_ENTRY + " in " + archive.getFileName()); }
+            try (InputStream stream = jar.getInputStream(entry)) {
+                return descriptor(load(stream), archive.toAbsolutePath().normalize(),
+                    Files.size(archive), sha256(archive));
             }
-            if (isBlank(mainClass)) {
-                throw new ExtensionException("No '" + DESCRIPTOR_ENTRY + "' with a mainClass and no "
-                    + "@ExtensionInfo annotated class found in " + archive.getFileName());
-            }
-            mainClass = mainClass.trim();
-
-            ClassFileMetadata.Annotation annotation = readAnnotation(jar, mainClass);
-            mainClass = pick(properties.getProperty("mainClass"),
-                annotation == null ? null : annotation.string("mainClass"), mainClass);
-
-            String id = pick(properties.getProperty("id"), annotation == null ? null : annotation.string("id"));
-            if (id == null) {
-                throw new ExtensionException("Missing required 'id' in " + archive.getFileName());
-            }
-            String name = pick(properties.getProperty("name"),
-                annotation == null ? null : annotation.string("name"), id);
-
-            List<String> authors = new ArrayList<>(splitOnCommas(properties.getProperty("authors")));
-            if (authors.isEmpty() && annotation != null) {
-                authors.addAll(annotation.strings("authors"));
-            }
-            String singleAuthor = pick(properties.getProperty("author"),
-                annotation == null ? null : annotation.string("author"));
-            if (authors.isEmpty() && singleAuthor != null) {
-                authors.add(singleAuthor);
-            }
-
-            int declaredJava = parseInt(pick(properties.getProperty("javaVersion"),
-                annotation == null ? null : String.valueOf(annotation.integer("javaVersion", 8)), "8"), 8);
-
-            return new ExtensionDescriptor(
-                id,
-                name,
-                pick(properties.getProperty("version"), annotation == null ? null : annotation.string("version"), "1.0.0"),
-                pick(properties.getProperty("description"), annotation == null ? null : annotation.string("description"), ""),
-                unmodifiable(authors),
-                pick(properties.getProperty("license"), annotation == null ? null : annotation.string("license"), ""),
-                pick(properties.getProperty("licenseUrl"), annotation == null ? null : annotation.string("licenseUrl"), ""),
-                pick(properties.getProperty("homepage"), annotation == null ? null : annotation.string("homepage"), ""),
-                pick(properties.getProperty("icon"), annotation == null ? null : annotation.string("icon"), ""),
-                mergeTags(properties.getProperty("tags"), annotation),
-                pick(properties.getProperty("apiVersion"), annotation == null ? null : annotation.string("apiVersion"), "1.0"),
-                declaredJava,
-                mainClass,
-                pick(properties.getProperty("ui-framework"),
-                    annotation == null ? null : annotation.string("uiFramework"), ""),
-                mergeStrings(properties.getProperty("dependsOn"),
-                    annotation == null ? Collections.emptyList() : annotation.strings("dependsOn")),
-                mergeStrings(properties.getProperty("loadBefore"),
-                    annotation == null ? Collections.emptyList() : annotation.strings("loadBefore")),
-                mergeStrings(properties.getProperty("loadAfter"),
-                    annotation == null ? Collections.emptyList() : annotation.strings("loadAfter")),
-                archive.toAbsolutePath(),
-                Files.size(archive),
-                sha256(archive));
         } catch (ExtensionException e) {
             throw e;
         } catch (Exception e) {
@@ -115,85 +47,49 @@ public final class ExtensionDescriptorReader {
         }
     }
 
-    private static Properties loadProperties(JarFile jar) throws IOException {
-        Properties properties = new Properties();
-        JarEntry entry = jar.getJarEntry(DESCRIPTOR_ENTRY);
-        if (entry != null) {
-            try (InputStream stream = jar.getInputStream(entry);
-                 InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
-                properties.load(reader);
-            }
+    /** Built-ins use the same format, with a resource of their own and no source archive. */
+    public static ExtensionDescriptor readBuiltIn(Class<?> owner, String resource) {
+        try (InputStream stream = owner.getResourceAsStream(resource)) {
+            if (stream == null) { throw new IOException("Missing built-in descriptor: " + resource); }
+            return descriptor(load(stream), null, 0L, "");
+        } catch (IOException | ExtensionException failure) {
+            throw new IllegalStateException("Cannot read built-in descriptor: " + resource, failure);
         }
+    }
+
+    private static Properties load(InputStream stream) throws IOException {
+        Properties properties = new Properties();
+        properties.load(new InputStreamReader(stream, StandardCharsets.UTF_8));
         return properties;
     }
 
-    private static String findAnnotatedClass(JarFile jar) throws IOException {
-        Enumeration<JarEntry> entries = jar.entries();
-        while (entries.hasMoreElements()) {
-            JarEntry entry = entries.nextElement();
-            String name = entry.getName();
-            if (entry.isDirectory() || !name.endsWith(".class") || name.startsWith("META-INF/")) {
-                continue;
-            }
-            try (InputStream stream = jar.getInputStream(entry)) {
-                ClassFileMetadata.Annotation annotation = ClassFileMetadata.read(stream).annotation;
-                if (annotation != null) {
-                    return name.substring(0, name.length() - 6).replace('/', '.');
-                }
-            }
-        }
-        return null;
+    private static ExtensionDescriptor descriptor(Properties properties, Path source, long size, String digest)
+        throws ExtensionException {
+        String id = required(properties, "id");
+        String mainClass = required(properties, "mainClass");
+        List<String> authors = splitOnCommas(properties.getProperty("authors"));
+        String author = value(properties, "author", "");
+        if (authors.isEmpty() && !author.isEmpty()) { authors.add(author); }
+        return new ExtensionDescriptor(id, value(properties, "name", id),
+            value(properties, "version", "1.0.0"), value(properties, "description", ""),
+            unmodifiable(authors), value(properties, "license", ""), value(properties, "licenseUrl", ""),
+            value(properties, "homepage", ""), value(properties, "icon", ""),
+            unmodifiable(split(properties.getProperty("tags"))), value(properties, "apiVersion", "1.0"),
+            parseInt(value(properties, "javaVersion", "8"), 8), mainClass,
+            value(properties, "ui-framework", ""), unmodifiable(split(properties.getProperty("dependsOn"))),
+            unmodifiable(split(properties.getProperty("loadBefore"))),
+            unmodifiable(split(properties.getProperty("loadAfter"))), source, size, digest);
     }
 
-    private static ClassFileMetadata.Annotation readAnnotation(JarFile jar, String className)
-        throws IOException {
-        // @ExtensionInfo is inherited, but only classes carried by this archive are inspected.
-        java.util.Set<String> visited = new java.util.HashSet<>();
-        String name = className.replace('.', '/');
-        while (name != null && visited.add(name)) {
-            JarEntry entry = jar.getJarEntry(name + ".class");
-            if (entry == null) {
-                return null;
-            }
-            try (InputStream stream = jar.getInputStream(entry)) {
-                ClassFileMetadata metadata = ClassFileMetadata.read(stream);
-                if (metadata.annotation != null) {
-                    return metadata.annotation;
-                }
-                name = metadata.superName;
-            }
-        }
-        return null;
+    private static String required(Properties properties, String key) throws ExtensionException {
+        String value = value(properties, key, "");
+        if (value.isEmpty()) { throw new ExtensionException("Missing required '" + key + "' in " + DESCRIPTOR_ENTRY); }
+        return value;
     }
 
-    private static String pick(String first, String second) {
-        return pick(first, second, null);
-    }
-
-    private static String pick(String first, String second, String fallback) {
-        if (!isBlank(first)) {
-            return first.trim();
-        }
-        if (!isBlank(second)) {
-            return second.trim();
-        }
-        return fallback;
-    }
-
-    private static List<String> mergeTags(String raw, ClassFileMetadata.Annotation annotation) {
-        List<String> tags = split(raw);
-        if (tags.isEmpty() && annotation != null) {
-            tags = new ArrayList<>(annotation.strings("tags"));
-        }
-        return unmodifiable(tags);
-    }
-
-    private static List<String> mergeStrings(String raw, List<String> fallback) {
-        List<String> values = split(raw);
-        if (values.isEmpty()) {
-            values = new ArrayList<>(fallback);
-        }
-        return unmodifiable(values);
+    private static String value(Properties properties, String key, String fallback) {
+        String value = properties.getProperty(key);
+        return isBlank(value) ? fallback : value.trim();
     }
 
     private static List<String> split(String raw) {
@@ -249,7 +145,7 @@ public final class ExtensionDescriptorReader {
         }
     }
 
-    private static String sha256(Path file) {
+    private static String sha256(Path file) throws IOException {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] buffer = new byte[8192];
@@ -266,7 +162,7 @@ public final class ExtensionDescriptorReader {
             }
             return builder.toString();
         } catch (Exception e) {
-            return "";
+            throw new IOException("Unable to hash extension archive: " + file, e);
         }
     }
 }

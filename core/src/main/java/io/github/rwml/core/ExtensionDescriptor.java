@@ -13,8 +13,7 @@ import java.util.List;
 
 /**
  * Fully resolved, immutable metadata of a single extension. It merges the
- * values found in {@code META-INF/extension.properties} with the
- * {@code @ExtensionInfo} annotation and with facts observed on the archive
+ * values found in {@code META-INF/extension.properties} with facts observed on the archive
  * itself (size, digest, required bytecode level).
  */
 public record ExtensionDescriptor(

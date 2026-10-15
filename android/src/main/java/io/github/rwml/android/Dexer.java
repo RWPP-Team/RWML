@@ -8,13 +8,19 @@
 package io.github.rwml.android;
 
 import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -23,6 +29,7 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import java.util.stream.Stream;
+import java.util.zip.Adler32;
 
 /**
  * Compiles class files into dex on the device, with {@code dx} - the dexer of the Android Open Source
@@ -237,6 +244,60 @@ final class Dexer {
             return false;
         }
         return false;
+    }
+
+    /** Checks carried dex before an import replaces an installed archive. No classes are mounted. */
+    static void validateCarriedDex(Path archive) throws IOException {
+        try (JarFile jar = new JarFile(archive.toFile())) {
+            if (jar.getJarEntry("classes.dex") == null) {
+                throw new IOException("Android extensions must contain classes.dex and class metadata");
+            }
+            Enumeration<JarEntry> entries = jar.entries();
+            long total = 0;
+            while (entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
+                if (!isDexName(entry.getName())) { continue; }
+                if (!entry.getName().matches("classes(?:[2-9]|[1-9][0-9]+)?\\.dex")) {
+                    throw new IOException("Invalid dex name: " + entry.getName());
+                }
+                total += entry.getSize();
+                if (entry.getSize() < 112 || total > 128L * 1024 * 1024) {
+                    throw new IOException("Invalid or oversized dex: " + entry.getName());
+                }
+                try (DataInputStream input = new DataInputStream(jar.getInputStream(entry))) {
+                    byte[] header = new byte[112];
+                    input.readFully(header);
+                    if (header[0] != 'd' || header[1] != 'e' || header[2] != 'x' || header[3] != '\n'
+                        || header[7] != 0 || header[4] < '0' || header[4] > '9'
+                        || header[5] < '0' || header[5] > '9' || header[6] < '0' || header[6] > '9') {
+                        throw new IOException("Invalid dex header: " + entry.getName());
+                    }
+                    ByteBuffer fields = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
+                    if (fields.getInt(32) != entry.getSize() || fields.getInt(36) < 112
+                        || fields.getInt(36) > entry.getSize()) {
+                        throw new IOException("Invalid dex size: " + entry.getName());
+                    }
+                    Adler32 checksum = new Adler32();
+                    MessageDigest signature;
+                    try { signature = MessageDigest.getInstance("SHA-1"); }
+                    catch (NoSuchAlgorithmException missing) { throw new IOException(missing); }
+                    checksum.update(header, 12, 100);
+                    signature.update(header, 32, 80);
+                    byte[] buffer = new byte[16384];
+                    long length = header.length;
+                    int count;
+                    while ((count = input.read(buffer)) != -1) {
+                        checksum.update(buffer, 0, count);
+                        signature.update(buffer, 0, count);
+                        length += count;
+                    }
+                    if (length != entry.getSize() || (int) checksum.getValue() != fields.getInt(8)
+                        || !Arrays.equals(signature.digest(), Arrays.copyOfRange(header, 12, 32))) {
+                        throw new IOException("Corrupt dex: " + entry.getName());
+                    }
+                }
+            }
+        }
     }
 
     /** @return whether a jar entry name is a dex file the platform would load */

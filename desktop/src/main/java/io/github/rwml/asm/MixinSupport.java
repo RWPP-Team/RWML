@@ -10,7 +10,8 @@ package io.github.rwml.asm;
 import io.github.rwml.api.ExtensionException;
 import io.github.rwml.api.MixinBridge;
 
-import kim.der.asm.AsmScanner;
+import kim.der.asm.AsmRegistry;
+import kim.der.asm.transformer.AsmTransformException;
 import kim.der.asm.agent.AsmBootstrap;
 import kim.der.asm.transformer.AsmProcessor;
 
@@ -28,6 +29,10 @@ import java.net.URI;
 import java.net.URL;
 import java.nio.file.Path;
 import java.util.Enumeration;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.net.URLClassLoader;
+import java.util.function.BiConsumer;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.jar.JarEntry;
@@ -52,6 +57,43 @@ public final class MixinSupport implements MixinBridge {
     private static final MixinSupport INSTANCE = new MixinSupport();
 
     private volatile boolean transformerInstalled;
+    private volatile BiConsumer<Path, Throwable> failureListener = (archive, failure) -> { };
+    private final Map<String, Path> owners = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, Set<Path>> targetOwners = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Set<String> registeredTargets = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Map<Path, URLClassLoader> archiveLoaders = new LinkedHashMap<>();
+
+    public void onFailure(BiConsumer<Path, Throwable> listener) { failureListener = listener; }
+
+    /** A transformer exception must be reported: the JVM otherwise ignores it and defines original bytes. */
+    void failed(String target, Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof AsmTransformException) {
+                Path owner = owners.get(((AsmTransformException) current).getAsmClassName());
+                if (owner != null) { failureListener.accept(owner, failure); }
+                return;
+            }
+            current = current.getCause();
+        }
+        Set<Path> paths = targetOwners.get(target);
+        if (paths != null) {
+            for (Path owner : paths) { failureListener.accept(owner, failure); }
+        }
+    }
+
+    /** Validates raw targets without defining them or running game initialization. */
+    public void validateRegistered() throws ExtensionException {
+        for (String target : registeredTargets) {
+            try (InputStream stream = getClass().getClassLoader().getResourceAsStream(target + ".class")) {
+                if (stream == null) { throw new IOException("Mixin target is missing: " + target); }
+                transform(target, readFully(stream), getClass().getClassLoader());
+            } catch (Throwable failure) {
+                failed(target, failure);
+                throw new ExtensionException("Mixin validation failed for " + target, failure);
+            }
+        }
+    }
 
     /** Canonical paths of the archives already handed to the system class loader. */
     private final Set<String> exposedArchives = new LinkedHashSet<>();
@@ -98,21 +140,49 @@ public final class MixinSupport implements MixinBridge {
     }
 
     /**
-     * Scans an archive, registers every {@code @AsmMixin} it contains, and retransforms the targets
-     * that were already loaded: the scanner loads every class in the jar, and jar entry order is not
-     * guaranteed, so a target can be defined before its mixin is registered.
+     * Reads class headers first and loads only mixin classes. Ordinary extension classes and target
+     * classes are left alone; only targets that are already defined need retransformation.
      */
     @Override
-    public void registerArchive(Path archive) throws ExtensionException {
+    public synchronized void registerArchive(Path archive) throws ExtensionException {
+        Path key = archive.toAbsolutePath().normalize();
+        if (archiveLoaders.containsKey(key)) { return; }
+        URLClassLoader loader = null;
         try {
-            exposeToHostLoader(archive);
-            AsmScanner.scanJarWithResult(archive.toFile(), "");
-            retransformTargets(collectTargets(archive));
-        } catch (Throwable t) {
-            // Reported, not swallowed: an extension whose mixins did not go in behaves as though they
-            // had, and the bugs that produces are found last.
-            throw new ExtensionException("Mixins in " + archive.getFileName() + " could not be "
-                + "registered", t);
+            Map<String, Set<String>> mixins = new LinkedHashMap<>();
+            try (JarFile jar = new JarFile(archive.toFile())) {
+                Enumeration<JarEntry> entries = jar.entries();
+                while (entries.hasMoreElements()) {
+                    JarEntry entry = entries.nextElement();
+                    if (entry.isDirectory() || !entry.getName().endsWith(".class")
+                        || entry.getName().startsWith("META-INF/")) { continue; }
+                    Set<String> targets = new LinkedHashSet<>();
+                    try (InputStream stream = jar.getInputStream(entry)) { readMixinTargets(readFully(stream), targets); }
+                    if (!targets.isEmpty()) {
+                        mixins.put(entry.getName().substring(0, entry.getName().length() - 6).replace('/', '.'), targets);
+                    }
+                }
+            }
+            if (!mixins.isEmpty() && !isInstalled()) {
+                throw new ExtensionException("A JVM agent is required to apply mixins in " + archive.getFileName());
+            }
+            if (!mixins.isEmpty()) { exposeToHostLoader(archive); }
+            loader = new URLClassLoader(new URL[]{archive.toUri().toURL()}, getClass().getClassLoader());
+            for (Map.Entry<String, Set<String>> mixin : mixins.entrySet()) {
+                owners.put(mixin.getKey(), key);
+                AsmRegistry.register(Class.forName(mixin.getKey(), false, loader));
+                registeredTargets.addAll(mixin.getValue());
+                for (String target : mixin.getValue()) {
+                    targetOwners.computeIfAbsent(target, ignored -> java.util.concurrent.ConcurrentHashMap.newKeySet()).add(key);
+                }
+            }
+            archiveLoaders.put(key, loader);
+            retransformTargets(registeredTargets);
+        } catch (Throwable failure) {
+            if (loader != null && !archiveLoaders.containsKey(key)) {
+                try { loader.close(); } catch (IOException closeFailure) { failure.addSuppressed(closeFailure); }
+            }
+            throw new ExtensionException("Mixins in " + archive.getFileName() + " could not be registered", failure);
         }
     }
 
@@ -125,7 +195,7 @@ public final class MixinSupport implements MixinBridge {
      * {@code NoClassDefFoundError}. The {@link JarFile} is never closed: the JVM reads out of it for
      * the rest of the process.</p>
      */
-    private void exposeToHostLoader(Path archive) {
+    private void exposeToHostLoader(Path archive) throws IOException {
         Instrumentation instrumentation = RwmlAgent.instrumentation();
         if (instrumentation == null) {
             // Without an agent there is no live rewriting either, so there is nothing to expose.
@@ -142,41 +212,7 @@ public final class MixinSupport implements MixinBridge {
                 return;
             }
         }
-        try {
-            instrumentation.appendToSystemClassLoaderSearch(new JarFile(archive.toFile()));
-        } catch (Throwable t) {
-            System.err.println("[rwml-asm] Could not add " + archive.getFileName() + " to the host class "
-                + "path; mixins patching host classes may fail to link: " + t);
-        }
-    }
-
-    /**
-     * Reads the target class names straight out of the {@code @AsmMixin} annotations of an archive.
-     *
-     * <p>Deliberately done with ASM rather than reflection: reflection would have to resolve the mixin
-     * class through <em>this</em> class loader, while the mixin actually lives in the extension's own
-     * class loader and is simply not visible here. Working on the raw bytes is load-order and
-     * class-loader independent.</p>
-     */
-    private static Set<String> collectTargets(Path archive) {
-        Set<String> targets = new LinkedHashSet<>();
-        try (JarFile jar = new JarFile(archive.toFile())) {
-            Enumeration<JarEntry> entries = jar.entries();
-            while (entries.hasMoreElements()) {
-                JarEntry entry = entries.nextElement();
-                if (entry.isDirectory() || !entry.getName().endsWith(".class")) {
-                    continue;
-                }
-                byte[] bytes;
-                try (InputStream in = jar.getInputStream(entry)) {
-                    bytes = readFully(in);
-                }
-                readMixinTargets(bytes, targets);
-            }
-        } catch (Throwable ignored) {
-            // A malformed archive simply contributes no targets.
-        }
-        return targets;
+        instrumentation.appendToSystemClassLoaderSearch(new JarFile(archive.toFile()));
     }
 
     /** Extracts {@code value} / {@code targets} of a possible {@code @AsmMixin} on one class. */
@@ -216,26 +252,20 @@ public final class MixinSupport implements MixinBridge {
                     };
                 }
             }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
-        } catch (Throwable ignored) {
-            // Not a class we can parse; skip it.
+        } catch (RuntimeException failure) {
+            throw new IllegalArgumentException("Cannot inspect extension class metadata", failure);
         }
     }
 
-    private void retransformTargets(Set<String> targets) {
+    private void retransformTargets(Set<String> targets) throws Exception {
         Instrumentation instrumentation = RwmlAgent.instrumentation();
-        if (instrumentation == null || targets.isEmpty()) {
-            // No agent attached (and none could be self-attached): live rewriting is unavailable, but
-            // the mixins remain registered for the next launch.
-            return;
-        }
-        ClassLoader loader = getClass().getClassLoader();
-        for (String internalName : targets) {
-            try {
-                Class<?> target = Class.forName(internalName.replace('/', '.'), false, loader);
+        if (instrumentation == null || targets.isEmpty()) { return; }
+        for (Class<?> target : instrumentation.getAllLoadedClasses()) {
+            if (targets.contains(target.getName().replace('.', '/'))) {
+                if (!instrumentation.isModifiableClass(target)) {
+                    throw new ExtensionException("Already loaded mixin target cannot be changed: " + target.getName());
+                }
                 instrumentation.retransformClasses(target);
-            } catch (Throwable ignored) {
-                // Not loaded yet (or not visible here): the transformer will apply the mixin the
-                // first time the class is actually loaded.
             }
         }
     }
@@ -257,7 +287,11 @@ public final class MixinSupport implements MixinBridge {
      */
     @Override
     public byte[] transform(String internalName, byte[] classfileBuffer, ClassLoader loader) {
-        return new AsmProcessor().transform(internalName, classfileBuffer, loader);
+        try { return new AsmProcessor().transform(internalName, classfileBuffer, loader); }
+        catch (Throwable failure) {
+            failed(internalName, failure);
+            throw failure;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -271,6 +305,7 @@ public final class MixinSupport implements MixinBridge {
      * double-apply mixins).
      */
     private static boolean isAsmAgentInstalled() {
+        if (RwmlAgent.instrumentation() != null) { return true; }
         try {
             Class<?> core = Class.forName("kim.der.asm.agent.AsmCore");
             Field agentField = core.getDeclaredField("agent");

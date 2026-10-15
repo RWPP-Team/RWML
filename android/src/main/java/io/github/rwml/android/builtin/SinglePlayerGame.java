@@ -69,7 +69,7 @@ final class SinglePlayerGame {
         GameEngine engine = GameEngine.getInstance();
         if (engine == null) {
             Log.w(TAG, "The engine is not up; the map cannot be loaded.");
-            Toast.makeText(from, "The game is not loaded yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(from, LocalizedText.ui("ui.notLoaded"), Toast.LENGTH_SHORT).show();
             return false;
         }
 
@@ -87,7 +87,7 @@ final class SinglePlayerGame {
             MapSelectActivity.loadMapWithAI(mapPath, skirmish, opponents, allies, asTeams, false);
         } catch (Throwable t) {
             Log.e(TAG, "The map could not be loaded: " + mapPath, t);
-            Toast.makeText(from, "Failed to load " + mapPath + ": " + t.getMessage(),
+            Toast.makeText(from, LocalizedText.ui("ui.loadFailedPrefix") + mapPath + ": " + t.getMessage(),
                 Toast.LENGTH_LONG).show();
             return false;
         }

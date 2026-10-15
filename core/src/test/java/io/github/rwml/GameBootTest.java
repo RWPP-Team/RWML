@@ -121,6 +121,18 @@ class GameBootTest {
     }
 
     @Test
+    void recoveryHostsStopAfterTheFirstStageFailure(@TempDir Path directory) {
+        GameBoot boot = boot(directory);
+        boot.stopOnFailure();
+        boot.add(GameBoot.ENGINE, context -> { throw new LinkageError("failed mixin linkage"); });
+        boot.add(GameBoot.MODS, context -> { throw new AssertionError("Must not prepare mods after an engine failure"); });
+        StageReport report = boot.start();
+        assertEquals(java.util.Set.of(GameBoot.ENGINE), report.failed().keySet());
+        assertTrue(report.ran().isEmpty());
+        assertSame(report, boot.start());
+    }
+
+    @Test
     void runsOnceSoASecondCallCannotBuildASecondEngine(@TempDir Path directory) {
         GameBoot boot = boot(directory);
         List<String> order = new ArrayList<>();

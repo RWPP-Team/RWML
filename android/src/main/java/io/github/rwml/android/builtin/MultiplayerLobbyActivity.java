@@ -39,11 +39,13 @@ import com.corrodinggames.rts.gameFramework.network.GameSetupMapType;
 import com.corrodinggames.rts.gameFramework.network.MasterServerConnector;
 import com.corrodinggames.rts.gameFramework.network.NetworkEngine;
 
+import io.github.rwml.android.R;
+import io.github.rwml.api.Rwml;
+import io.github.rwml.api.ui.UiHooks;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-
-import io.github.rwml.android.R;
 
 /**
  * The multiplayer lobby: the game's own lobby layout, the list of games the master server has
@@ -70,7 +72,7 @@ import io.github.rwml.android.R;
  * <p>Joining Bluetooth and linking a mod folder belong to the Android build's own connectivity and
  * file browser, which this host does not carry, so those controls stay hidden.</p>
  */
-public final class MultiplayerLobbyActivity extends Activity {
+public final class MultiplayerLobbyActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
@@ -137,18 +139,19 @@ public final class MultiplayerLobbyActivity extends Activity {
      * The reports are acted on only while this screen is the one being looked at.</p>
      */
     private boolean resumed;
+    private AutoCloseable serverChanges;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("Multiplayer");
+        setTitle(LocalizedText.ui("ui.multiplayer"));
         AndroidApp.prepare(this, true);
         setContentView(R.layout.multiplayer_lobby);
 
         engine = GameEngine.getInstance();
         if (engine == null || engine.networkEngine == null) {
             Log.w(TAG, "The engine is not up; the lobby cannot bind.");
-            Toast.makeText(this, "The game is not loaded yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.notLoaded"), Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
@@ -194,6 +197,8 @@ public final class MultiplayerLobbyActivity extends Activity {
         super.onResume();
         open = this;
         resumed = true;
+        serverChanges = Rwml.get().ui().hooks().subscribe(
+            UiHooks.SERVERS_CHANGED, this::runOnUiThread, ignored -> postRebuild());
         LobbyServerList.enter(this);
         AndroidGameView.setEngineDrawingEnabled(engine, false);
         // Coming back from a battleroom is a reason to ask again, which is what the game's own
@@ -203,6 +208,8 @@ public final class MultiplayerLobbyActivity extends Activity {
 
     @Override
     protected void onPause() {
+        try { if (serverChanges != null) { serverChanges.close(); serverChanges = null; } }
+        catch (Exception failure) { Log.w(TAG, "Cannot close server subscription", failure); }
         resumed = false;
         LobbyServerList.leave(this);
         if (open == this) { open = null; }
@@ -287,7 +294,7 @@ public final class MultiplayerLobbyActivity extends Activity {
     private void openHostDialog() {
         Dialog dialog = new Dialog(this);
         dialog.setContentView(R.layout.multiplayer_lobby_hostgame);
-        dialog.setTitle("Host game");
+        dialog.setTitle(LocalizedText.ui("ui.host"));
         if (dialog.getWindow() != null) {
             dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
         }
@@ -340,7 +347,7 @@ public final class MultiplayerLobbyActivity extends Activity {
             }
         } catch (Throwable t) {
             Log.e(TAG, "A server could not be started.", t);
-            Toast.makeText(this, "Could not host: " + t.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, LocalizedText.ui("ui.hostFailedPrefix") + t.getMessage(), Toast.LENGTH_LONG).show();
             return;
         }
         ensureHostMapIsLoadable(network);
@@ -484,7 +491,7 @@ public final class MultiplayerLobbyActivity extends Activity {
         String failure = engine == null || engine.networkEngine == null
             ? null : engine.networkEngine.serverListLoadError;
         String message = failure == null || failure.isEmpty()
-            ? "No Active Games :(" : "ERROR: " + failure;
+            ? LocalizedText.ui("ui.noGames") : "ERROR: " + failure;
 
         TableRow row = new TableRow(this);
         row.setBackgroundResource(android.R.drawable.list_selector_background);
@@ -581,7 +588,7 @@ public final class MultiplayerLobbyActivity extends Activity {
     private void joinTypedAddress() {
         String address = joinAddress == null ? null : joinAddress.getText().toString().trim();
         if (address == null || address.isEmpty()) {
-            Toast.makeText(this, "Enter the address of a game to join.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.enterAddress"), Toast.LENGTH_SHORT).show();
             return;
         }
         // The game remembers the last address it was asked to reach, and this is where it is set.
@@ -609,7 +616,7 @@ public final class MultiplayerLobbyActivity extends Activity {
         try {
             DiscoveredServer found = MasterServerConnector.findDiscoveredServer(listed.serverId);
             if (found == null) {
-                alert("Join Server?", "That server no longer exists");
+                alert(LocalizedText.ui("ui.joinPrompt"), LocalizedText.ui("ui.serverGone"));
                 return;
             }
             server = found;
@@ -620,13 +627,13 @@ public final class MultiplayerLobbyActivity extends Activity {
         final boolean link = server.hasUrl();
         final String address = link ? null
             : server.isLan ? server.getLanConnectAddress() : server.getConnectAddress();
-        String label = link ? "Open"
-            : server.isLan ? "Join over LAN" : "Join";
+        String label = link ? LocalizedText.ui("ui.open")
+            : server.isLan ? LocalizedText.ui("ui.joinLan") : LocalizedText.ui("ui.join");
         final DiscoveredServer game = server;
 
         new AlertDialog.Builder(this)
             .setIcon(android.R.drawable.ic_dialog_info)
-            .setTitle(link ? "Open Link?" : "Join Server?")
+            .setTitle(link ? LocalizedText.ui("ui.openLinkPrompt") : LocalizedText.ui("ui.joinPrompt"))
             .setMessage(infoTextOf(game))
             .setPositiveButton(label, (dialog, which) -> {
                 if (link) {
@@ -635,7 +642,7 @@ public final class MultiplayerLobbyActivity extends Activity {
                     joinServerWithId(address, game.serverId);
                 }
             })
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(LocalizedText.ui("common.cancel"), null)
             .show();
     }
 
@@ -689,7 +696,7 @@ public final class MultiplayerLobbyActivity extends Activity {
                 () -> runOnUiThread(this::joinFinished));
         } catch (Throwable t) {
             Log.e(TAG, "The connection to " + address + " could not be started.", t);
-            alert("Connection failed", "Connection failed.\n" + t.getMessage());
+            alert(LocalizedText.ui("ui.connectionFailed"), LocalizedText.ui("ui.connectionFailedPrefix") + t.getMessage());
             return;
         }
         showConnecting();
@@ -719,7 +726,7 @@ public final class MultiplayerLobbyActivity extends Activity {
                 return;
             }
             Log.w(TAG, "The connection failed: " + failure);
-            alert("Connection failed", "Connection failed.\n" + failure
+            alert(LocalizedText.ui("ui.connectionFailed"), LocalizedText.ui("ui.connectionFailedPrefix") + failure
                 + "\nTarget server may not be open to the internet");
             return;
         }
@@ -730,12 +737,12 @@ public final class MultiplayerLobbyActivity extends Activity {
             // path closes the last one before it takes the new game on.
             network.disconnect("starting new");
             if (!network.startClientConnection(connector.connectedSocket)) {
-                alert("Connection failed", "The connection to the game was refused.");
+                alert(LocalizedText.ui("ui.connectionFailed"), LocalizedText.ui("ui.connectionRefused"));
                 return;
             }
         } catch (Throwable t) {
             Log.e(TAG, "The connection could not be handed to the engine.", t);
-            alert("Connection failed", "Connection failed.\n" + t.getMessage());
+            alert(LocalizedText.ui("ui.connectionFailed"), LocalizedText.ui("ui.connectionFailedPrefix") + t.getMessage());
             return;
         }
         Log.i(TAG, "Connected.");
@@ -746,7 +753,7 @@ public final class MultiplayerLobbyActivity extends Activity {
     private boolean rememberName() {
         String name = playerName == null ? null : playerName.getText().toString();
         if (name == null || name.trim().isEmpty()) {
-            Toast.makeText(this, "Enter a name to play under.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.enterName"), Toast.LENGTH_SHORT).show();
             return false;
         }
         try {
@@ -768,7 +775,7 @@ public final class MultiplayerLobbyActivity extends Activity {
             startActivity(view);
         } catch (Throwable t) {
             Log.w(TAG, "The link " + url + " could not be opened.", t);
-            alert("Open Link?", url);
+            alert(LocalizedText.ui("ui.openLinkPrompt"), url);
         }
     }
 
@@ -788,7 +795,7 @@ public final class MultiplayerLobbyActivity extends Activity {
     private void showConnecting() {
         dismissConnecting();
         ProgressDialog dialog = new ProgressDialog(this);
-        dialog.setMessage("Connecting...");
+        dialog.setMessage(LocalizedText.ui("ui.connecting"));
         dialog.setCancelable(false);
         connecting = dialog;
         dialog.show();

@@ -38,7 +38,7 @@ import io.github.rwml.android.R;
  * where a replay is watched: replays run through the same screen as a game, because they are the
  * same stream of commands played back.</p>
  */
-public final class ReplaySelectActivity extends Activity {
+public final class ReplaySelectActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
@@ -48,7 +48,7 @@ public final class ReplaySelectActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("Load Replay");
+        setTitle(LocalizedText.ui("ui.replay"));
         AndroidApp.prepare(this, true);
         setContentView(R.layout.replay_select);
 
@@ -77,7 +77,7 @@ public final class ReplaySelectActivity extends Activity {
         }
         if (names.length == 0) {
             TextView empty = new TextView(this);
-            empty.setText("No recordings found.");
+            empty.setText(LocalizedText.ui("ui.noReplays"));
             empty.setTextColor(Color.WHITE);
             empty.setPadding(0, dip(10), 0, dip(10));
             holder.addView(empty);
@@ -159,7 +159,7 @@ public final class ReplaySelectActivity extends Activity {
     private void play(String name) {
         GameEngine engine = GameEngine.getInstance();
         if (engine == null) {
-            Toast.makeText(this, "The game is not loaded yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.notLoaded"), Toast.LENGTH_SHORT).show();
             return;
         }
         boolean started;
@@ -167,12 +167,12 @@ public final class ReplaySelectActivity extends Activity {
             started = engine.replayEngine.loadReplay(name);
         } catch (Throwable t) {
             Log.e(TAG, "The replay " + name + " could not be loaded.", t);
-            Toast.makeText(this, "Failed to load " + displayNameOf(name) + ": " + t.getMessage(),
+            Toast.makeText(this, LocalizedText.ui("ui.loadFailedPrefix") + displayNameOf(name) + ": " + t.getMessage(),
                 Toast.LENGTH_LONG).show();
             return;
         }
         if (!started) {
-            Toast.makeText(this, "Failed to load " + displayNameOf(name) + ".",
+            Toast.makeText(this, LocalizedText.ui("ui.loadFailedPrefix") + displayNameOf(name) + ".",
                 Toast.LENGTH_LONG).show();
             return;
         }

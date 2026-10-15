@@ -51,7 +51,7 @@ import io.github.rwml.android.R;
  * decides. Choosing a tile asks for confirmation and then hands the map to
  * {@link SinglePlayerGame}.</p>
  */
-public final class LevelSelectActivity extends Activity {
+public final class LevelSelectActivity extends BuiltinActivity {
 
     private MenuBackground background;
 
@@ -94,7 +94,7 @@ public final class LevelSelectActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("Levels");
+        setTitle(LocalizedText.ui("ui.levels"));
         AndroidApp.prepare(this, true);
         background = new MenuBackground(this, R.layout.level_select_grid);
 
@@ -264,10 +264,10 @@ public final class LevelSelectActivity extends Activity {
 
         new AlertDialog.Builder(this)
             .setIcon(android.R.drawable.ic_dialog_info)
-            .setTitle("Start?")
+            .setTitle(LocalizedText.ui("ui.startPrompt"))
             .setMessage(message.toString())
-            .setPositiveButton("Start game", (dialog, which) -> start(entry, opponents, mode))
-            .setNegativeButton("Cancel", null)
+            .setPositiveButton(LocalizedText.ui("launcher.start"), (dialog, which) -> start(entry, opponents, mode))
+            .setNegativeButton(LocalizedText.ui("common.cancel"), null)
             .show();
     }
 
@@ -333,7 +333,7 @@ public final class LevelSelectActivity extends Activity {
 
     private void chooseMap() {
         if (!FileImport.choose(this, REQUEST_IMPORT)) {
-            Toast.makeText(this, "No file picker is available on this device.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, LocalizedText.ui("ui.noPicker"), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -355,19 +355,19 @@ public final class LevelSelectActivity extends Activity {
         if (name == null || !name.endsWith(".tmx")) {
             new AlertDialog.Builder(this)
                 .setIcon(android.R.drawable.ic_dialog_alert)
-                .setTitle("Cannot import")
-                .setMessage("Expected a .tmx map file, but got: " + name)
-                .setPositiveButton("Ok", null)
+                .setTitle(LocalizedText.ui("ui.importFailed"))
+                .setMessage(LocalizedText.ui("ui.mapExpected") + name)
+                .setPositiveButton(LocalizedText.ui("common.confirm"), null)
                 .show();
             return;
         }
         String failure = FileImport.copyInto(this, source, FileImport.join(mode, name));
         if (failure != null) {
-            Toast.makeText(this, "Failed to import " + name + ": " + failure,
+            Toast.makeText(this, LocalizedText.ui("ui.importFailedPrefix") + name + ": " + failure,
                 Toast.LENGTH_LONG).show();
             return;
         }
-        Toast.makeText(this, "Imported " + name + ".", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, LocalizedText.ui("ui.importedPrefix") + name + ".", Toast.LENGTH_SHORT).show();
         listMaps();
         if (grid != null && grid.getAdapter() instanceof BaseAdapter) {
             ((BaseAdapter) grid.getAdapter()).notifyDataSetChanged();

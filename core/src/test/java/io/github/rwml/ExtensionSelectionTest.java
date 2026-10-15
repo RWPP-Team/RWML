@@ -47,6 +47,32 @@ class ExtensionSelectionTest {
         assertNull(plan.framework());
         assertEquals(List.of("ordinary"), ids(plan.enabled()));
     }
+    @Test void disabledVersionConflictsDoNotBlockOtherExtensionsAndStaleChoiceIsNotArbitrary() {
+        ExtensionDescriptor one = ext("versioned", false);
+        ExtensionDescriptor two = new ExtensionDescriptor(one.id(), one.name(), "2", "", List.of(), "", "", "", "",
+            List.of(), "1", 8, "Main", "", List.of(), List.of(), List.of(), Path.of("two.jar"), 0, "different");
+        ExtensionSelection disabled = ExtensionSelection.resolve(List.of(one, two, builtin), Set.of("versioned"));
+        assertEquals(List.of("builtin"), ids(disabled.enabled()));
+        assertFalse(disabled.excluded().containsKey("versioned"));
+        ExtensionSelection stale = ExtensionSelection.resolve(List.of(one, two, builtin), Set.of(),
+            java.util.Map.of("versioned", "removed-digest"));
+        assertTrue(stale.excluded().containsKey("versioned"));
+        assertEquals(List.of("builtin"), ids(stale.enabled()));
+    }
+
+    @Test void identicalCopiesDoNotCreateAChoiceAndSelectedSingleRemainingVersionLoads() {
+        ExtensionDescriptor one = ext("versioned", false);
+        ExtensionDescriptor copy = new ExtensionDescriptor(one.id(), one.name(), one.version(), one.description(),
+            one.authors(), one.license(), one.licenseUrl(), one.homepage(), one.icon(), one.tags(), one.apiVersion(),
+            one.requiredJavaVersion(), one.mainClass(), one.uiFramework(), one.dependsOn(), one.loadBefore(),
+            one.loadAfter(), Path.of("copy.jar"), one.sourceSize(), one.sourceSha256());
+        ExtensionSelection plan = ExtensionSelection.resolve(List.of(one, copy), Set.of());
+        assertEquals(List.of(one), plan.enabled());
+        assertTrue(plan.excluded().isEmpty());
+        assertEquals(List.of(one), ExtensionSelection.resolve(List.of(one), Set.of(),
+            java.util.Map.of(one.id(), "removed-digest")).enabled());
+    }
+
     private static List<String> ids(List<ExtensionDescriptor> descriptors) {
         return descriptors.stream().map(ExtensionDescriptor::id).toList();
     }

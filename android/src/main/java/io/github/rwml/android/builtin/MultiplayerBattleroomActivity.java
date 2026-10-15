@@ -83,7 +83,7 @@ import io.github.rwml.android.R;
  * Bluetooth, and the file browser behind importing a map. This host carries neither, so the Bluetooth
  * button stays hidden; importing is done through the platform's own file picker instead.</p>
  */
-public final class MultiplayerBattleroomActivity extends Activity {
+public final class MultiplayerBattleroomActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
@@ -204,7 +204,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("Battleroom");
+        setTitle(LocalizedText.ui("ui.battleroom"));
         AndroidApp.prepare(this, true);
         setContentView(R.layout.multiplayer_battleroom);
         // The room is drawn over the game's own tiled background, so the window's is taken away; the
@@ -217,7 +217,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
         network = engine == null ? null : engine.networkEngine;
         if (network == null) {
             Log.w(TAG, "The engine is not up; the battleroom cannot bind.");
-            Toast.makeText(this, "The game is not loaded yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.notLoaded"), Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
@@ -284,7 +284,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
             .setTitle(LocalizedText.word("menus.ingame.multiplayerClose.title", "Close?"))
             .setNegativeButton(LocalizedText.word("menus.ingame.multiplayerClose.stayButton", "Stay"), null);
         if (network != null && network.singlePlayerServer) {
-            dialog.setMessage("What would you like to do?");
+            dialog.setMessage(LocalizedText.ui("ui.chooseAction"));
             dialog.setPositiveButton(LocalizedText.word("menus.ingame.exitGame", "Exit"),
                 (clicked, which) -> leaveAndClose());
         } else {
@@ -1032,7 +1032,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
             try {
                 String bareName = network.gameSetup == null ? null : network.gameSetup.mapName;
                 if (bareName == null || bareName.isEmpty() || NO_MAP.equals(bareName)) {
-                    Toast.makeText(this, "No map selected.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, LocalizedText.ui("ui.noMap"), Toast.LENGTH_SHORT).show();
                     return;
                 }
                 // The path the engine loads, derived from the type the way the game's own script derives
@@ -1044,15 +1044,15 @@ public final class MultiplayerBattleroomActivity extends Activity {
                 } else if (network.gameSetup.mapType == GameSetupMapType.savedGame) {
                     network.mapName = null;
                 } else {
-                    Toast.makeText(this, "No map type selected.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, LocalizedText.ui("ui.noMapType"), Toast.LENGTH_SHORT).show();
                     return;
                 }
                 if (!network.startGame()) {
-                    Toast.makeText(this, "Waiting for every player to ready up.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, LocalizedText.ui("ui.waitingPlayers"), Toast.LENGTH_SHORT).show();
                 }
             } catch (Throwable t) {
                 Log.e(TAG, "The game could not be started.", t);
-                Toast.makeText(this, "Could not start: " + t.getMessage(), Toast.LENGTH_LONG).show();
+                Toast.makeText(this, LocalizedText.ui("ui.startFailedPrefix") + t.getMessage(), Toast.LENGTH_LONG).show();
             }
         } else if (network.proxyController) {
             try {
@@ -1071,7 +1071,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
                 network.addAIToGame();
             } catch (Throwable t) {
                 Log.e(TAG, "A computer player could not be added.", t);
-                Toast.makeText(this, "Could not add a computer player.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, LocalizedText.ui("ui.addAiFailed"), Toast.LENGTH_SHORT).show();
                 return;
             }
         } else if (network.proxyController) {
@@ -1091,7 +1091,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
     private void changeTeam() {
         final Team local = network.localTeam;
         if (local == null) {
-            Toast.makeText(this, "You are not on a team yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.noTeam"), Toast.LENGTH_SHORT).show();
             return;
         }
         final List<Team> teams = teams();
@@ -1103,7 +1103,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
             return;
         }
         new AlertDialog.Builder(this)
-            .setTitle("Change team")
+            .setTitle(LocalizedText.ui("ui.changeTeam"))
             .setItems(names.toArray(new String[0]), (dialog, which) -> {
                 try {
                     network.sendSetTeamCommand(local, teams.get(which).teamId);
@@ -1112,7 +1112,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
                 }
                 refresh();
             })
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(LocalizedText.ui("common.cancel"), null)
             .show();
     }
 
@@ -1170,7 +1170,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
             .inflate(R.layout.multiplayer_battleroom_playerpopup, null);
         final Dialog dialog = new Dialog(this);
         dialog.setContentView(content);
-        dialog.setTitle("Player: " + nameOf(team));
+        dialog.setTitle(LocalizedText.ui("ui.playerPrefix") + nameOf(team));
         // The dialog has a field at its top, so the window pans rather than resizing the layout.
         dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
 
@@ -1433,7 +1433,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
             refresh();
         } catch (Throwable t) {
             Log.e(TAG, "The player's settings could not be applied.", t);
-            Toast.makeText(this, "Could not apply: " + t.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, LocalizedText.ui("ui.applyFailedPrefix") + t.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -1453,10 +1453,10 @@ public final class MultiplayerBattleroomActivity extends Activity {
         }
         new AlertDialog.Builder(this)
             .setIcon(android.R.drawable.ic_dialog_alert)
-            .setTitle("Kick player?")
-            .setMessage("Are you sure you want to click the player: " + nameOf(team) + "?")
-            .setPositiveButton("Kick", (clicked, which) -> kick.run())
-            .setNegativeButton("Cancel", null)
+            .setTitle(LocalizedText.ui("ui.kickPrompt"))
+            .setMessage(LocalizedText.ui("ui.kickConfirmPrefix") + nameOf(team) + "?")
+            .setPositiveButton(LocalizedText.ui("ui.kick"), (clicked, which) -> kick.run())
+            .setNegativeButton(LocalizedText.ui("common.cancel"), null)
             .show();
     }
 
@@ -1469,10 +1469,10 @@ public final class MultiplayerBattleroomActivity extends Activity {
     private void confirmGive(final Team team) {
         new AlertDialog.Builder(this)
             .setIcon(android.R.drawable.ic_dialog_alert)
-            .setTitle("Give player control?")
-            .setMessage("Are you sure you want to transfer control to player: "
+            .setTitle(LocalizedText.ui("ui.giveControlPrompt"))
+            .setMessage(LocalizedText.ui("ui.giveConfirmPrefix")
                 + nameOf(team) + "?")
-            .setPositiveButton("Give", (clicked, which) -> {
+            .setPositiveButton(LocalizedText.ui("ui.give"), (clicked, which) -> {
                 if (!network.proxyController) {
                     Log.d(TAG, "A player was offered, but this device does not hold the host's controls.");
                     return;
@@ -1484,7 +1484,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
                 }
                 refresh();
             })
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(LocalizedText.ui("common.cancel"), null)
             .show();
     }
 
@@ -1597,14 +1597,14 @@ public final class MultiplayerBattleroomActivity extends Activity {
     private void showGameOptions() {
         final GameSetup editable = currentChangeableSetup();
         if (editable == null) {
-            Toast.makeText(this, "Only the host sets the game up.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.hostOnly"), Toast.LENGTH_SHORT).show();
             return;
         }
         View content = LayoutInflater.from(this)
             .inflate(R.layout.multiplayer_battleroom_gameoptions, null);
         final Dialog dialog = new Dialog(this);
         dialog.setContentView(content);
-        dialog.setTitle("Game Options");
+        dialog.setTitle(LocalizedText.ui("ui.options"));
         dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
         final Spinner difficulty = content.findViewById(R.id.netgameoptions_aiDifficulty);
         final Spinner units = content.findViewById(R.id.startingUnits);
@@ -1723,7 +1723,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
         } catch (Throwable t) {
             Log.e(TAG, "The multiplayer map could not be loaded.", t);
             starting = false;
-            Toast.makeText(this, "Could not start: " + t.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, LocalizedText.ui("ui.startFailedPrefix") + t.getMessage(), Toast.LENGTH_LONG).show();
             return;
         }
         startActivity(new Intent(this, InGameActivity.class));
@@ -1736,7 +1736,7 @@ public final class MultiplayerBattleroomActivity extends Activity {
 
     private void chooseMap() {
         if (!FileImport.choose(this, REQUEST_IMPORT)) {
-            Toast.makeText(this, "No file picker is available on this device.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, LocalizedText.ui("ui.noPicker"), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -1751,17 +1751,17 @@ public final class MultiplayerBattleroomActivity extends Activity {
         }
         String name = FileImport.nameOf(this, data.getData());
         if (name == null || !name.endsWith(".tmx")) {
-            Toast.makeText(this, "Expected a .tmx map file, but got: " + name,
+            Toast.makeText(this, LocalizedText.ui("ui.mapExpected") + name,
                 Toast.LENGTH_LONG).show();
             return;
         }
         String failure = FileImport.copyInto(this, data.getData(), FileImport.join(CUSTOM_FOLDER, name));
         if (failure != null) {
-            Toast.makeText(this, "Failed to import " + name + ": " + failure,
+            Toast.makeText(this, LocalizedText.ui("ui.importFailedPrefix") + name + ": " + failure,
                 Toast.LENGTH_LONG).show();
             return;
         }
-        Toast.makeText(this, "Imported " + name + ".", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, LocalizedText.ui("ui.importedPrefix") + name + ".", Toast.LENGTH_SHORT).show();
         // The list is refilled from the folder, which now holds one more map.
         filledForType = -1;
         updateMapDropdown(false);

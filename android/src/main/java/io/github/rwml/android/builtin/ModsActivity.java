@@ -48,7 +48,7 @@ import io.github.rwml.android.R;
  * into. Linking a folder through the storage-access framework belongs to the Android build's file
  * browser, which this host does not carry, so that button stays hidden.</p>
  */
-public final class ModsActivity extends Activity {
+public final class ModsActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
@@ -75,14 +75,14 @@ public final class ModsActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("Mods");
+        setTitle(LocalizedText.ui("ui.mods"));
         AndroidApp.prepare(this, true);
         setContentView(R.layout.mods);
 
         GameEngine engine = GameEngine.getInstance();
         if (engine == null) {
             Log.w(TAG, "The engine is not up; the mods screen cannot bind.");
-            Toast.makeText(this, "The game is not loaded yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.notLoaded"), Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
@@ -90,7 +90,7 @@ public final class ModsActivity extends Activity {
         mods = engine.modManager;
         if (mods == null) {
             Log.w(TAG, "The engine carries no mod manager.");
-            Toast.makeText(this, "The game is not loaded yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.notLoaded"), Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
@@ -232,7 +232,7 @@ public final class ModsActivity extends Activity {
             }
         } catch (Throwable t) {
             Log.w(TAG, "The mod selection could not be saved.", t);
-            Toast.makeText(this, "The mod selection could not be saved.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, LocalizedText.ui("ui.saveModsFailed"), Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -253,7 +253,7 @@ public final class ModsActivity extends Activity {
     private void reload() {
         listMods();
         LocalizedText.applyTo(findViewById(android.R.id.content));
-        Toast.makeText(this, "Mod list reloaded.", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, LocalizedText.ui("ui.modsReloaded"), Toast.LENGTH_SHORT).show();
     }
 
     /** Creates the folder a mod is installed into, when it is not there yet. */
@@ -266,7 +266,7 @@ public final class ModsActivity extends Activity {
             ready = FileLoader.createDirectory(directory) || FileLoader.isDirectory(directory);
         } catch (Throwable t) {
             Log.w(TAG, "The mods folder could not be created.", t);
-            Toast.makeText(this, "The mods folder could not be created.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, LocalizedText.ui("ui.modsCreateFailed"), Toast.LENGTH_LONG).show();
             return;
         }
         Toast.makeText(this,
@@ -277,7 +277,7 @@ public final class ModsActivity extends Activity {
     /** Asks the platform for an archive to install as a mod. */
     private void chooseArchive() {
         if (!FileImport.choose(this, REQUEST_IMPORT)) {
-            Toast.makeText(this, "No file picker is available on this device.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, LocalizedText.ui("ui.noPicker"), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -297,15 +297,15 @@ public final class ModsActivity extends Activity {
     private void importMod(Uri source) {
         String name = FileImport.nameOf(this, source);
         if (TextUtils.isEmpty(name)) {
-            Toast.makeText(this, "Cannot import: the file has no name.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, LocalizedText.ui("ui.noFilename"), Toast.LENGTH_LONG).show();
             return;
         }
         if (!name.endsWith(".zip") && !name.endsWith(".rwmod")) {
             new AlertDialog.Builder(this)
                 .setIcon(android.R.drawable.ic_dialog_alert)
-                .setTitle("Cannot import")
-                .setMessage("Expected a .zip or .rwmod file, but got: " + name)
-                .setPositiveButton("Ok", null)
+                .setTitle(LocalizedText.ui("ui.importFailed"))
+                .setMessage(LocalizedText.ui("ui.modExpected") + name)
+                .setPositiveButton(LocalizedText.ui("common.confirm"), null)
                 .show();
             return;
         }
@@ -316,18 +316,18 @@ public final class ModsActivity extends Activity {
             FileLoader.createDirectory(directory);
         } catch (Throwable t) {
             Log.w(TAG, "The mods folder could not be reached.", t);
-            Toast.makeText(this, "The mods folder could not be reached.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, LocalizedText.ui("ui.modsUnavailable"), Toast.LENGTH_LONG).show();
             return;
         }
 
         String failure = FileImport.copyInto(this, source, FileImport.join(directory, name));
         if (failure != null) {
-            Toast.makeText(this, "Failed to import " + name + ": " + failure,
+            Toast.makeText(this, LocalizedText.ui("ui.importFailedPrefix") + name + ": " + failure,
                 Toast.LENGTH_LONG).show();
             return;
         }
 
-        Toast.makeText(this, "Imported " + name + ".", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, LocalizedText.ui("ui.importedPrefix") + name + ".", Toast.LENGTH_SHORT).show();
         listMods();
         LocalizedText.applyTo(findViewById(android.R.id.content));
     }

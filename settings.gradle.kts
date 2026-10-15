@@ -45,4 +45,4 @@ dependencyResolutionManagement {
 
 // The platform-neutral extension system and its two hosts. The desktop host and the Android app
 // share everything that does not depend on where RWML runs, which is all of :core.
-include(":core", ":desktop", ":android", ":example")
+include(":core", ":game-adapter", ":desktop", ":android", ":example")

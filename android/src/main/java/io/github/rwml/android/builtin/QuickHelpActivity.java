@@ -19,7 +19,8 @@ import android.widget.Gallery;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 
-import com.corrodinggames.rts.gameFramework.SettingsEngine;
+import io.github.rwml.api.Rwml;
+import io.github.rwml.api.ui.GameSettings;
 
 import io.github.rwml.android.R;
 
@@ -34,7 +35,7 @@ import io.github.rwml.android.R;
  * <p>The gallery widget is the one the game used and the platform still carries it, deprecated or
  * not, so it stays: the layout names it.</p>
  */
-public final class QuickHelpActivity extends Activity {
+public final class QuickHelpActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
@@ -67,8 +68,8 @@ public final class QuickHelpActivity extends Activity {
             slides[i] = BitmapFactory.decodeResource(getResources(), ids[i], options);
         }
 
-        SettingsEngine settings = SettingsEngine.getInstance(getBaseContext());
-        settings.hasPlayedGameOrSeenHelp = true;
+        GameSettings settings = Rwml.get().ui().find(GameSettings.class);
+        settings.set("hasPlayedGameOrSeenHelp", true);
         settings.save();
 
         gallery = (Gallery) findViewById(R.id.quickhelp_gallery);

@@ -10,17 +10,32 @@ package io.github.rwml.android;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.widget.TextView;
 
 import io.github.rwml.android.builtin.LauncherActivity;
+import io.github.rwml.api.i18n.Messages;
 import io.github.rwml.api.ui.UiFramework;
+import io.github.rwml.api.ui.UiHooks;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.Collections;
 
 /** Platform entry point. UI ownership belongs to the selected ui-framework extension. */
 public final class MainActivity extends Activity {
+    private Messages messages;
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        try {
+            messages = new Messages(new File(getFilesDir(), "rwml/data").toPath(),
+                new UiHooks(failure -> HostLog.error("UI callback failed", failure)));
+        } catch (IOException failure) { throw new IllegalStateException(failure); }
+        TextView status = new TextView(this);
+        status.setText(messages.text("launcher.loading"));
+        status.setGravity(android.view.Gravity.CENTER);
+        setContentView(status);
         EngineContext.obtain(getApplicationContext());
         checkStoragePermission();
     }
@@ -66,9 +81,10 @@ public final class MainActivity extends Activity {
         if (granted) { checkStoragePermission(); }
         else {
             new android.app.AlertDialog.Builder(this)
-                .setMessage("RWML 需要存储权限来读取 rustedWarfare/extensions 中的扩展。")
-                .setPositiveButton("授予权限", (dialog, which) -> checkStoragePermission())
-                .setNegativeButton("退出", (dialog, which) -> finish())
+                .setTitle(messages.text("permission.title"))
+                .setMessage(messages.text("permission.storage"))
+                .setPositiveButton(messages.text("permission.grant"), (dialog, which) -> checkStoragePermission())
+                .setNegativeButton(messages.text("launcher.exit"), (dialog, which) -> finish())
                 .setCancelable(false).show();
         }
     }
@@ -86,14 +102,28 @@ public final class MainActivity extends Activity {
         try {
             AndroidBootstrap runtime = AndroidBootstrap.get(this);
             if (!runtime.prepareLauncher()) { return; }
+            if (Intent.ACTION_VIEW.equals(getIntent().getAction()) && getIntent().getData() != null) {
+                openExtensionManager(getIntent());
+                return;
+            }
+            if (runtime.ui().extensions().versionSelectionRequired()) {
+                openExtensionManager(new Intent());
+                return;
+            }
             UiFramework framework = runtime.uiFramework();
             if (framework != null) {
-                framework.start(new AndroidUiHost(this, Collections.emptyList()));
+                try { framework.start(new AndroidUiHost(this, Collections.emptyList())); }
+                catch (Throwable failure) {
+                    runtime.manager().quarantine(runtime.uiFrameworkExtensionId(), failure);
+                    runtime.ui().hooks().publish(UiHooks.EXTENSIONS_CHANGED, null);
+                    throw failure;
+                }
             } else {
-                HostLog.add("Headless: no enabled extension declares a ui-framework");
-                if (!runtime.prepare()) { throw new IllegalStateException("Headless preparation failed: " + runtime.log()); }
-                runtime.load((percent, message) -> HostLog.add(percent + "% " + message));
-                runOnUiThread(this::finish);
+                // Management remains reachable even when every UI extension was disabled.
+                runOnUiThread(() -> {
+                    startActivity(new Intent(this, LauncherActivity.class));
+                    finish();
+                });
             }
         } catch (Throwable failure) {
             HostLog.error("The launcher could not start", failure);
@@ -104,6 +134,29 @@ public final class MainActivity extends Activity {
                     finish();
                 }
             });
+        }
+    }
+
+    private void openExtensionManager(Intent source) {
+        runOnUiThread(() -> {
+            startActivity(new Intent(this, io.github.rwml.android.builtin.ExtensionManagerActivity.class)
+                .setAction(Intent.ACTION_VIEW).setData(source.getData())
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+            finish();
+        });
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (launched && Intent.ACTION_VIEW.equals(intent.getAction())) {
+            try {
+                AndroidBootstrap.get(this).ui();
+                openExtensionManager(intent);
+            } catch (IllegalStateException preparing) {
+                // The running launcher worker reads the latest intent after preparation.
+            }
         }
     }
 }

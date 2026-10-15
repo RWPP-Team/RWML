@@ -34,6 +34,17 @@ public final class ExtensionSelection {
     public ExtensionDescriptor framework() { return framework; }
 
     public static ExtensionSelection resolve(List<ExtensionDescriptor> descriptors, Set<String> disabledIds) {
+        return resolve(descriptors, disabledIds, Collections.emptyMap());
+    }
+
+    public static ExtensionSelection resolve(List<ExtensionDescriptor> descriptors, Set<String> disabledIds,
+                                             Map<String, String> selectedVersions) {
+        List<ExtensionDescriptor> eligible = new ArrayList<>();
+        for (ExtensionDescriptor descriptor : descriptors) {
+            if (!disabledIds.contains(descriptor.id())) { eligible.add(descriptor); }
+        }
+        DependencyResolution versions = ExtensionVersions.resolve(eligible, selectedVersions);
+        descriptors = versions.loadOrder();
         ExtensionDependencyResolver resolver = new ExtensionDependencyResolver();
         List<ExtensionDescriptor> ordered = new ArrayList<>(resolver.resolve(descriptors).loadOrder());
         Set<String> seen = new LinkedHashSet<>();
@@ -64,7 +75,10 @@ public final class ExtensionSelection {
             }
             DependencyResolution resolution = resolver.resolve(new ArrayList<>(remaining.values()));
             if (candidate == null || resolution.loadOrder().contains(candidate)) {
-                return new ExtensionSelection(resolution, disabled, candidate);
+                disabled.addAll(disabledIds);
+                Map<String, String> excluded = new LinkedHashMap<>(versions.excluded());
+                excluded.putAll(resolution.excluded());
+                return new ExtensionSelection(new DependencyResolution(resolution.loadOrder(), excluded), disabled, candidate);
             }
         }
         throw new AssertionError("The headless selection is always valid");

@@ -9,7 +9,8 @@ package io.github.rwml.android.builtin;
 
 import android.util.Log;
 
-import com.corrodinggames.rts.gameFramework.localization.LocaleEngine;
+import io.github.rwml.api.Rwml;
+import io.github.rwml.api.ui.GameUi;
 
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -89,7 +90,8 @@ public final class MapNames {
             return null;
         }
         try {
-            String translated = LocaleEngine.b(display);
+            GameUi game = Rwml.get() == null ? null : Rwml.get().ui().find(GameUi.class);
+            String translated = game == null ? null : game.mapName(display);
             return translated == null || translated.isEmpty() ? display : translated;
         } catch (Throwable t) {
             // A language file that cannot answer leaves the name the game's own reading produced.

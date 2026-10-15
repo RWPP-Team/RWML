@@ -8,12 +8,17 @@ package io.github.rwml.android.builtin;
 
 import android.os.Handler;
 import android.os.Looper;
-import com.corrodinggames.rts.gameFramework.GameEngine;
+
 import com.corrodinggames.rts.gameFramework.CommonUtils;
+import com.corrodinggames.rts.gameFramework.GameEngine;
 import com.corrodinggames.rts.gameFramework.network.DiscoveredServer;
 import com.corrodinggames.rts.gameFramework.network.MasterServerConnector;
-import io.github.rwml.android.RequestScope;
+
 import io.github.rwml.android.MasterServerRows;
+import io.github.rwml.android.RequestScope;
+import io.github.rwml.api.Rwml;
+import io.github.rwml.api.ui.UiHooks;
+
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -45,7 +50,7 @@ public final class LobbyServerList {
         GameEngine engine = GameEngine.getInstance();
         String query = "/interface?action=list&game_version=" + engine.getVersionCode(true)
             + "&game_version_beta=" + CommonUtils.booleanToString(engine.isSaveSupported());
-        String language = com.corrodinggames.rts.gameFramework.localization.LocaleEngine.getLanguageCode();
+        String language = Rwml.get().ui().messages().locale().getLanguage();
         String userAgent = "rw android " + engine.getVersionCode(true) + " " + language;
         String[] hosts = MasterServerConnector.masterServerUrls.clone();
         AtomicInteger pending = new AtomicInteger(hosts.length);
@@ -72,6 +77,8 @@ public final class LobbyServerList {
                                 engine.networkEngine.serverListLoadError = String.join("; ", failures);
                             }
                             if (completion != null) { completion.run(); }
+                            Rwml.get().ui().hooks().publish(
+                                UiHooks.SERVERS_CHANGED, null);
                         });
                     }
                 }

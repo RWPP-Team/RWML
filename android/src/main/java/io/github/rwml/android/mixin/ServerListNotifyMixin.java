@@ -8,7 +8,8 @@
 package io.github.rwml.android.mixin;
 
 import io.github.rwml.android.HostLog;
-import io.github.rwml.android.builtin.MultiplayerLobbyActivity;
+import io.github.rwml.api.Rwml;
+import io.github.rwml.api.ui.UiHooks;
 
 import kim.der.asm.api.annotation.AsmInject;
 import kim.der.asm.api.annotation.AsmMixin;
@@ -45,7 +46,9 @@ public final class ServerListNotifyMixin {
     @AsmInject(method = "l")
     public static void whenTheGameListChanges() {
         announce();
-        MultiplayerLobbyActivity.onServerListChanged();
+        if (Rwml.get() != null) {
+            Rwml.get().ui().hooks().publish(UiHooks.SERVERS_CHANGED, null);
+        }
     }
 
     private static void announce() {

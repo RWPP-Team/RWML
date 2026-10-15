@@ -8,12 +8,20 @@
 package io.github.rwml.android.builtin;
 
 import android.app.Activity;
+import android.database.DataSetObserver;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.BaseAdapter;
+import android.widget.EditText;
+import android.widget.ListAdapter;
+import android.widget.Spinner;
+import android.widget.SpinnerAdapter;
 import android.widget.TextView;
 
-import com.corrodinggames.rts.gameFramework.localization.LocaleEngine;
+import io.github.rwml.api.Rwml;
+import io.github.rwml.api.i18n.Messages;
+import io.github.rwml.api.ui.GameUi;
 
 /**
  * The game's own words, read from the game's language file.
@@ -38,6 +46,25 @@ public final class LocalizedText {
     private LocalizedText() {
     }
 
+    /** RWML-owned labels use the shared bundle, which is also available before engine startup. */
+    public static String ui(String key, Object... arguments) {
+        return Rwml.get() == null ? Messages.fallback(key, arguments)
+            : Rwml.get().ui().messages().text(key, arguments);
+    }
+
+    /** Called while a layout is attached, before a screen binds player-provided text into it. */
+    static void applyLabels(View root) {
+        if (root instanceof TextView && !(root instanceof EditText) && Rwml.get() != null) {
+            TextView label = (TextView) root;
+            label.setText(Rwml.get().ui().messages().label(label.getText().toString()));
+        }
+        if (root instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) root;
+            for (int index = 0; index < group.getChildCount(); index++) { applyLabels(group.getChildAt(index)); }
+        }
+        applyTo(root);
+    }
+
     /**
      * The engine's word for a locale key.
      *
@@ -48,7 +75,8 @@ public final class LocalizedText {
             return null;
         }
         try {
-            String value = LocaleEngine.getString(key);
+            GameUi game = Rwml.get() == null ? null : Rwml.get().ui().find(GameUi.class);
+            String value = game == null ? null : game.text(key);
             return value == null || value.isEmpty() ? null : value;
         } catch (Throwable notInTheLanguageFile) {
             // A key the language file does not carry is an ordinary answer rather than a fault: the
@@ -77,6 +105,18 @@ public final class LocalizedText {
     public static void applyTo(View root) {
         if (root == null) {
             return;
+        }
+        if (root instanceof Spinner) {
+            Spinner spinner = (Spinner) root;
+            if (spinner.getPrompt() != null && Rwml.get() != null) {
+                spinner.setPrompt(Rwml.get().ui().messages().label(spinner.getPrompt().toString()));
+            }
+            SpinnerAdapter adapter = spinner.getAdapter();
+            if (adapter != null && !(adapter instanceof TranslatedChoices)) {
+                int selected = spinner.getSelectedItemPosition();
+                spinner.setAdapter(new TranslatedChoices(adapter));
+                if (selected >= 0 && selected < adapter.getCount()) { spinner.setSelection(selected); }
+            }
         }
         if (root instanceof TextView) {
             TextView label = (TextView) root;
@@ -126,5 +166,41 @@ public final class LocalizedText {
             && text.length() > MARKER.length()
             && text.charAt(0) == 'i'
             && text.charAt(1) == ':';
+    }
+
+    /** Translates rendered choices; getItem still returns the original value used by game commands. */
+    private static final class TranslatedChoices extends BaseAdapter {
+        private final SpinnerAdapter original;
+
+        TranslatedChoices(SpinnerAdapter original) {
+            this.original = original;
+            original.registerDataSetObserver(new DataSetObserver() {
+                @Override public void onChanged() { notifyDataSetChanged(); }
+                @Override public void onInvalidated() { notifyDataSetInvalidated(); }
+            });
+        }
+
+        @Override public int getCount() { return original.getCount(); }
+        @Override public Object getItem(int position) { return original.getItem(position); }
+        @Override public long getItemId(int position) { return original.getItemId(position); }
+        @Override public boolean hasStableIds() { return original.hasStableIds(); }
+        @Override public int getItemViewType(int position) { return original.getItemViewType(position); }
+        @Override public int getViewTypeCount() { return original.getViewTypeCount(); }
+        @Override public boolean isEnabled(int position) {
+            return !(original instanceof ListAdapter) || ((ListAdapter) original).isEnabled(position);
+        }
+        @Override public boolean areAllItemsEnabled() {
+            return !(original instanceof ListAdapter) || ((ListAdapter) original).areAllItemsEnabled();
+        }
+        @Override public View getView(int position, View recycled, ViewGroup parent) {
+            View view = original.getView(position, recycled, parent);
+            applyLabels(view);
+            return view;
+        }
+        @Override public View getDropDownView(int position, View recycled, ViewGroup parent) {
+            View view = original.getDropDownView(position, recycled, parent);
+            applyLabels(view);
+            return view;
+        }
     }
 }

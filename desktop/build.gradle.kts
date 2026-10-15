@@ -46,6 +46,7 @@ sourceSets["test"].runtimeClasspath += bootstrap.output
 
 dependencies {
     api(project(":core"))
+    implementation(project(":game-adapter"))
     api(libs.asm.framework)
     runtimeOnly(libs.kotlin.stdlib)
     implementation(libs.org.ow2.asm.asm3)

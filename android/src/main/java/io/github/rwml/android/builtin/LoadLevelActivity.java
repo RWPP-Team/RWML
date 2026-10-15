@@ -38,7 +38,7 @@ import io.github.rwml.android.R;
  * <p>Choosing a save hands it to the engine's game saver and opens the game screen, which is where
  * a saved game is continued: a save restores the game it was taken from into that screen.</p>
  */
-public final class LoadLevelActivity extends Activity {
+public final class LoadLevelActivity extends BuiltinActivity {
 
     private MenuBackground background;
 
@@ -59,7 +59,7 @@ public final class LoadLevelActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("Load");
+        setTitle(LocalizedText.ui("ui.load"));
         AndroidApp.prepare(this, true);
         background = new MenuBackground(this, R.layout.level_select);
 
@@ -91,7 +91,7 @@ public final class LoadLevelActivity extends Activity {
         }
         if (names.length == 0) {
             TextView empty = new TextView(this);
-            empty.setText("No saved games found.");
+            empty.setText(LocalizedText.ui("ui.noSaves"));
             empty.setTextColor(Color.WHITE);
             empty.setPadding(0, dip(10), 0, dip(10));
             holder.addView(empty);
@@ -172,7 +172,7 @@ public final class LoadLevelActivity extends Activity {
     private void load(String name) {
         GameEngine engine = GameEngine.getInstance();
         if (engine == null) {
-            Toast.makeText(this, "The game is not loaded yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.notLoaded"), Toast.LENGTH_SHORT).show();
             return;
         }
         boolean loaded;
@@ -180,12 +180,12 @@ public final class LoadLevelActivity extends Activity {
             loaded = engine.gameSaver.loadSaveFile(name, true);
         } catch (Throwable t) {
             Log.e(TAG, "The save " + name + " could not be loaded.", t);
-            Toast.makeText(this, "Failed to load " + displayNameOf(name) + ": " + t.getMessage(),
+            Toast.makeText(this, LocalizedText.ui("ui.loadFailedPrefix") + displayNameOf(name) + ": " + t.getMessage(),
                 Toast.LENGTH_LONG).show();
             return;
         }
         if (!loaded) {
-            Toast.makeText(this, "Failed to load " + displayNameOf(name) + ".",
+            Toast.makeText(this, LocalizedText.ui("ui.loadFailedPrefix") + displayNameOf(name) + ".",
                 Toast.LENGTH_LONG).show();
             return;
         }

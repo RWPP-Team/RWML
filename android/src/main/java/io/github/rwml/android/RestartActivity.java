@@ -9,13 +9,28 @@ package io.github.rwml.android;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.widget.TextView;
+
+import io.github.rwml.api.i18n.Messages;
+import io.github.rwml.api.ui.UiHooks;
+
+import java.io.File;
+import java.io.IOException;
 
 /** Runs in a separate process so replacement dex never shares old class definitions. */
 public final class RestartActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        android.widget.TextView message = new android.widget.TextView(this);
-        message.setText("扩展已更新，正在重新加载…");
+        TextView message = new TextView(this);
+        try {
+            Messages messages = new Messages(
+                new File(getFilesDir(), "rwml/data").toPath(),
+                new UiHooks(failure -> HostLog.error("UI callback failed", failure)));
+            message.setText(messages.text("launcher.loading"));
+        } catch (IOException failure) {
+            HostLog.error("Cannot read language preference", failure);
+            message.setText("RWML");
+        }
         message.setGravity(android.view.Gravity.CENTER);
         setContentView(message);
         int oldPid = getIntent().getIntExtra("rwml.oldPid", -1);
@@ -23,7 +38,7 @@ public final class RestartActivity extends Activity {
         Thread worker = new Thread(() -> {
             // Wait for process death, so ActivityManager cannot deliver MainActivity to the old PID.
             long deadline = android.os.SystemClock.uptimeMillis() + 3000;
-            while (oldPid > 0 && new java.io.File("/proc/" + oldPid).exists()
+            while (oldPid > 0 && new File("/proc/" + oldPid).exists()
                     && android.os.SystemClock.uptimeMillis() < deadline) {
                 try { Thread.sleep(25); } catch (InterruptedException stopped) { return; }
             }

@@ -34,7 +34,7 @@ public final class AndroidUiHost implements UiHost {
     private final Activity activity;
     private final List<String> arguments;
 
-    AndroidUiHost(Activity activity, List<String> arguments) {
+    public AndroidUiHost(Activity activity, List<String> arguments) {
         this.activity = activity;
         this.arguments = Collections.unmodifiableList(
             arguments == null ? new ArrayList<String>() : new ArrayList<>(arguments));
@@ -51,7 +51,14 @@ public final class AndroidUiHost implements UiHost {
     }
 
     @Override
+    public void restart() {
+        activity.runOnUiThread(() -> activity.startActivity(new Intent(activity, RestartActivity.class)
+            .putExtra("rwml.oldPid", android.os.Process.myPid())));
+    }
+
+    @Override
     public void openScreen(String screen) {
+        if (services().openRegisteredScreen(screen, this)) { return; }
         final String type = screenType(screen);
         if (type == null) {
             Log.w(TAG, "The Android host has no screen called '" + screen + "'.");
@@ -67,6 +74,12 @@ public final class AndroidUiHost implements UiHost {
 
     /** @return the activity that shows {@code screen}, or {@code null} when the host has none. */
     private static String screenType(String screen) {
+        if ("launcher".equals(screen)) {
+            return "io.github.rwml.android.builtin.LauncherActivity";
+        }
+        if ("extensions".equals(screen)) {
+            return "io.github.rwml.android.builtin.ExtensionManagerActivity";
+        }
         if ("main-menu".equals(screen)) {
             return "io.github.rwml.android.builtin.MainMenuActivity";
         }

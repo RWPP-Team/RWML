@@ -95,7 +95,9 @@ public final class Bootstrap {
         File javaHome;
         try {
             if (needNewerJvm) {
-                javaHome = JavaRuntime.provision(required);
+                try (BootstrapWindow window = BootstrapWindow.showIfPossible()) {
+                    javaHome = JavaRuntime.provision(required);
+                }
             } else {
                 // Only the agent is missing, so the current JVM is fine - just restart on it with
                 // -javaagent added.

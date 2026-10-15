@@ -21,7 +21,7 @@ import com.corrodinggames.rts.gameFramework.network.NetworkEngine;
  * had open and close itself: the engine's ready flags are cleared, the way the game's own copy of
  * this screen clears them, and the screen finishes before it is ever drawn.</p>
  */
-public final class ClosingActivity extends Activity {
+public final class ClosingActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 

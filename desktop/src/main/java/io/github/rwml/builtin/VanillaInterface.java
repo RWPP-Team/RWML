@@ -16,8 +16,8 @@ import io.github.rwml.api.ui.UiFramework;
 import io.github.rwml.api.ui.UiHost;
 
 /**
- * The desktop builtin UI. It owns the loading window, starts the shared boot, and hands control
- * to the game's launcher. A custom ui-framework bypasses this implementation entirely.
+ * The desktop builtin game adapter. The host bootstrap is already visible before this is invoked;
+ * this adapter starts the shared boot and hands control to the game's launcher.
  */
 public final class VanillaInterface implements UiFramework {
 
@@ -34,7 +34,7 @@ public final class VanillaInterface implements UiFramework {
             return;
         }
 
-        GameBoot boot = runtime.gameBoot();
+        GameBoot boot = host.gameBoot();
         if (boot.stageNames().isEmpty()) {
             System.out.println("[builtin] The boot has no steps for this platform; asking the host "
                 + "for the '" + GAME_SCREEN + "' screen.");
@@ -44,7 +44,8 @@ public final class VanillaInterface implements UiFramework {
 
         System.out.println("[builtin] Starting the game through " + boot.stageNames().size()
             + " stage(s): " + boot.stageNames());
-        LoadingProgressWindow window = LoadingProgressWindow.showIfPossible("RWML");
+        LoadingProgressWindow window = LoadingProgressWindow.showIfPossible(
+            host.services().messages().text("launcher.loading"));
         ProgressListener windowProgress = window == null ? ProgressListener.NOOP : window.listener();
         StageReport report;
         try {

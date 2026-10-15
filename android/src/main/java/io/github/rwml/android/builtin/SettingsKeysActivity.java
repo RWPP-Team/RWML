@@ -17,7 +17,8 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 
-import com.corrodinggames.rts.gameFramework.SettingsEngine;
+import io.github.rwml.api.Rwml;
+import io.github.rwml.api.ui.GameSettings;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +27,7 @@ import io.github.rwml.android.R;
 
 /**
  * The keyboard bindings, laid out by the game's own keyboard layout and held in the engine's own
- * {@link SettingsEngine}.
+ * {@link GameSettings}.
  *
  * <p>Five bindings are configurable: the action key, the jump key and the four directions. Each
  * button shows the key it currently answers to, named from the game's own key-code table; pressing
@@ -34,7 +35,7 @@ import io.github.rwml.android.R;
  * five into the engine and saves them, Cancel leaves them alone, and Defaults puts back the four
  * directions with the action key in the middle, which is what the game's own screen does.</p>
  */
-public final class SettingsKeysActivity extends Activity {
+public final class SettingsKeysActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
@@ -63,7 +64,7 @@ public final class SettingsKeysActivity extends Activity {
         }
     }
 
-    private SettingsEngine settings;
+    private GameSettings settings;
     private final List<Binding> bindings = new ArrayList<>();
 
     /** The game's key-code names, read once; the code is an index into them, one-based. */
@@ -78,23 +79,23 @@ public final class SettingsKeysActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("Keyboard");
+        setTitle(LocalizedText.ui("ui.keyboard"));
         AndroidApp.prepare(this, true);
         setContentView(R.layout.settings_keyboard);
 
-        settings = SettingsEngine.getInstance(getBaseContext());
+        settings = Rwml.get().ui().find(GameSettings.class);
         if (settings == null) {
             Log.w(TAG, "The settings engine is not up; the keyboard screen cannot bind.");
-            Toast.makeText(this, "The game is not loaded yet.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, LocalizedText.ui("ui.notLoaded"), Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
 
-        bind(R.id.settingsKAction, "Action", settings.keyAction);
-        bind(R.id.settingsKJump, "Jump", settings.keyJump);
-        bind(R.id.settingsKLeft, "Left", settings.keyLeft);
-        bind(R.id.settingsKRight, "Right", settings.keyRight);
-        bind(R.id.settingsKDown, "Down", settings.keyDown);
+        bind(R.id.settingsKAction, LocalizedText.ui("ui.action"), settings.get("keyAction", Integer.class));
+        bind(R.id.settingsKJump, LocalizedText.ui("ui.jump"), settings.get("keyJump", Integer.class));
+        bind(R.id.settingsKLeft, LocalizedText.ui("ui.left"), settings.get("keyLeft", Integer.class));
+        bind(R.id.settingsKRight, LocalizedText.ui("ui.right"), settings.get("keyRight", Integer.class));
+        bind(R.id.settingsKDown, LocalizedText.ui("ui.down"), settings.get("keyDown", Integer.class));
 
         for (final Binding binding : bindings) {
             binding.button.setOnClickListener(clicked -> askForKey(binding));
@@ -139,8 +140,8 @@ public final class SettingsKeysActivity extends Activity {
      */
     private void askForKey(final Binding binding) {
         new AlertDialog.Builder(this)
-            .setMessage("Press key to use for: " + binding.name)
-            .setNeutralButton("Cancel", null)
+            .setMessage(LocalizedText.ui("ui.keyPrompt") + binding.name)
+            .setNeutralButton(LocalizedText.ui("common.cancel"), null)
             .setOnKeyListener(new DialogInterface.OnKeyListener() {
                 @Override
                 public boolean onKey(DialogInterface dialog, int keyCode, KeyEvent event) {
@@ -175,11 +176,11 @@ public final class SettingsKeysActivity extends Activity {
             return;
         }
         saved = true;
-        settings.keyAction = bindings.get(0).keyCode;
-        settings.keyJump = bindings.get(1).keyCode;
-        settings.keyLeft = bindings.get(2).keyCode;
-        settings.keyRight = bindings.get(3).keyCode;
-        settings.keyDown = bindings.get(4).keyCode;
+        settings.set("keyAction", bindings.get(0).keyCode);
+        settings.set("keyJump", bindings.get(1).keyCode);
+        settings.set("keyLeft", bindings.get(2).keyCode);
+        settings.set("keyRight", bindings.get(3).keyCode);
+        settings.set("keyDown", bindings.get(4).keyCode);
         settings.save();
         finish();
     }

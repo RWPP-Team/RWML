@@ -25,14 +25,14 @@ import io.github.rwml.android.R;
  *
  * <p>There is nothing to save here, so the screen has a single action: close it.</p>
  */
-public final class CreditsActivity extends Activity {
+public final class CreditsActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("Credits");
+        setTitle(LocalizedText.ui("ui.credits"));
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         AndroidApp.prepare(this, true);
         setContentView(R.layout.credits);

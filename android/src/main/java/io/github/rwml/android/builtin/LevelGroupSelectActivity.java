@@ -30,7 +30,7 @@ import io.github.rwml.android.R;
  * <p>The custom folder is where maps copied in by hand live, and the save list is a separate
  * screen, so both are offered here the way the game offers them.</p>
  */
-public final class LevelGroupSelectActivity extends Activity {
+public final class LevelGroupSelectActivity extends BuiltinActivity {
 
     private MenuBackground background;
 
@@ -54,7 +54,7 @@ public final class LevelGroupSelectActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("Single Player");
+        setTitle(LocalizedText.ui("ui.singlePlayer"));
         AndroidApp.prepare(this, true);
         background = new MenuBackground(this, R.layout.level_select);
 

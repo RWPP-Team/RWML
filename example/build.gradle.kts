@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "io.github.rwpp-team"
-version = "1.0.0"
+version = rootProject.version
 description = "RWML example: a sample extension (entry point + ASM mixin)."
 
 dependencies {

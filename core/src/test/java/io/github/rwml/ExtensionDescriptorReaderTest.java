@@ -8,7 +8,6 @@
 package io.github.rwml;
 
 import io.github.rwml.api.ExtensionException;
-import io.github.rwml.api.ExtensionInfo;
 import io.github.rwml.core.ExtensionDescriptor;
 import io.github.rwml.core.ExtensionDescriptorReader;
 import org.junit.jupiter.api.Test;
@@ -45,6 +44,9 @@ class ExtensionDescriptorReaderTest {
             description=A sample extension
             authors=Ada Lovelace, Alan Turing
             license=Apache-2.0
+            licenseUrl=https://example.com/license
+            icon=/icon.png
+            loadBefore=com.acme.next
             homepage=https://example.com
             tags=tools, demo
             apiVersion=1.2
@@ -64,6 +66,9 @@ class ExtensionDescriptorReaderTest {
         assertEquals(List.of("Ada Lovelace", "Alan Turing"), descriptor.authors());
         assertEquals("Apache-2.0", descriptor.license());
         assertEquals("https://example.com", descriptor.homepage());
+        assertEquals("https://example.com/license", descriptor.licenseUrl());
+        assertEquals("/icon.png", descriptor.icon());
+        assertEquals(List.of("com.acme.next"), descriptor.loadBefore());
         assertEquals(List.of("tools", "demo"), descriptor.tags());
         assertEquals("1.2", descriptor.apiVersion());
         assertEquals(17, descriptor.requiredJavaVersion());
@@ -73,24 +78,6 @@ class ExtensionDescriptorReaderTest {
         assertEquals(List.of("com.acme.base"), descriptor.loadAfter());
         assertTrue(descriptor.sourceSize() > 0);
         assertEquals(64, descriptor.sourceSha256().length());
-    }
-
-    @Test
-    void fallsBackToTheAnnotatedEntryPointClass() throws Exception {
-        Path jar = tempDir.resolve("annotated.jar");
-        Path compiled = Path.of(ExtensionDescriptorReaderTest.class.getResource(
-            "ExtensionDescriptorReaderTest$Fixture.class").toURI());
-        writeJar(jar, "io/github/rwml/ExtensionDescriptorReaderTest$Fixture.class",
-            Files.readAllBytes(compiled));
-
-        ExtensionDescriptor descriptor = ExtensionDescriptorReader.read(jar);
-
-        // There is no META-INF/extension.properties at all: everything comes from @ExtensionInfo.
-        assertEquals("fixture-extension", descriptor.id());
-        assertEquals("Fixture Extension", descriptor.name());
-        assertEquals("2.1.0", descriptor.version());
-        assertEquals("io.github.rwml.ExtensionDescriptorReaderTest$Fixture", descriptor.mainClass());
-        assertEquals("fixture.Ui", descriptor.uiFramework());
     }
 
     @Test
@@ -116,98 +103,68 @@ class ExtensionDescriptorReaderTest {
     }
 
     @Test
-    void readsAnnotationsWithoutResolvingDependenciesOrLoadingFutureBytecode() throws Exception {
-        Path classes = compile("""
-            package isolated;
-            import io.github.rwml.api.ExtensionInfo;
-            class MissingDependency { }
-            class Decoy {
-                static final String TEXT = "Lio/github/rwml/api/ExtensionInfo;";
-            }
-            @ExtensionInfo(id="isolated", name="独立扩展", javaVersion=29,
-                authors={"Ada Lovelace", "林"}, tags={"ui", "tools"}, dependsOn={"base"})
-            public class Entry extends MissingDependency {
-                static final long LONG_VALUE = 42L;
-                static final double DOUBLE_VALUE = 1.25;
-            }
-            """);
-        byte[] entry = Files.readAllBytes(classes.resolve("isolated/Entry.class"));
-        entry[6] = 3;
-        entry[7] = (byte) 232; // class file version 1000: no current JVM can define this class
+    void readsUtf8WithoutInspectingEntryPointBytecode() throws Exception {
         Path jar = tempDir.resolve("future.jar");
-        writeJar(jar, "isolated/Decoy.class", Files.readAllBytes(classes.resolve("isolated/Decoy.class")),
-            "isolated/Entry.class", entry); // superclass intentionally absent
-
+        writeJar(jar, "META-INF/extension.properties", ("id=isolated\nname=独立扩展\n"
+            + "mainClass=isolated.Entry\nauthors=Ada Lovelace, 林\njavaVersion=29\n")
+            .getBytes(StandardCharsets.UTF_8), "isolated/Entry.class", new byte[]{1, 2, 3});
         ExtensionDescriptor descriptor = ExtensionDescriptorReader.read(jar);
-
-        assertEquals("isolated", descriptor.id());
         assertEquals("独立扩展", descriptor.name());
-        assertEquals(29, descriptor.requiredJavaVersion());
         assertEquals(List.of("Ada Lovelace", "林"), descriptor.authors());
-        assertEquals(List.of("ui", "tools"), descriptor.tags());
-        assertEquals(List.of("base"), descriptor.dependsOn());
-        assertEquals("1.0.0", descriptor.version());
-        assertEquals("isolated.Entry", descriptor.mainClass());
+        assertEquals(29, descriptor.requiredJavaVersion());
     }
 
     @Test
-    void propertiesOverrideInheritedAnnotationMetadataWithinTheArchive() throws Exception {
-        Path classes = compile("""
-            package isolated;
-            import io.github.rwml.api.ExtensionInfo;
-            @ExtensionInfo(id="parent", name="Parent", loadBefore={"other"})
-            class Parent { }
-            public class Entry extends Parent { }
-            """);
-        Path jar = tempDir.resolve("inherited.jar");
-        writeJar(jar,
-            "META-INF/extension.properties", "id=override\nmainClass=isolated.Entry\n"
-                .getBytes(StandardCharsets.UTF_8),
-            "isolated/Entry.class", Files.readAllBytes(classes.resolve("isolated/Entry.class")),
-            "isolated/Parent.class", Files.readAllBytes(classes.resolve("isolated/Parent.class")));
-
-        ExtensionDescriptor descriptor = ExtensionDescriptorReader.read(jar);
-
-        assertEquals("override", descriptor.id());
-        assertEquals("Parent", descriptor.name());
-        assertEquals(List.of("other"), descriptor.loadBefore());
-    }
-
-    @Test
-    void honorsTheEntryPointNamedByTheAnnotation() throws Exception {
-        Path classes = compile("""
-            package isolated;
-            import io.github.rwml.api.ExtensionInfo;
-            @ExtensionInfo(id="redirect", name="Redirect", mainClass="isolated.ActualEntry")
-            public class Entry { }
-            class ActualEntry { }
-            """);
-        Path jar = tempDir.resolve("redirect.jar");
-        writeJar(jar, "isolated/Entry.class", Files.readAllBytes(classes.resolve("isolated/Entry.class")));
-        ExtensionDescriptor descriptor = ExtensionDescriptorReader.read(jar);
-        assertEquals("redirect", descriptor.id());
-        assertEquals("isolated.ActualEntry", descriptor.mainClass());
-    }
-
-    private Path compile(String source) throws Exception {
-        Path directory = Files.createTempDirectory(tempDir, "compiled-");
+    void rejectsLegacyAnnotationOnlyArchivesAndDoesNotMergeAnnotationFields() throws Exception {
+        Path directory = Files.createDirectory(tempDir.resolve("legacy"));
         Path java = directory.resolve("Entry.java");
-        Files.writeString(java, source);
-        Path api = Path.of(ExtensionInfo.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        int status = ToolProvider.getSystemJavaCompiler().run(null, null, null,
-            "--release", "8", "-encoding", "UTF-8", "-classpath", api.toString(),
-            "-d", directory.toString(), java.toString());
-        assertEquals(0, status, "fixture compilation failed");
-        return directory;
+        Files.writeString(java, """
+            package legacy;
+            import io.github.rwml.api.ExtensionInfo;
+            @ExtensionInfo(id="legacy", name="Legacy name", loadBefore={"other"})
+            public class Entry { }
+            """);
+        Path annotation = directory.resolve("ExtensionInfo.java");
+        Files.writeString(annotation, """
+            package io.github.rwml.api;
+            import java.lang.annotation.*;
+            @Retention(RetentionPolicy.RUNTIME)
+            public @interface ExtensionInfo {
+                String id(); String name(); String[] loadBefore() default {};
+            }
+            """);
+        assertEquals(0, ToolProvider.getSystemJavaCompiler().run(null, null, null,
+            "--release", "8", "-d", directory.toString(), annotation.toString(), java.toString()));
+        byte[] entry = Files.readAllBytes(directory.resolve("legacy/Entry.class"));
+        Path jar = tempDir.resolve("annotation.jar");
+        writeJar(jar, "legacy/Entry.class", entry);
+        assertThrows(ExtensionException.class, () -> ExtensionDescriptorReader.read(jar));
+        writeJar(jar, "META-INF/extension.properties", "id=properties\nmainClass=legacy.Entry\n"
+            .getBytes(StandardCharsets.UTF_8), "legacy/Entry.class", entry);
+        ExtensionDescriptor descriptor = ExtensionDescriptorReader.read(jar);
+        assertEquals("properties", descriptor.name());
+        assertTrue(descriptor.loadBefore().isEmpty());
     }
 
-    /** A real class carrying {@link ExtensionInfo}, packaged into the jar by the annotation test. */
-    @ExtensionInfo(
-        id = "fixture-extension",
-        name = "Fixture Extension",
-        version = "2.1.0",
-        uiFramework = "fixture.Ui")
-    public static final class Fixture {
+    @Test
+    void requiresPropertiesToNameBothIdAndEntryPoint() throws Exception {
+        Path jar = tempDir.resolve("incomplete.jar");
+        for (String properties : List.of("id=missing-main\n", "mainClass=missing.Id\n")) {
+            writeJar(jar, "META-INF/extension.properties", properties.getBytes(StandardCharsets.UTF_8));
+            assertThrows(ExtensionException.class, () -> ExtensionDescriptorReader.read(jar));
+        }
+    }
+
+    @Test
+    void defaultsArePropertiesDefaultsAndSingleAuthorPreservesSpaces() throws Exception {
+        Path jar = tempDir.resolve("defaults.jar");
+        writeJar(jar, "META-INF/extension.properties", ("id=defaults\nmainClass=sample.Entry\n"
+            + "author=Ada Lovelace\njavaVersion=invalid\n").getBytes(StandardCharsets.UTF_8));
+        ExtensionDescriptor descriptor = ExtensionDescriptorReader.read(jar);
+        assertEquals("defaults", descriptor.name());
+        assertEquals("1.0.0", descriptor.version());
+        assertEquals(List.of("Ada Lovelace"), descriptor.authors());
+        assertEquals(8, descriptor.requiredJavaVersion());
     }
 
     // ------------------------------------------------------------------

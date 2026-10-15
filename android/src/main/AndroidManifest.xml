@@ -52,6 +52,7 @@
              directions available instead of locking one of them. -->
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTop"
             android:configChanges="screenSize|orientation|keyboardHidden"
             android:exported="true"
             android:screenOrientation="sensorLandscape">
@@ -59,7 +60,21 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/java-archive" />
+                <data android:mimeType="application/x-java-archive" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
         </activity>
+
+        <activity android:name="io.github.rwml.android.builtin.ExtensionManagerActivity"
+            android:exported="false" android:screenOrientation="sensorLandscape"
+            android:configChanges="screenSize|orientation|keyboardHidden" />
 
         <activity android:name=".RestartActivity" android:process=":restart"
             android:exported="false" android:excludeFromRecents="true"

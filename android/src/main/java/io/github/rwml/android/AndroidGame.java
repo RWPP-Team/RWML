@@ -7,6 +7,8 @@
 
 package io.github.rwml.android;
 
+import io.github.rwml.game.GameUiBridge;
+
 import android.content.Context;
 
 import com.corrodinggames.rts.gameFramework.GameEngine;
@@ -54,6 +56,7 @@ public final class AndroidGame {
         // getOrCreate bound the game's own application-context static to the wrapper; restore the real
         // one, because the wrapper only exists to lend a window, not to stand in for the application.
         AndroidApp.setApplicationContext(platform);
+        GameUiBridge.install(AndroidBootstrap.get(platform).ui());
         HostLog.add("The engine is up: " + engine.getClass().getName());
         return engine;
     }
