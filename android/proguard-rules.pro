@@ -8,6 +8,8 @@
 
 # Extensions are loaded reflectively by RWML itself, so their entry points and mixins must survive
 # shrinking if minification is ever turned on.
+-keep class kotlin.** { *; }
+-keep class kotlinx.** { *; }
 -keep class io.github.rwml.** { *; }
 -keep class kim.der.asm.** { *; }
 -keep class com.corrodinggames.rts.** { *; }

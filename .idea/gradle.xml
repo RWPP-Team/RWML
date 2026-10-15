@@ -12,6 +12,7 @@
             <option value="$PROJECT_DIR$/core" />
             <option value="$PROJECT_DIR$/desktop" />
             <option value="$PROJECT_DIR$/example" />
+            <option value="$PROJECT_DIR$/game-adapter" />
           </set>
         </option>
         <option name="myGradleHome" value="" />
