@@ -15,7 +15,7 @@ android-min-sdk = "26"
 android-target-sdk = "35"
 junit = "5.11.3"
 junit-platform = "1.11.3"
-game-lib = "1.15"
+game-lib = "v2-1.15"
 vineflower = "1.11.2"
 
 [libraries]

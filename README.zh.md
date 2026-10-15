@@ -48,13 +48,13 @@ Java 8 引导层会在准备 Java 运行环境时显示进度窗口。Android �
 
 ## 扩展 API
 
-在扩展工程中引用 core 和映射游戏库（附反编译源码包）：
+在扩展工程中引用 core 和映射游戏库（附反编译源码包）。`game-lib:v2-1.15` 中的 `v2` 表示映射修订，游戏版本仍为 1.15：
 
 ```kotlin
 repositories { mavenCentral() }
 dependencies {
     compileOnly("io.github.rwpp-team:rwml-core:1.0.1")
-    compileOnly("io.github.rwpp-team:game-lib:1.15")
+    compileOnly("io.github.rwpp-team:game-lib:v2-1.15")
 }
 ```
 

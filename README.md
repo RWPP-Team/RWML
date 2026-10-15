@@ -50,13 +50,13 @@ progress. Android management is available before game dex preparation.
 
 ## API Reference
 
-Compile extensions against core and the mapped game library (includes decompiled sources):
+Compile extensions against core and the mapped game library (includes decompiled sources). The `v2` in `game-lib:v2-1.15` identifies the mapping revision; the game version remains 1.15:
 
 ```kotlin
 repositories { mavenCentral() }
 dependencies {
     compileOnly("io.github.rwpp-team:rwml-core:1.0.1")
-    compileOnly("io.github.rwpp-team:game-lib:1.15")
+    compileOnly("io.github.rwpp-team:game-lib:v2-1.15")
 }
 ```
 
