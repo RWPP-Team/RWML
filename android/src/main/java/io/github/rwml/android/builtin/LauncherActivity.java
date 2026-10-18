@@ -104,6 +104,12 @@ public final class LauncherActivity extends Activity {
         failed = error != null;
         if (error != null) { log.append(error); }
         labels();
+        // A build replaced the launch that asked for it. The player already pressed the button that
+        // started it, so the second process presses it again on their behalf rather than stopping at
+        // a screen that reads as though nothing happened.
+        if (AndroidBootstrap.consumeAutostart(this)) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(this::startGame);
+        }
     }
 
     private Button button(LinearLayout parent, Runnable action) {

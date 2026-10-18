@@ -8,6 +8,7 @@
 package io.github.rwml.core;
 
 import io.github.rwml.api.ExtensionContext;
+import io.github.rwml.api.GameAssets;
 import io.github.rwml.api.MixinBridge;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -22,14 +23,16 @@ final class ExtensionContextImpl implements ExtensionContext {
     private final Path dataDirectory;
     private final ClassLoader classLoader;
     private final MixinBridge mixins;
+    private final GameAssets assets;
     private final Logger logger;
 
     ExtensionContextImpl(String extensionId, Path dataDirectory, ClassLoader classLoader,
-                         MixinBridge mixins) throws IOException {
+                         MixinBridge mixins, GameAssets assets) throws IOException {
         this.extensionId = extensionId;
         this.dataDirectory = dataDirectory;
         this.classLoader = classLoader;
         this.mixins = mixins;
+        this.assets = assets;
         this.logger = Logger.getLogger("extension." + extensionId);
         Files.createDirectories(dataDirectory);
     }
@@ -52,6 +55,11 @@ final class ExtensionContextImpl implements ExtensionContext {
     @Override
     public MixinBridge mixin() {
         return mixins;
+    }
+
+    @Override
+    public GameAssets gameAssets() {
+        return assets;
     }
 
     @Override

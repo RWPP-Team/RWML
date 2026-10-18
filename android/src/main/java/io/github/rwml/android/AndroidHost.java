@@ -10,6 +10,7 @@ package io.github.rwml.android;
 import android.content.Context;
 
 import io.github.rwml.android.builtin.AndroidExtension;
+import io.github.rwml.api.GameAssets;
 import io.github.rwml.api.MixinBridge;
 import io.github.rwml.api.ProgressListener;
 import io.github.rwml.core.ExtensionDescriptor;
@@ -45,6 +46,12 @@ public final class AndroidHost implements HostPlatform {
     @Override
     public MixinBridge mixins() {
         return mixins;
+    }
+
+    /** The APK carries the assets, so a name is the only handle an extension can hold. */
+    @Override
+    public GameAssets gameAssets() {
+        return new AndroidGameAssets(context.getAssets());
     }
 
     /** Unpacks the extensions the APK carries; see {@link AssetInstaller}. */

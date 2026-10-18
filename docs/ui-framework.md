@@ -98,6 +98,16 @@ Use `host.gameBoot()` on a worker after drawing the launcher. It retains its onc
 after a failed boot, restart instead of retrying the same mounted classes. Screen names `game`,
 `main-menu` and `extensions` are provided by both hosts; Android also provides `launcher`.
 
+## The battleroom on Android
+
+The desktop game draws the multiplayer room with its own UI script; the Android host draws it in
+`MultiplayerBattleroomActivity`. Both answer the engine through its network callbacks, and the engine
+only produces those for the packets of its own protocol. A session carried by an extension that runs a
+protocol of its own writes the teams and the game setup itself, so it calls the callbacks the same way
+the engine would: `onBattleroomUIUpdate()` redraws the room and `startGameEvent()` hands the screen to
+the match. The room also redraws on a timer while it is on screen, which covers a session that never
+asked.
+
 ## Desktop options and recovery
 
 The PC host opens its bootstrap before executing extension classes, onLoad callbacks or registering

@@ -32,7 +32,16 @@ import java.util.jar.JarFile;
  * missing for every type the app does not carry, so the bytes from the jars cover the game and the
  * extensions and a stand-in covers the rest.</p>
  *
- * <p>It never defines the classes it describes: it answers lookups and is dropped with the rewriter.</p>
+ * <p>It is also the loader the mixins are registered through, which is what ties the two halves of
+ * the registration together. A {@code loadClass} reaches the dex loader as its parent and finds the
+ * extension and the stand-in types there, while a {@code getResourceAsStream} is answered here first
+ * and reads the real bytes out of the jars. Without the first a mixin whose signature names a game
+ * type cannot be defined at all; without the second every inherited field an {@code @Accessor} names
+ * would be invisible, because the framework reads a hierarchy through this same lookup.</p>
+ *
+ * <p>It never defines the classes it describes: it answers lookups and is dropped with the rewriter.
+ * Defining one is not something this loader could do anyway, because the runtime only defines
+ * classes out of dex and these archives carry class files.</p>
  */
 final class JarResources extends ClassLoader implements Closeable {
 
@@ -90,14 +99,20 @@ final class JarResources extends ClassLoader implements Closeable {
     }
 
     private InputStream openFromJars(String name) {
+        byte[] bytes = classBytes(name);
+        // The stream outlives the entry, so the bytes are read out in full and handed over as a copy.
+        return bytes == null ? null : new ByteArrayInputStream(bytes);
+    }
+
+    /** @return the bytes of one entry of the archives, or null when none of them carries it */
+    private byte[] classBytes(String name) {
         for (JarFile jar : jars) {
             JarEntry entry = jar.getJarEntry(name);
             if (entry == null) {
                 continue;
             }
             try (InputStream in = jar.getInputStream(entry)) {
-                // The stream outlives the entry, so the bytes are read out in full here.
-                return new ByteArrayInputStream(readFully(in));
+                return readFully(in);
             } catch (IOException ignored) {
                 // Try the next jar.
             }

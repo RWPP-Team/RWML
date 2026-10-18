@@ -195,7 +195,23 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     private final List<Cell> spareCells = new ArrayList<>();
 
     private final Handler poll = new Handler(android.os.Looper.getMainLooper());
-    private final Runnable refreshTask = this::refresh;
+
+    /**
+     * The room's own redraw, repeated while the room is on screen.
+     *
+     * <p>On this host the engine's update call arrives only when the engine processes the game's own
+     * network packets. A session carried by something else, which is what an extension that runs its
+     * own protocol is, leaves the room with no call at all and it would keep showing the state it was
+     * drawn in the first time. Redrawing on a timer covers both: the engine's calls still land first
+     * and the timer only repeats what the engine's state already says.</p>
+     */
+    private final Runnable refreshTask = new Runnable() {
+        @Override
+        public void run() {
+            refresh();
+            poll.postDelayed(this, POLL_MILLIS);
+        }
+    };
 
     // ------------------------------------------------------------------
     // Opening and closing
@@ -1368,15 +1384,15 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             if (spectator) {
                 side = -3;
                 sideFollowsSlot = true;
-                team.PENDING_flag_u = false;
+                team.explicitAllyTeam = false;
             } else if (chosen(ally, 0) == 0) {
                 side = slot % 2;
                 sideFollowsSlot = true;
-                team.PENDING_flag_u = false;
+                team.explicitAllyTeam = false;
             } else {
                 side = chosen(ally, 0) - 1;
                 sideFollowsSlot = false;
-                team.PENDING_flag_u = true;
+                team.explicitAllyTeam = true;
             }
 
             if (team.allyTeam != side) {

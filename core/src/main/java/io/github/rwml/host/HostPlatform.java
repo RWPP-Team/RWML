@@ -7,6 +7,7 @@
 
 package io.github.rwml.host;
 
+import io.github.rwml.api.GameAssets;
 import io.github.rwml.api.MixinBridge;
 import io.github.rwml.api.ProgressListener;
 import io.github.rwml.core.ExtensionDescriptor;
@@ -28,6 +29,17 @@ public interface HostPlatform {
 
     /** @return the bytecode patching service this host offers. */
     MixinBridge mixins();
+
+    /**
+     * @return read access to the game's asset tree.
+     *
+     * <p>A host that keeps the assets in a directory a caller can already open answers with
+     * {@link GameAssets#none()}; an extension then reads them itself. An Android app has no such
+     * directory, so its host answers with an implementation over the packaged assets.</p>
+     */
+    default GameAssets gameAssets() {
+        return GameAssets.none();
+    }
 
     /**
      * Describes the extensions the host carries inside itself.

@@ -14,6 +14,7 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 
 import dalvik.system.BaseDexClassLoader;
 import dalvik.system.DexClassLoader;
@@ -97,6 +98,39 @@ final class DexClassPath {
         return loader;
     }
 
+    /**
+     * Mounts dex on a loader of its own, searched before the parent's, and returns it.
+     *
+     * <p>This is what the mixin registration runs on. The stand-in types the registration needs are
+     * only wanted while it runs, and a loader the game also runs on would keep them: a class is
+     * defined once and stays defined, so a game type answered by a stand-in during registration
+     * would answer as that stand-in forever, and the patched dex mounted afterwards would never be
+     * consulted for it. Keeping the stand-ins on a loader nothing else uses is what makes the
+     * registration free of consequence for the running game.</p>
+     *
+     * <p>The search order is the other half. A parent-first loader would answer a mixin from the
+     * parent, where the game types in its signatures are unresolvable, so this one asks its own path
+     * first and falls back to the parent for everything it does not carry.</p>
+     *
+     * @param dexFiles the dex to own, in search order
+     * @param optimizedDirectory where the platform may keep its own optimized artifacts
+     * @param parent what answers every name the dex does not carry
+     * @param localFirst the names to answer from the dex before asking the parent, which is the
+     *                   stand-in types and the mixins that name them, and nothing else
+     */
+    static ClassLoader mountIsolated(List<Path> dexFiles, Path optimizedDirectory, ClassLoader parent,
+                                     Set<String> localFirst) throws IOException {
+        if (dexFiles.isEmpty()) {
+            throw new IOException("no dex to mount");
+        }
+        for (Path dex : dexFiles) {
+            Dexer.makeReadOnly(dex);
+        }
+        Files.createDirectories(optimizedDirectory);
+        return new LocalFirstDexLoader(join(dexFiles),
+            optimizedDirectory.toAbsolutePath().toString(), null, parent, localFirst);
+    }
+
     /** @return whether the loader has the dex on its own path, meaning app classes should not shadow it. */
     static boolean isAppLoader(ClassLoader loader) {
         return loader != null && loader == DexClassPath.class.getClassLoader();
@@ -178,6 +212,56 @@ final class DexClassPath {
             }
         }
         return null;
+    }
+
+    /**
+     * A dex loader that answers a named set of classes from its own dex before asking its parent.
+     *
+     * <p>The platform's loaders all search the parent first, which for the mixin registration means
+     * the extension classes come from the loader the game runs on, carrying the game-typed signatures
+     * that cannot resolve there. Searching locally first is what puts the mixin classes and the
+     * stand-ins in the same loader, and the two have to be in the same loader for a signature naming
+     * one to resolve against the other.</p>
+     *
+     * <p>The set is named rather than derived from what the dex happens to carry, so a name the
+     * platform already answers - the framework, the app's own classes, the Android API the archives
+     * still carry a copy of - keeps coming from the parent.</p>
+     *
+     * <p>Nothing it defines escapes: the object is handed to the registration and dropped with it.</p>
+     */
+    private static final class LocalFirstDexLoader extends DexClassLoader {
+
+        private final Set<String> localFirst;
+
+        private LocalFirstDexLoader(String dexPath, String optimizedDirectory,
+                                    String librarySearchPath, ClassLoader parent,
+                                    Set<String> localFirst) {
+            super(dexPath, optimizedDirectory, librarySearchPath, parent);
+            this.localFirst = localFirst;
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (!localFirst.contains(name)) {
+                return super.loadClass(name, resolve);
+            }
+            // The monitor is this loader's own, because ClassLoader has no getClassLoadingLock on
+            // Android and the platform's parallel-capable loaders are not reachable here.
+            synchronized (this) {
+                Class<?> found = findLoadedClass(name);
+                if (found == null) {
+                    try {
+                        found = findClass(name);
+                    } catch (ClassNotFoundException notLocal) {
+                        found = super.loadClass(name, false);
+                    }
+                }
+                if (resolve) {
+                    resolveClass(found);
+                }
+                return found;
+            }
+        }
     }
 
     private static String join(List<Path> dexFiles) {

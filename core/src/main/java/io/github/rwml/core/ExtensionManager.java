@@ -599,7 +599,8 @@ public final class ExtensionManager {
             ExtensionContextImpl context;
             try {
                 context = new ExtensionContextImpl(
-                    descriptor.id(), dataDirectory.resolve(descriptor.id()), classLoader, platform.mixins());
+                    descriptor.id(), dataDirectory.resolve(descriptor.id()), classLoader, platform.mixins(),
+                    platform.gameAssets());
             } catch (IOException e) {
                 throw new ExtensionException("Unable to prepare the data directory for " + descriptor.id(), e);
             }

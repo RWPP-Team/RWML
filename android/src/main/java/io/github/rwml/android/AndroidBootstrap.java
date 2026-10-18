@@ -53,8 +53,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -86,9 +88,11 @@ public final class AndroidBootstrap implements RwmlRuntime {
      * {@code rwml-8}: the image mixin's handler became static and takes its context from
      * {@link GameResources} instead of a shadowed field that was always null.
      * {@code rwml-9}: the app's own code is part of the key, so a new build of the app no longer
-     * needs a hand-written bump to replace the dex its mixins are compiled into.</p>
+     * needs a hand-written bump to replace the dex its mixins are compiled into.
+     * {@code rwml-11}: the stand-in dex moved off the game's loader, which a device holding dex from
+     * {@code rwml-10} has to see for itself.</p>
      */
-    private static final String CACHE_FORMAT = "rwml-10-early-ui";
+    private static final String CACHE_FORMAT = "rwml-11-own-loader";
 
     private static final String GAME_GROUP = "game";
     private static final String EXTENSION_GROUP = "extensions";
@@ -428,12 +432,24 @@ public final class AndroidBootstrap implements RwmlRuntime {
         if (cacheHit) {
             record("cache      dex reused  (key " + AssetInstaller.Digest.shortHash(cacheKey) + ")");
             replayBuildLog();
+            clearRestartMarker();
             classLoader = mount(classLoader, collectDex(enabled, gameArchives));
         } else {
             int first = log.size();
             classLoader = build(enabled, gameArchives);
             writeBuildLog(log.subList(first, log.size()));
             writeKey();
+            // A build is not the state a launch runs in. Applying the mixins defines game classes
+            // while the archive is still a jar and the patched dex does not exist yet, and whatever
+            // that leaves behind in this process is decided for the rest of its life: a class a
+            // registration reached before the patch existed keeps the shape it had then, which is a
+            // class-not-found or a missing field at the first use. Every later launch starts from
+            // the cache instead, which is why a restart used to hide it. Doing that restart here
+            // makes the first launch the same thing as every other one.
+            if (!restartIntoFreshProcess()) {
+                record("warning    the handover to a fresh process could not be requested; this one "
+                    + "continues with the loader the build returned");
+            }
         }
 
         bridge.updateLoader(classLoader);
@@ -441,6 +457,111 @@ public final class AndroidBootstrap implements RwmlRuntime {
         mountedLoader = classLoader;
         GameResources.mounted(classLoader);
         return true;
+    }
+
+    /**
+     * Replaces this process with one that mounts the dex the build just wrote.
+     *
+     * <p>The replacement runs in the {@code :restart} process, because a replacement screen in this
+     * one would inherit the very class definitions the build invalidated. It waits for this process
+     * to end before starting the launcher, so the platform cannot deliver the launch to a process
+     * that is still alive.</p>
+     *
+     * @return {@code false} when the handover could not be requested, so the caller keeps running
+     */
+    private boolean restartIntoFreshProcess() {
+        // A key this process already handed over once and still had to build means the handover did
+        // not take. Repeating it would be a restart loop, so this launch keeps the loader it built.
+        Path marker = dataDirectory.resolve(RESTART_KEY);
+        String handedOver = readMarker(marker);
+        if (cacheKey.equals(handedOver)) {
+            record("warning    the previous handover for this cache key did not take; continuing in "
+                + "this process");
+            clearRestartMarker();
+            return false;
+        }
+        record("restarting in a fresh process: the dex is built and the cache key is written");
+        writeMarker(marker);
+        requestAutostart();
+        int pid = android.os.Process.myPid();
+        try {
+            context.startActivity(new android.content.Intent(context, RestartActivity.class)
+                .putExtra("rwml.oldPid", pid)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    | android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        } catch (Throwable t) {
+            HostLog.error("the handover to a fresh process could not be requested", t);
+            return false;
+        }
+        android.os.Process.killProcess(pid);
+        // A device that refuses the kill leaves this process holding a class path the build already
+        // replaced, which is what the restart exists to avoid. Waiting here keeps it from starting
+        // the game in that state; the boot stage that called this never resumes. The main thread is
+        // left alone, because a screen that never draws is worse than one that boots as before.
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            try {
+                Thread.sleep(Long.MAX_VALUE);
+            } catch (InterruptedException stopped) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        return false;
+    }
+
+    /** The marker a rebuilt dex leaves behind so the next process carries on instead of waiting. */
+    private static final String AUTOSTART = "autostart";
+
+    /** The cache key a handover was requested for, so a handover that did not take cannot repeat. */
+    private static final String RESTART_KEY = "restart-key";
+
+    private void writeMarker(Path marker) {
+        try {
+            Files.createDirectories(marker.getParent());
+            Files.write(marker, cacheKey.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException | RuntimeException e) {
+            HostLog.error("the handover marker " + marker.getFileName() + " could not be written", e);
+        }
+    }
+
+    private String readMarker(Path marker) {
+        try {
+            return Files.isRegularFile(marker)
+                ? new String(Files.readAllBytes(marker), StandardCharsets.UTF_8).trim() : null;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void clearRestartMarker() {
+        try {
+            Files.deleteIfExists(dataDirectory.resolve(RESTART_KEY));
+        } catch (IOException | RuntimeException e) {
+            HostLog.error("the handover marker could not be removed", e);
+        }
+    }
+
+    /** Records that the launch this process replaced should be resumed by the next one. */
+    private void requestAutostart() {
+        writeMarker(dataDirectory.resolve(AUTOSTART));
+    }
+
+    /**
+     * @return whether the launch this process replaced asked to be continued, which is consumed here
+     *
+     * <p>A rebuild ends the launch that asked for it, and the player asked to play: the press that
+     * started the build is remembered instead of being asked for a second time.</p>
+     */
+    public static boolean consumeAutostart(Context context) {
+        File marker = new File(new File(new File(context.getFilesDir(), "rwml"), "data"), AUTOSTART);
+        if (!marker.isFile()) {
+            return false;
+        }
+        try {
+            return marker.delete();
+        } catch (RuntimeException e) {
+            HostLog.error("the continuation marker could not be removed", e);
+            return false;
+        }
     }
 
     /** @return the dex of every extension and game archive that is already on disk, in load order. */
@@ -494,7 +615,6 @@ public final class AndroidBootstrap implements RwmlRuntime {
         deleteRecursively(dexDirectory);
         patchedClasses = 0;
 
-        ClassLoader appLoader = AndroidBootstrap.class.getClassLoader();
         List<Path> extensionDex = new ArrayList<>();
         List<ExtensionDescriptor> mounted = new ArrayList<>();
         for (ExtensionDescriptor descriptor : enabled) {
@@ -511,45 +631,80 @@ public final class AndroidBootstrap implements RwmlRuntime {
             }
         }
         ClassLoader loader = mount(classLoader, extensionDex);
-        bridge.updateLoader(loader);
-        // The app carries mixins of the game's classes of its own, registered like an extension's.
-        // The class comes from the app's dex, which this loader already sees, so nothing has to
-        // be mounted for it.
-        List<Class<?>> carried = Arrays.<Class<?>>asList(
-            AndroidSoundFactoryMixin.class, GraphicsEngineAndroidMixin.class, LocaleUiMixin.class,
-            NetworkEngineNotificationMixin.class, ServerListNotifyMixin.class,
-            MinimapHandlerMixin.class, MinimapHandlerQueuedPointsDrawMixin.class,
-            io.github.rwml.android.mixin.MasterServerListLifecycleMixin.class);
-        for (Class<?> mixin : carried) {
-            bridge.register(mixin);
-            record("mixin      " + mixin.getName() + "  [app]");
-        }
 
+        // A mixin names the game types it patches in its own signatures, and the runtime resolves
+        // those signatures when the mixin class is defined, which is the registration below. The game
+        // is still a jar at that point and only becomes dex once the mixins have been applied, so no
+        // loader can answer for a single game type while they are being registered. The stand-in dex
+        // closes that gap: it carries a type of the right name, the right flags and the right place
+        // in the hierarchy, which is all the framework asks of a type it does not define.
+        //
+        // It goes on a loader of its own, never on the one the game runs on. A class is defined once
+        // and stays defined, so a game type answered by a stand-in during registration would keep
+        // answering as that stand-in for the rest of the process: the patched dex mounted further
+        // down would be ignored for exactly the classes the mixins touch, which is every class that
+        // matters. The isolated loader is dropped with the registration, and the stand-in with it.
+        List<Path> stubDex = StubDex.build(gameArchives, rootDirectory.resolve("stub-dex"));
+        Map<ExtensionDescriptor, List<String>> mixins = new LinkedHashMap<>();
         for (ExtensionDescriptor descriptor : mounted) {
-            for (String mixin : OfflineMixinBridge.mixinClassNames(descriptor.source())) {
-                record("mixin      " + mixin + "  [" + descriptor.id() + "]");
-            }
-            try { bridge.registerArchive(descriptor.source()); }
-            catch (ExtensionException failure) {
-                recoverArchive(descriptor.source(), failure);
-                throw failure;
-            }
+            mixins.put(descriptor, OfflineMixinBridge.mixinClassNames(descriptor.source()));
         }
-
-        if (gameArchives.isEmpty()) {
-            record("no game classes staged; nothing to rewrite");
-            return loader;
+        ClassLoader registration = loader;
+        if (!stubDex.isEmpty()) {
+            Set<String> standInNames = new LinkedHashSet<>(StubDex.classNames(gameArchives));
+            for (List<String> names : mixins.values()) {
+                standInNames.addAll(names);
+            }
+            List<Path> isolated = new ArrayList<>(stubDex);
+            isolated.addAll(extensionDex);
+            registration = DexClassPath.mountIsolated(isolated,
+                rootDirectory.resolve("optimized"), loader, standInNames);
+            record("registered against a stand-in dex on a loader of its own; the game's loader "
+                + "never carries one");
         }
 
         List<Path> classpath = new ArrayList<>(gameArchives);
         for (ExtensionDescriptor descriptor : mounted) {
             classpath.add(descriptor.source());
         }
-        // The rewriter computes stack map frames and needs to read the classes it reasons about.
-        // This loader answers those reads from the jars and supplies a stand-in for the rest;
-        // nothing has to be loadable for it to work.
         List<Path> gameDex = new ArrayList<>();
-        try (JarResources resources = new JarResources(classpath, appLoader)) {
+        try (JarResources resources = new JarResources(classpath, registration)) {
+            // Registering through the resource loader rather than the dex loader is the other half of
+            // the same fix. A loadClass reaches the dex loader as its parent and finds the extension
+            // and the stand-in there, while a getResourceAsStream is answered here first and reads
+            // the real bytes of the game out of the jars. That second path is where the framework
+            // reads a superclass hierarchy from, and without it every inherited field an @Accessor
+            // names would be invisible.
+            bridge.updateLoader(resources);
+            // The app carries mixins of the game's classes of its own, registered like an
+            // extension's. The class comes from the app's dex, which this loader already sees, so
+            // nothing has to be mounted for it.
+            List<Class<?>> carried = Arrays.<Class<?>>asList(
+                AndroidSoundFactoryMixin.class, GraphicsEngineAndroidMixin.class, LocaleUiMixin.class,
+                NetworkEngineNotificationMixin.class, ServerListNotifyMixin.class,
+                MinimapHandlerMixin.class, MinimapHandlerQueuedPointsDrawMixin.class,
+                io.github.rwml.android.mixin.MasterServerListLifecycleMixin.class);
+            for (Class<?> mixin : carried) {
+                bridge.register(mixin);
+                record("mixin      " + mixin.getName() + "  [app]");
+            }
+
+            for (ExtensionDescriptor descriptor : mounted) {
+                for (String mixin : mixins.get(descriptor)) {
+                    record("mixin      " + mixin + "  [" + descriptor.id() + "]");
+                }
+                try { bridge.registerArchive(descriptor.source()); }
+                catch (ExtensionException failure) {
+                    recoverArchive(descriptor.source(), failure);
+                    throw failure;
+                }
+            }
+
+            if (gameArchives.isEmpty()) {
+                record("no game classes staged; nothing to rewrite");
+                return loader;
+            }
+
             for (Path archive : gameArchives) {
                 Path patched = dexDirectory.resolve("patched").resolve(baseName(archive) + ".jar");
                 record("rewriting " + archive.getFileName());

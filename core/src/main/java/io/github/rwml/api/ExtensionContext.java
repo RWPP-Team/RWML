@@ -31,6 +31,14 @@ public interface ExtensionContext {
     ClassLoader classLoader();
 
     /**
+     * @return read access to the game's asset tree, which a desktop install keeps in a directory and
+     *         an Android app keeps inside the APK
+     */
+    default GameAssets gameAssets() {
+        return GameAssets.none();
+    }
+
+    /**
      * @return the mixin bridge. Use it to register mixins programmatically
      *         or to transform class buffers the extension loads itself.
      */

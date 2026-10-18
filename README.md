@@ -38,6 +38,8 @@ Put extension jars in `extensions/` beside the desktop game library, or in `/sto
 
 Extension changes and enable/disable settings take effect when the launcher next loads them. Android checks SHA-256 at that point and rebuilds changed caches.
 
+On Android a rebuild ends the launch that asked for it. Applying the mixins defines game classes while the game is still an archive and the patched dex does not exist yet, and the result of that cannot be undone in the same process. The app therefore hands the launch to a fresh process as soon as the cache key is written, and continues there: the first launch after an install or an extension change restarts once instead of showing a partially patched game.
+
 Both launchers offer system/English/Simplified Chinese language selection and extension management.
 Import a jar with the file picker, search installed extensions, inspect dependencies, enable/disable,
 or remove archives while retaining their data. Replacing an existing extension asks for confirmation;

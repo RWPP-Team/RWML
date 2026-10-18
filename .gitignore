@@ -49,3 +49,4 @@ local.properties
 .cxx/
 /android/src/main/res/
 /android/src/main/assets/
+/.workbuddy/
