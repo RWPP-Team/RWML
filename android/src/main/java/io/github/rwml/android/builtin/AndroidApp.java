@@ -20,47 +20,42 @@ import io.github.rwml.android.AndroidBootstrap;
 import java.lang.reflect.Field;
 
 /**
- * The place where this package touches the platform.
+ * 本包与平台交互的入口。
  *
- * <p>Every activity needs the same three things - the engine has to be told which context it runs
- * under, a full-screen screen has to say so, and a screen has to be startable from a context that may
- * not be an activity - and none of them belongs in an activity.</p>
+ * <p>所有 Activity 都需要完成相同的三项工作：告知引擎当前运行所用的上下文、将全屏界面设置为全屏，以及
+ * 支持从非 Activity 上下文启动界面。这些工作都不应由各个 Activity 重复实现。</p>
  *
- * <p>The game's own equivalent cannot be called: its methods reach the platform through a copy of the
- * Android API the archive carries inside itself, so a call raises {@code NoSuchMethodError} on a
- * device. The methods here do the same work with the platform's real API. The one exception is the
- * application context, which the engine reads from a static of the game's own helper, written here by
- * name.</p>
+ * <p>不能调用游戏自身的对应方法：这些方法通过归档中携带的 Android API 副本访问平台，因此在设备上调用会
+ * 引发 {@code NoSuchMethodError}。此处的方法使用平台真正的 API 完成相同工作。唯一例外是应用上下文：引擎
+ * 会从游戏辅助类的静态字段读取该值，因此此处按名称写入。</p>
  */
 public final class AndroidApp {
 
     private static final String TAG = "RWML";
 
-    /** The game's helper, which holds the application context the engine reads. */
+    /** 游戏辅助类；引擎从中读取应用上下文。 */
     private static final String APP_CONTEXT_CLASS = "com.corrodinggames.rts.appFramework.AppContext";
 
-    /** The static field of that helper holding the application context, as the mappings name it. */
+    /** 根据映射名称确定的辅助类静态字段，用于保存应用上下文。 */
     private static final String APP_CONTEXT_FIELD = "applicationContext";
 
     private AndroidApp() {
     }
 
     /**
-     * Brings one activity up.
+     * 初始化一个 Activity。
      *
-     * <p>A screen other than the splash is handed over to the splash when there is no engine to
-     * read. Android may restart the process on the last activity it had open, and that entry runs
-     * none of the splash's work, so the dex is mounted while the engine was never made. A screen
-     * that reads the engine then has nothing to show, which reads as an empty list rather than as
-     * the missing engine it is. The splash is the only screen that can make one, so every other
-     * screen goes there.</p>
+     * <p>如果引擎尚未创建，除启动画面以外的界面都会转交给启动画面处理。Android 可能从上次打开的 Activity
+     * 重启进程，而该入口不会执行启动画面的工作，因此 dex 虽然已挂载，引擎却可能尚未创建。此时依赖引擎的
+     * 界面会无内容可显示，看起来像是列表为空，而不是缺少引擎。启动画面是唯一能创建引擎的界面，因此其他界面
+     * 都会先进入启动画面。</p>
      *
-     * @param activity   the activity that is starting
-     * @param fullScreen whether the activity hides the system bars
+     * @param activity   正在启动的 Activity
+     * @param fullScreen 是否隐藏系统栏
      */
     public static void prepare(Activity activity, boolean fullScreen) {
-        // The runtime must be up before anything looks the game up by name: Android may restart the
-        // process on the last activity it had open, which never ran the splash's boot.
+        // 任何代码按名称查找游戏类之前，运行时都必须准备就绪：Android 可能从上次打开的 Activity 重启进程，
+        // 而该 Activity 从未执行启动画面的引导流程。
         AndroidBootstrap.prepare(activity.getApplicationContext());
         GameEngine engine = GameEngine.getInstance();
         if (!(activity instanceof IntroScreen) && engine == null) {
@@ -70,27 +65,22 @@ public final class AndroidApp {
             activity.finish();
             return;
         }
-        // The rest is the game's own screen setup, called rather than restated: it captures the
-        // application context the engine reads, hides the system bars when the player's own setting
-        // asks for it, asks the engine for a message it had no screen to show when it was raised -
-        // which is where a map that failed to load ends up - and clears the window's background,
-        // because the game draws its own in every frame. The game's screens call this with the same
-        // arguments; the middle one is false there, and true here, because the screens this app
-        // carries all fill the window.
+        // 其余工作沿用游戏自身的界面初始化方法，而不在此重复实现：保存引擎读取的应用上下文；根据玩家的设置
+        // 隐藏系统栏；显示先前因没有界面而暂存的引擎消息（例如地图加载失败消息）；清除窗口背景，因为游戏每帧
+        // 都会自行绘制背景。游戏界面也会使用相同参数调用此方法，只是中间的全屏参数在游戏界面中为 false，
+        // 而此处为 true，因为应用携带的这些界面都会占满整个窗口。
         try {
             AppContext.setupActivity(activity, true, fullScreen);
         } catch (Throwable t) {
-            // A screen whose platform setup failed must still come up: it is the screen the player
-            // is looking at, and the failure would otherwise be a blank window.
+            // 即使平台界面设置失败，也必须显示该界面：玩家正在等待这个界面，否则只会看到空白窗口。
             Log.w(TAG, "The game's screen setup did not complete.", t);
         }
     }
 
     /**
-     * Turns the transition animation off.
+     * 关闭界面切换动画。
      *
-     * <p>It is a cosmetic choice the game makes as well: the interface fades itself in, and the
-     * platform's animation on top of that reads as a stutter.</p>
+     * <p>游戏也会关闭该动画：界面本身会淡入，再叠加平台动画会显得卡顿。</p>
      */
     public static void disableTransitionAnimation(Activity activity) {
         try {
@@ -100,7 +90,7 @@ public final class AndroidApp {
         }
     }
 
-    /** Runs an action on the main thread, or where it is when the context is not an activity. */
+    /** 在主线程执行操作；上下文不是 Activity 时，则在当前线程执行。 */
     public static void runOnUiThread(Context context, Runnable action) {
         if (context instanceof Activity) {
             ((Activity) context).runOnUiThread(action);
@@ -110,10 +100,9 @@ public final class AndroidApp {
     }
 
     /**
-     * Starts a screen from a context that may not be an activity, on whatever thread the caller is on.
+     * 在调用方所在的线程中，从任意上下文启动界面；该上下文不一定是 Activity。
      *
-     * <p>The flag that gives the new screen a task is added when the context is not an activity, and
-     * the launch is moved to the main thread when it is.</p>
+     * <p>若上下文不是 Activity，就会添加让新界面创建任务的标志；如果调用来自非主线程，则会将启动操作切换到主线程。</p>
      */
     public static void startScreen(Context context, Intent intent) {
         if (!(context instanceof Activity)) {
@@ -130,11 +119,10 @@ public final class AndroidApp {
     }
 
     /**
-     * Writes the application context into the game's own static, which throws when it is null.
+     * 将应用上下文写入游戏自身的静态字段；如果上下文为 null，则会抛出异常。
      *
-     * <p>The helper is looked up on the loader that owns the game dex, not on the app's own: the
-     * platform decides whether that dex ends up on the app's class path, and when it refuses, the
-     * app's loader answers nothing for the game's name.</p>
+     * <p>辅助类会从拥有游戏 dex 的加载器中查找，而非从应用自身的加载器中查找：由平台决定 dex 是否加入应用类路径；
+     * 若平台拒绝添加，应用加载器就无法提供游戏类。</p>
      */
     public static void setApplicationContext(Context context) {
         ClassLoader loader = AndroidBootstrap.gameLoader();

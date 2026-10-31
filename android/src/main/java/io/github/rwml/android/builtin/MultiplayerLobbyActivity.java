@@ -48,69 +48,59 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * The multiplayer lobby: the game's own lobby layout, the list of games the master server has
- * published, the name to play under, and the two ways into a game of one's own.
+ * 多人游戏大厅：使用游戏自身的大厅布局，显示主服务器发布的游戏列表、玩家名称，以及创建自己游戏的两种方式。
  *
- * <p>Everything a game of Rusted Warfare does over the network belongs to the engine, and this
- * screen is a view onto it rather than a second implementation of it. The list is the engine's own
- * set of discovered games, read in the order the game's own list screen puts it in; asking for the
- * list is the engine's own request against its own master servers; and joining is the engine's own
- * connector, which is what knows that a game announced on a master list carries its identity rather
- * than a reachable address, that the address has to be asked for separately, and that a game behind
- * a password has to be asked for it before it answers. This screen therefore hands the engine an
- * entry and a name and reads back what came of it.</p>
+ * <p>Rusted Warfare 的所有网络操作都属于引擎，此界面只是展示引擎状态，而不是重新实现网络逻辑。游戏列表来自引擎发现的游戏集合，
+ * 并按游戏原生列表界面的顺序读取；获取列表也是由引擎向自己的主服务器发起请求；加入游戏则使用引擎自身的连接器。连接器知道：
+ * 主服务器列表中的游戏条目表示游戏身份，而不是可直接连接的地址；需要另外查询地址；若游戏设有密码，则必须先请求密码才能继续连接。
+ * 因此此界面只需将条目和玩家名称交给引擎，再读取连接结果。</p>
  *
- * <p>Hosting is the game's own host path too: the engine's network state is set from the host
- * dialog, the server is started, and a game whose chosen map is no longer on the device falls back
- * to the game's default skirmish map, since a battleroom cannot set up a map that cannot be
- * loaded.</p>
+ * <p>创建游戏也沿用游戏自身的主机流程：根据主机对话框设置引擎网络状态，启动服务器；若所选地图已不在设备上，就回退到游戏默认的
+ * 遭遇战地图，因为对战房间无法配置无法加载的地图。</p>
  *
- * <p>The engine announces a changed game list by calling a static method on the class that used to
- * be the game's own list screen. That class is a shell in the archive this app runs, so the call is
- * redirected to this screen; see {@code ServerListNotifyMixin}.</p>
+ * <p>引擎会调用原游戏列表界面类中的静态方法，通知列表发生变化。当前应用运行的归档中，该类只是空壳，因此调用会重定向到此界面；
+ * 详见 {@code ServerListNotifyMixin}。</p>
  *
- * <p>Joining Bluetooth and linking a mod folder belong to the Android build's own connectivity and
- * file browser, which this host does not carry, so those controls stay hidden.</p>
+ * <p>通过蓝牙加入游戏和关联模组目录依赖 Android 版本自带的连接功能和文件浏览器；本宿主未包含这些功能，因此隐藏对应控件。</p>
  */
 public final class MultiplayerLobbyActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** The number of columns the layout's heading row declares. */
+    /** 布局标题行声明的列数。 */
     private static final int COLUMNS = 6;
 
-    /** How wide a row of the table is: as wide as the table it is in. */
+    /** 表格行的宽度，与所在表格等宽。 */
     private static final int ROW_WIDTH = ViewGroup.LayoutParams.MATCH_PARENT;
 
-    /** The column the map is in, which is the one the game marks for the game being played. */
+    /** 地图所在列，游戏用它标记正在进行的对局。 */
     private static final int COLUMN_MAP = 3;
 
-    /** The column the version is in, which is the one the game greys for another protocol. */
+    /** 版本所在列；协议不兼容时游戏会将此列标灰。 */
     private static final int COLUMN_VERSION = 4;
 
-    /** The colour of a cell the game draws nothing special about. */
+    /** 普通单元格的颜色。 */
     private static final int COLOR_PLAIN = Color.argb(255, 255, 255, 255);
 
-    /** The colour of a game that is a chat room or a link, both of which open outside the game. */
+    /** 聊天室或链接类型对局的颜色；这两类内容都会在游戏外打开。 */
     private static final int COLOR_LINK = Color.argb(255, 152, 236, 249);
 
-    /** The colour of a game whose host answered from a port that is open to the internet. */
+    /** 房主通过互联网开放端口响应时，对局显示的颜色。 */
     private static final int COLOR_OPEN = Color.argb(255, 240, 240, 240);
 
-    /** The colour of a game found on the local network. */
+    /** 在局域网中发现的对局颜色。 */
     private static final int COLOR_LAN = Color.argb(255, 229, 149, 35);
 
-    /** The colour of the game this device is in. */
+    /** 本设备当前所在对局的颜色。 */
     private static final int COLOR_CURRENT = Color.argb(255, 35, 35, 200);
 
-    /** The colour of a game speaking another protocol than this build. */
+    /** 使用与当前构建不同协议的对局颜色。 */
     private static final int COLOR_OTHER_VERSION = Color.argb(255, 155, 147, 147);
 
     /**
-     * The lobby that is on screen.
+     * 当前显示的大厅界面。
      *
-     * <p>The engine's "the list changed" call is a static one on a game class, so the screen it is
-     * about has to be reachable without an instance to call it on.</p>
+     * <p>引擎通过游戏类上的静态方法通知列表变化，因此必须无需实例即可访问当前相关界面。</p>
      */
     private static volatile MultiplayerLobbyActivity open;
 
@@ -122,21 +112,20 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     private String refreshLabel;
     private String refreshingLabel;
 
-    /** The wait shown while the engine opens the socket, and the call that opened it. */
+    /** 引擎打开套接字期间显示的等待提示，以及启动该操作的调用。 */
     private ProgressDialog connecting;
 
-    /** The connector of the join that is running, so the wait can be taken down with its answer. */
+    /** 当前加入请求的连接器，完成后可据此关闭等待提示。 */
     private ConnectSocketToServerRunnable joinInProgress;
 
-    /** Whether a rebuild has already been asked for, so a burst of notices is one redraw. */
+    /** 标记是否已请求重建，避免一连串通知触发多次重绘。 */
     private boolean rebuildPosted;
 
     /**
-     * Whether this screen is the one in front.
+     * 此界面是否位于前台。
      *
-     * <p>The engine keeps reporting games it has discovered, and it does that whatever is on
-     * screen, so a room opened over this one would keep this screen's table rebuilding behind it.
-     * The reports are acted on only while this screen is the one being looked at.</p>
+     * <p>引擎会持续报告发现的游戏，无论当前显示哪个界面。因此，在此界面上方打开房间后，后台列表仍会继续重建。
+     * 只有此界面位于前台时才处理这些报告。</p>
      */
     private boolean resumed;
     private AutoCloseable serverChanges;
@@ -161,8 +150,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         gameList = findViewById(R.id.gameListTable);
         refresh = findViewById(R.id.refreshServersButton);
 
-        // The engine drives whichever screen is setting the game up through these, and a game the
-        // server starts while this screen is still open has to reach a screen that can show it.
+        // 引擎通过这些回调驱动当前负责设置游戏的界面。如果服务器在当前界面仍打开时启动游戏，也必须进入能够显示游戏的界面。
         HostNetworkCallbacks.install(engine.networkEngine);
 
         refreshLabel = LocalizedText.word("menus.lobby.button.refresh", "Refresh");
@@ -182,12 +170,10 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         LocalizedText.applyTo(findViewById(android.R.id.content));
         open = this;
         resumed = false;
-        // The engine goes on drawing the menu map into the surface behind this screen, which is a
-        // surface nobody is looking at once this screen covers it. The game's own battleroom is
-        // drawn over a screen whose drawing has stopped for the same reason.
+        // 引擎会继续将菜单地图绘制到此界面后方的表面上；当前界面覆盖后，就没有人能看到该表面。游戏原生对战房间也会在停止绘制的
+        // 后台界面上方显示，原因相同。
         AndroidGameView.setEngineDrawingEnabled(engine, false);
-        // The games the engine already knows about are put on screen now; the request for the
-        // current ones is made as the screen comes back to the front.
+        // 现在显示引擎已经发现的游戏；界面重新回到前台时，再请求最新列表。
         refreshServers();
         Log.i(TAG, "Lobby open.");
     }
@@ -201,8 +187,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
             UiHooks.SERVERS_CHANGED, this::runOnUiThread, ignored -> postRebuild());
         LobbyServerList.enter(this);
         AndroidGameView.setEngineDrawingEnabled(engine, false);
-        // Coming back from a battleroom is a reason to ask again, which is what the game's own
-        // lobby does as it resumes.
+        // 从对战房间返回后应重新请求列表，与游戏原生大厅恢复时的行为一致。
         loadServerList();
     }
 
@@ -214,8 +199,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         LobbyServerList.leave(this);
         if (open == this) { open = null; }
         super.onPause();
-        // A room opened over this one is where the player is now, so the games the engine keeps
-        // reporting are left alone until this screen is the one in front again.
+        // 对战房间覆盖此界面时，玩家当前正在查看房间，因此暂不处理引擎持续报告的游戏列表，直到此界面重新回到前台。
         resumed = false;
     }
 
@@ -226,19 +210,16 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         if (open == this) {
             open = null;
         }
-        // The screen behind this one gets its drawing back, which is the menu's own map.
+        // 恢复后台界面的绘制，即菜单自身的背景地图。
         AndroidGameView.setEngineDrawingEnabled(engine, true);
         dismissConnecting();
         super.onDestroy();
     }
 
     /**
-     * The engine has heard of a game it had not heard of, or has dropped one it has not seen for a
-     * while, so the list on screen is out of date.
+     * 引擎发现了新游戏，或移除了长时间未发现的游戏，因此界面中的列表已经过期。
      *
-     * <p>The call arrives on whichever thread the engine was reading the master server on, and it
-     * arrives once per game, so the redraw is asked for on the main thread and only once until it
-     * has happened.</p>
+     * <p>调用会从引擎读取主服务器数据的线程到达，并且每个游戏都会触发一次。因此，重绘请求会发送到主线程，且在执行前只保留一次。</p>
      */
     public static void onServerListChanged() {
         MultiplayerLobbyActivity activity = open;
@@ -258,7 +239,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         });
     }
 
-    /** The name to play under and the last address joined, both remembered by the engine. */
+    /** 游戏中使用的名称和上次加入的地址，均由引擎保存。 */
     private void fillDefaults() {
         SettingsEngine settings = SettingsEngine.getInstance(getBaseContext());
         String rememberedName = settings == null ? null : settings.lastNetworkPlayerName;
@@ -275,10 +256,10 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // Hosting
+    // 创建游戏
     // ------------------------------------------------------------------
 
-    /** Opens the host dialog, whose answers decide how the game is hosted. */
+    /** 打开房主设置对话框，并根据选择确定对局的创建方式。 */
     private void host() {
         if (!rememberName()) {
             return;
@@ -287,9 +268,8 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * Asks the three questions the game's own host dialog asks: the password the game needs,
-     * whether it should be visible on the network, and whether the mods that are on should be part
-     * of it. The two start buttons differ only in the second answer.
+     * 询问游戏原生主机对话框中的三个选项：是否设置游戏密码、是否在网络上公开，以及是否启用当前已开启的模组。两个启动按钮的区别
+     * 仅在第二个选项上。
      */
     private void openHostDialog() {
         Dialog dialog = new Dialog(this);
@@ -307,7 +287,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         Button startPrivate = dialog.findViewById(R.id.hostgame_startPrivate);
         View cancel = dialog.findViewById(R.id.hostgame_cancel);
         if (startPublic == null || startPrivate == null) {
-            // The dialog is not in the layout; hosting still works, it just cannot be configured.
+            // 布局中没有该对话框；仍然可以创建游戏，只是无法配置选项。
             Log.w(TAG, "The host-game dialog is not in the lobby layout; hosting directly.");
             startServer(true, null, null);
             return;
@@ -326,18 +306,16 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * Opens this device as a server with the chosen answers and goes to the battleroom.
+     * 根据所选选项在此设备上启动服务器，并进入对战房间。
      *
-     * <p>The engine refuses to start a server over a network session that is still up, so whatever
-     * the last one was is closed first. That is also why the server is started with the flag that
-     * makes the host an ordinary player: a previous session's administrator player is not carried
-     * into this one.</p>
+     * <p>如果之前的网络会话仍在运行，引擎会拒绝启动服务器，因此先关闭上一个会话。同时，启动服务器时会设置标志，将主机作为普通玩家；
+     * 上一会话中的管理员玩家不会沿用到当前会话。</p>
      */
     private void startServer(boolean visible, EditText password, CheckBox useMods) {
         final NetworkEngine network = engine.networkEngine;
         String secret = password == null ? null : password.getText().toString().trim();
         try {
-            // The engine's own host path, in the order the game's own lobby takes it.
+            // 按游戏原生大厅使用的顺序，执行引擎自身的主机流程。
             network.disconnect("starting new");
             network.serverPassword = secret == null || secret.isEmpty() ? null : secret;
             network.modsEnabled = useMods == null || useMods.isChecked();
@@ -356,13 +334,10 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * Falls back to the game's default skirmish map when the map the host would start on cannot be
-     * loaded.
+     * 主机准备启动的地图无法加载时，回退到游戏默认的遭遇战地图。
      *
-     * <p>A battleroom sets up a game against a map the device has, and the map the engine would
-     * start on is whatever the last game left behind. A path that is empty, or that names a file
-     * that has been removed since, leaves the room unable to choose or show anything, so it is
-     * replaced with the map the game itself falls back to.</p>
+     * <p>对战房间会根据设备上已有的地图设置游戏；引擎准备启动的地图则是上一次游戏留下的值。如果路径为空，或对应文件已被删除，
+     * 房间就无法选择或显示地图，因此将其替换为游戏自身回退使用的地图。</p>
      */
     private void ensureHostMapIsLoadable(NetworkEngine network) {
         try {
@@ -379,27 +354,23 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         }
     }
 
-    /** The map the game's own lobby starts a host on when there is nothing to carry over. */
+    /** 没有沿用现有设置时，游戏大厅创建房间所用的默认地图。 */
     private static final String DEFAULT_SKIRMISH_MAP = "maps/skirmish/[p8]Many Islands (8p).tmx";
 
-    /** The same map as the battleroom names it, which is the name without its folder. */
+    /** 与对战房间一致的地图名称，不包含目录路径。 */
     private static final String DEFAULT_SKIRMISH_MAP_NAME = "[p8]Many Islands (8p).tmx";
 
     // ------------------------------------------------------------------
-    // The game list
+    // 游戏列表
     // ------------------------------------------------------------------
 
     /**
-     * Asks the game for its list of games.
+     * 向游戏请求游戏列表。
      *
-     * <p>The list is the game's, and so is the request: the connector the game uses asks each of its
-     * master servers in turn, merges the answers into the engine's own set of discovered games, and
-     * reports the whole attempt as an error string on the engine when every one of them refused.
-     * What this screen does is start that request and put its answer on screen, which is what the
-     * game's own list screen does with the same call.</p>
+     * <p>列表和请求都属于游戏自身：游戏使用的连接器会依次查询各个主服务器，将结果合并到引擎发现的游戏集合中；如果所有服务器都拒绝请求，
+     * 就会在引擎中报告错误信息。此界面负责发起请求并显示结果，与游戏原生列表界面执行相同调用。</p>
      *
-     * <p>The request runs on a thread of its own and reports back through the runnable, which is why
-     * the table is rebuilt from the main thread.</p>
+     * <p>请求在独立线程中执行，并通过 Runnable 返回结果，因此表格重建操作会切回主线程。</p>
      */
     private void loadServerList() {
         if (!resumed || open != this || engine == null || engine.networkEngine == null) {
@@ -418,7 +389,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         }
     }
 
-    /** Puts the answer of the request on screen: the reason it failed, or the list it produced. */
+    /** 在界面显示请求结果：失败原因或请求返回的列表。 */
     private void serverListLoaded() {
         if (!resumed || open != this || isFinishing()) {
             return;
@@ -426,13 +397,12 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         refreshServers();
     }
 
-    /** Rebuilds the table from the games the engine has heard from. */
+    /** 根据引擎发现的对局重新构建列表。 */
     private void refreshServers() {
         if (gameList == null) {
             return;
         }
-        // Every row but the heading belongs to the last rebuild, and the layout's own sample and
-        // loading rows go with them.
+        // 除标题行外，其余行都来自上一次重建；布局自带的示例行和加载行也一并移除。
         for (int i = gameList.getChildCount() - 1; i >= 0; i--) {
             if (gameList.getChildAt(i).getId() == View.NO_ID) {
                 gameList.removeViewAt(i);
@@ -453,8 +423,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * One game, in the six columns the heading row declares: what the game is doing, who is hosting
-     * it, how full it is, the map, the version it is on, and whether anyone can walk in.
+     * 表格中的一款游戏，包含标题行声明的六列：游戏状态、主机、当前人数、地图、游戏版本，以及是否允许其他人加入。
      */
     private void addServerRow(final DiscoveredServer server) {
         TableRow row = new TableRow(this);
@@ -473,7 +442,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         row.getLayoutParams().width = ROW_WIDTH;
     }
 
-    /** The game's own reading of a map file's name, or nothing when the game names no map. */
+    /** 游戏解析出的地图文件名；未指定地图时为空。 */
     private static String prettyMapName(String path) {
         if (path == null) {
             return "";
@@ -486,7 +455,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         }
     }
 
-    /** The row a list with nothing in it still needs, so the table does not look broken. */
+    /** 列表为空时仍保留一行，避免表格布局异常。 */
     private void addEmptyRow() {
         String failure = engine == null || engine.networkEngine == null
             ? null : engine.networkEngine.serverListLoadError;
@@ -505,7 +474,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         row.getLayoutParams().width = ROW_WIDTH;
     }
 
-    /** The name of the game's state, which the game's own words replace the raw value with. */
+    /** 游戏状态名称，用游戏提供的文本替代原始值。 */
     private static String stateOf(DiscoveredServer server) {
         if (server.gameState == null) {
             return "";
@@ -516,7 +485,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
             .replace("chat", LocalizedText.word("menus.lobby.gameState.chat", "chat"));
     }
 
-    /** How many players are in the game of how many it takes. */
+    /** 当前玩家数与对局所需玩家总数。 */
     private static String countOf(DiscoveredServer server) {
         if (server.playerCountText == null) {
             return "?";
@@ -527,7 +496,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         return server.playerCountText + "\\" + server.maxPlayersText;
     }
 
-    /** The game's version, or the word it uses for a game that takes any version. */
+    /** 游戏版本；若对局不限制版本，则显示游戏对应的文本。 */
     private static String versionOf(DiscoveredServer server) {
         if (server.gameVersion == null) {
             return "";
@@ -539,9 +508,8 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * Whether anyone can walk in: {@code N} when the host's port is not open to the internet, which
-     * is when a direct connection may fail, {@code Y} when it is, {@code P} when it is as well but a
-     * password is needed, and {@code L} for a game on the local network.
+     * 是否允许加入：主机端口未对互联网开放时返回 {@code N}，此时直连可能失败；端口开放时返回 {@code Y}；开放且需要密码时返回
+     * {@code P}；局域网游戏则返回 {@code L}。
      */
     private static String openOf(DiscoveredServer server) {
         if (server.isLan) {
@@ -554,13 +522,10 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * The games the engine has heard from, in the order the game's own list shows them.
+     * 引擎已发现的游戏，按游戏原生列表的顺序排列。
      *
-     * <p>The order is not this screen's to decide. The game's list screen keeps that rule in one
-     * place, and it is not a plain sort: games whose version matches this build come before the rest,
-     * and the two groups are ordered within themselves. The set is therefore asked for rather than
-     * rebuilt, and the call is safe from any thread because it copies the engine's set under the
-     * same lock the connector writes it through.</p>
+     * <p>排序规则不由此界面决定。游戏原生列表界面统一管理排序，而且并非简单排序：版本与当前构建相符的游戏排在其他游戏之前，两个分组内部也各自排序。
+     * 因此直接请求引擎提供集合，而不在此重建；该调用会在连接器写入时使用的同一把锁下复制集合，所以可从任意线程安全调用。</p>
      */
     private List<DiscoveredServer> discovered() {
         List<DiscoveredServer> servers = new ArrayList<>();
@@ -581,17 +546,17 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // Joining
+    // 加入游戏
     // ------------------------------------------------------------------
 
-    /** Joins the address in the field. */
+    /** 加入输入框中的地址。 */
     private void joinTypedAddress() {
         String address = joinAddress == null ? null : joinAddress.getText().toString().trim();
         if (address == null || address.isEmpty()) {
             Toast.makeText(this, LocalizedText.ui("ui.enterAddress"), Toast.LENGTH_SHORT).show();
             return;
         }
-        // The game remembers the last address it was asked to reach, and this is where it is set.
+        // 游戏会记住最近一次尝试连接的地址，此处负责设置该地址。
         try {
             SettingsEngine settings = SettingsEngine.getInstance(getBaseContext());
             if (settings != null) {
@@ -605,11 +570,9 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * Asks whether to join one of the listed games, and says what the game is before it does.
+     * 在加入列表中的某款游戏前，询问用户是否加入并显示游戏信息。
      *
-     * <p>A listed game's entry says what the game looks like, and it is the engine that turns that
-     * into a reachable address. The entry is looked up again first, because a game can have closed
-     * between the list being drawn and the row being touched.</p>
+     * <p>列表条目描述游戏信息，由引擎将其转换为可连接的地址。首先会重新查询该条目，因为游戏可能在列表绘制后、用户点击行之前关闭。</p>
      */
     private void confirmJoin(final DiscoveredServer listed) {
         DiscoveredServer server = listed;
@@ -647,8 +610,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * What the game's own join prompt says about a game: the link, or what the game looks like and
-     * what joining it costs.
+     * 游戏自身加入提示中显示的内容：链接，或游戏信息及加入所需条件。
      */
     private static String infoTextOf(DiscoveredServer server) {
         try {
@@ -660,13 +622,10 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * Joins whatever the given address names.
+     * 加入给定地址对应的游戏。
      *
-     * <p>The entry of a game that came from a master list is not an address but the game's identity
-     * and where the master server keeps it, which the engine knows how to read: it asks the master
-     * server for the host and port of that one game, asks for the password if the game needs one,
-     * and connects to the answer. A game on the local network carries an ordinary address and is
-     * joined directly.</p>
+     * <p>来自主服务器列表的游戏条目不是地址，而是游戏身份和其在主服务器中的记录位置，引擎知道如何解析：它会向主服务器查询该游戏的主机和端口，
+     * 如果需要密码则先请求密码，再连接查询结果。局域网游戏包含普通地址，可直接加入。</p>
      */
     private void joinServerWithId(String address, String serverId) {
         if (address == null || address.trim().isEmpty()) {
@@ -675,18 +634,16 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         if (!rememberName()) {
             return;
         }
-        // The engine keeps the identity of the game being joined, and asks its own screens about it.
+        // 引擎会保存正在加入的游戏身份，并通过自身界面请求相关信息。
         engine.networkEngine.currentServerId = serverId;
         joinServer(address);
     }
 
     /**
-     * Opens the socket to one address, through the engine's own connector.
+     * 通过引擎自身的连接器连接到指定地址。
      *
-     * <p>The connector runs on a thread of its own and calls back when it is done, so the wait is
-     * put on screen and the answer is brought back to the main thread. A connector can finish
-     * before the call that started it returns, which is why the field is filled in before the wait
-     * is shown and the callback never reads it from the connector's thread.</p>
+     * <p>连接器在独立线程中运行，完成后会触发回调，因此等待提示会显示在界面上，结果再切回主线程处理。连接器可能在启动调用返回前就已完成，
+     * 所以会先填充字段再显示等待界面；回调也不会从连接器线程读取该字段。</p>
      */
     private void joinServer(String address) {
         Log.i(TAG, "Joining " + address + '.');
@@ -704,12 +661,10 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * The engine's connector has either opened the socket or given up.
+     * 引擎连接器已打开套接字或放弃连接。
      *
-     * <p>On an answer the socket is handed to the engine, which is what turns an open connection
-     * into a battleroom, and the screen that shows it is opened. A refusal carries the reason the
-     * engine was given, which is what a wrong password, a game that has closed, or a host that
-     * cannot be reached over the internet report.</p>
+     * <p>连接成功时会将套接字交给引擎，进而建立对战房间并打开对应界面。连接失败时会显示引擎提供的原因，例如密码错误、游戏已关闭，
+     * 或无法通过互联网访问主机。</p>
      */
     private void joinFinished() {
         ConnectSocketToServerRunnable connector = joinInProgress;
@@ -733,8 +688,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
 
         try {
             NetworkEngine network = engine.networkEngine;
-            // A session that is still up would keep the new socket out, and the engine's own join
-            // path closes the last one before it takes the new game on.
+            // 尚未结束的会话会阻止新套接字建立；引擎自身的加入流程会先关闭旧会话，再连接新游戏。
             network.disconnect("starting new");
             if (!network.startClientConnection(connector.connectedSocket)) {
                 alert(LocalizedText.ui("ui.connectionFailed"), LocalizedText.ui("ui.connectionRefused"));
@@ -749,7 +703,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         openBattleroom();
     }
 
-    /** Stores the name the player typed, which every connection and the engine both read. */
+    /** 保存玩家输入的名称，供所有连接及引擎读取。 */
     private boolean rememberName() {
         String name = playerName == null ? null : playerName.getText().toString();
         if (name == null || name.trim().isEmpty()) {
@@ -765,7 +719,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         return true;
     }
 
-    /** Opens the address of a game that is a link rather than a match. */
+    /** 打开作为链接的对局地址，而不是加入实际比赛。 */
     private void openLink(String url) {
         if (url == null || url.isEmpty()) {
             return;
@@ -788,10 +742,10 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // Helpers
+    // 辅助方法
     // ------------------------------------------------------------------
 
-    /** The wait shown while the engine opens the socket and asks the master server for the game. */
+    /** 引擎打开套接字并向主服务器查询对局时显示的等待提示。 */
     private void showConnecting() {
         dismissConnecting();
         ProgressDialog dialog = new ProgressDialog(this);
@@ -814,10 +768,9 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * One cell of a row, drawn like the ones the layout's own rows are made of, and in the colour
-     * the game gives the game the row is about.
+     * 表格中的单元格，外观与布局自带的行一致，并使用游戏为该行对应游戏指定的颜色。
      *
-     * @param server the game the row is about, or null for a row that is about no game
+     * @param server 此行对应的游戏；若此行不对应任何游戏，则为 null
      */
     private TextView addCell(TableRow row, String text, DiscoveredServer server) {
         TextView cell = new TextView(this);
@@ -832,15 +785,11 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     }
 
     /**
-     * Puts the colour and the weight the game's own list gives a cell onto it.
+     * 将游戏原生列表为单元格指定的颜色和字重应用到单元格。
      *
-     * <p>The list is not one flat colour, and what a cell is drawn as is read off the game as well
-     * as off the column. A game that takes any version is a chat room or a link, and the game draws
-     * those bold; a link, which opens outside the game rather than joining one, is drawn in the
-     * light blue it uses for that. A game on the local network is drawn orange, and one whose host
-     * answered from a port open to the internet a shade off white. Two things are marked on one
-     * column each: the map of the game this device is in is drawn in blue, and the version of a game
-     * speaking another protocol is drawn grey.</p>
+     * <p>列表并非使用单一颜色；单元格的显示样式既取决于游戏，也取决于列。接受任意版本的游戏是聊天室或链接，游戏会将其加粗；链接会在游戏外打开，
+     * 而不是加入游戏，因此显示为链接专用的浅蓝色。局域网游戏显示为橙色；主机端口对互联网开放的游戏则显示为偏白色。另有两列会标记特殊内容：
+     * 当前设备正在参与的游戏地图显示为蓝色，使用其他协议的游戏版本显示为灰色。</p>
      */
     private void styleCell(TextView cell, DiscoveredServer server, int column) {
         int color = COLOR_PLAIN;
@@ -873,14 +822,14 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
         cell.setTypeface(null, weight);
     }
 
-    /** Whether the game listed is the one this device is connected to. */
+    /** 列出的对局是否为本设备当前连接的对局。 */
     private boolean isCurrentServer(DiscoveredServer server) {
         NetworkEngine network = engine == null ? null : engine.networkEngine;
         String current = network == null ? null : network.currentServerId;
         return current != null && current.equals(server.serverId);
     }
 
-    /** Whether the game listed speaks the protocol this build does. */
+    /** 列出的对局是否使用当前构建支持的协议。 */
     private boolean isSameProtocol(DiscoveredServer server) {
         if (engine == null) {
             return true;

@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -32,7 +33,7 @@ import java.io.StringWriter;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 
-/** The host's bootstrap stays available while extensions and the game are prepared on a worker. */
+/** 在工作线程准备扩展和游戏期间，宿主引导界面保持可用。 */
 public final class LauncherWindow {
     @FunctionalInterface
     public interface Startup {
@@ -112,7 +113,7 @@ public final class LauncherWindow {
         }
     }
 
-    /** Creates the bootstrap before invoking any extension code. The calling thread remains off EDT. */
+    /** 调用任何扩展代码前先创建引导流程；调用线程不会运行在 EDT 上。 */
     public static void launch(UiHost host, Startup startup) {
         boolean unresolved = host.services().extensions().versionSelectionRequired();
         if (GraphicsEnvironment.isHeadless() || (host.arguments().contains("--rwml-no-launcher") && !unresolved)) {
@@ -131,7 +132,7 @@ public final class LauncherWindow {
         catch (Exception failure) { throw new IllegalStateException("Cannot show RWML bootstrap", failure); }
     }
 
-    /** Also handles a transformation failure on a game thread after the initial hand-over. */
+    /** 也处理初次交接后游戏线程中发生的转换失败。 */
     public static void recover(UiHost host, Throwable failure) {
         if (GraphicsEnvironment.isHeadless()) { failure.printStackTrace(System.err); return; }
         SwingUtilities.invokeLater(() -> new LauncherWindow(host, null, failure, new CountDownLatch(1)));

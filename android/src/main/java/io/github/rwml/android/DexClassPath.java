@@ -20,22 +20,19 @@ import dalvik.system.BaseDexClassLoader;
 import dalvik.system.DexClassLoader;
 
 /**
- * Puts compiled dex on the class path of the running app.
+ * 将 dex 文件或含 dex 的扩展归档加入正在运行的应用类路径。
  *
- * <p>Which loader ends up owning the patched classes matters, because a mixin is compiled into a
- * static call inside the class it patches and that call resolves through the loader that defines the
- * patched class. Adding the dex to the app's own loader is therefore the preferred outcome: the
- * patched game classes then sit on the same path as everything else, and a mixin can reach the
- * extension it came from and the host that loaded it.</p>
+ * <p>由哪个类加载器持有修补后的类非常重要，因为 mixin 会被编译为目标类中的静态调用，而该调用会通过
+ * 定义目标类的加载器解析。因此，首选方案是将 dex 加入应用自身的加载器：修补后的游戏类会与其他类
+ * 位于同一路径，mixin 也能访问其所属扩展和加载该扩展的宿主。</p>
  *
- * <p>There is no public API for that. {@code DexPathList.addDexPath} is what the platform itself
- * uses, and reaching it takes reflection; on a device where the hidden API is refused, a
- * {@link DexClassLoader} parented by the app loader is the fallback. It defines the very same
- * classes, with the one difference that they are no longer visible under the app's own loader.</p>
+ * <p>平台没有提供对应的公开 API。平台自身使用 {@code DexPathList.addDexPath}，因此需要通过反射访问；
+ * 如果设备拒绝调用隐藏 API，则回退到以应用加载器为父加载器的 {@link DexClassLoader}。它定义的类完全
+ * 相同，唯一差别是这些类不再由应用自身的加载器直接访问。</p>
  *
- * <p>Both routes open the file the same way, and both are refused the same way: the platform will
- * not load a dex it can still write. Every file is therefore sealed read-only here, which is the
- * last point where it can be, and which also repairs a cache an earlier build left writable.</p>
+ * <p>两种方式打开文件的流程相同，也会因同一原因被拒绝：平台不会加载仍可写入的 dex。因此，在此处将
+ * 每个文件设为只读，这是最后一个可以执行该操作的位置，也能修复旧版本遗留的可写缓存。扩展归档保留为
+ * 完整 JAR，使类加载器还能从同一归档读取 Compose 图片、字体、配置和其他资源。</p>
  */
 final class DexClassPath {
 
@@ -43,41 +40,39 @@ final class DexClassPath {
     }
 
     /**
-     * Adds every dex file to the class path and returns the loader that now owns them.
+     * 将所有 dex 文件或扩展 JAR 加入类路径，并返回现在拥有它们的加载器。
      *
-     * @param optimizedDirectory where the platform may keep its own optimized artifacts
+     * @param optimizedDirectory 平台可在此保存自身优化产物的目录
      */
-    static ClassLoader mount(List<Path> dexFiles, Path optimizedDirectory, ClassLoader appLoader)
+    static ClassLoader mount(List<Path> classPathFiles, Path optimizedDirectory, ClassLoader appLoader)
         throws IOException {
-        if (dexFiles.isEmpty()) {
+        if (classPathFiles.isEmpty()) {
             throw new IOException("no dex to mount");
         }
-        for (Path dex : dexFiles) {
-            Dexer.makeReadOnly(dex);
+        for (Path classPathFile : classPathFiles) {
+            Dexer.makeReadOnly(classPathFile);
         }
-        // A DexClassLoader refuses to start unless its optimized directory exists, and the fallback
-        // path below is exactly the case where it matters.
+        // DexClassLoader 要求优化目录已经存在才会启动；下方的回退路径正是需要它的场景。
         Files.createDirectories(optimizedDirectory);
         Throwable refused = null;
         if (appLoader instanceof BaseDexClassLoader) {
             int added = 0;
             try {
-                for (; added < dexFiles.size(); added++) {
-                    addToAppLoader(appLoader, dexFiles.get(added));
+                for (; added < classPathFiles.size(); added++) {
+                    addToAppLoader(appLoader, classPathFiles.get(added));
                 }
                 return appLoader;
             } catch (Throwable t) {
-                // Partial mounting is harmless: the same classes are also in the fallback loader.
+                // 部分挂载不会造成问题：相同的类也会由回退加载器提供。
                 refused = t;
             }
-            // Android 9 and later refuse reflection into anything outside the SDK, and adding dex to
-            // a running app's path is exactly that. The platform's own escape hatch is hidden too,
-            // so it is asked for only after the first refusal, and the adding resumes where it
-            // stopped rather than repeating a dex that is already on the path.
+            // Android 9 及之后版本会拒绝反射访问 SDK 之外的内容，而向运行中的应用路径添加 dex 正属于此类操作。
+            // 平台自身的绕过方式也属于隐藏 API，因此只有首次访问被拒绝后才尝试使用它；随后从中断处继续添加，
+            // 不会重复处理已经加入路径的 dex。
             exemptHiddenApi();
             try {
-                for (; added < dexFiles.size(); added++) {
-                    addToAppLoader(appLoader, dexFiles.get(added));
+                for (; added < classPathFiles.size(); added++) {
+                    addToAppLoader(appLoader, classPathFiles.get(added));
                 }
                 return appLoader;
             } catch (Throwable t) {
@@ -85,12 +80,11 @@ final class DexClassPath {
             }
         }
 
-        String path = join(dexFiles);
+        String path = join(classPathFiles);
         ClassLoader loader = new DexClassLoader(path, optimizedDirectory.toAbsolutePath().toString(),
             null, appLoader);
         if (refused != null) {
-            // Worth saying plainly: on this loader the app's own classes - the screens - cannot
-            // resolve the game, so every screen falls back to whatever it can do without it.
+            // 需要明确指出：通过此加载器，应用自身的界面类无法解析游戏类，因此所有界面都只能退回到不依赖游戏的功能。
             HostLog.warn("The app class loader refused the patched dex (" + refused
                 + "); the game is loaded on a loader of its own, which the app's own classes cannot "
                 + "see.", refused);
@@ -99,24 +93,20 @@ final class DexClassPath {
     }
 
     /**
-     * Mounts dex on a loader of its own, searched before the parent's, and returns it.
+     * 将 dex 挂载到独立加载器中；该加载器会先于父加载器搜索，并在此处返回。
      *
-     * <p>This is what the mixin registration runs on. The stand-in types the registration needs are
-     * only wanted while it runs, and a loader the game also runs on would keep them: a class is
-     * defined once and stays defined, so a game type answered by a stand-in during registration
-     * would answer as that stand-in forever, and the patched dex mounted afterwards would never be
-     * consulted for it. Keeping the stand-ins on a loader nothing else uses is what makes the
-     * registration free of consequence for the running game.</p>
+     * <p>mixin 注册在此加载器上执行。注册过程需要的替身类型只在执行期间有用；如果游戏也使用同一加载器，
+     * 这些类型就会一直保留：类只定义一次且不会重新定义，因此注册期间由替身提供的游戏类型会在此进程
+     * 中一直指向替身，之后挂载的修补 dex 也不会再为其提供类。将替身放在其他部分都不使用的加载器上，
+     * 才能避免注册过程影响正在运行的游戏。</p>
      *
-     * <p>The search order is the other half. A parent-first loader would answer a mixin from the
-     * parent, where the game types in its signatures are unresolvable, so this one asks its own path
-     * first and falls back to the parent for everything it does not carry.</p>
+     * <p>搜索顺序是另一部分。若优先搜索父加载器，mixin 会由父加载器提供，但其中签名引用的游戏类型在
+     * 父加载器中无法解析。因此，此加载器先搜索自身路径，只对自身不包含的类回退到父加载器。</p>
      *
-     * @param dexFiles the dex to own, in search order
-     * @param optimizedDirectory where the platform may keep its own optimized artifacts
-     * @param parent what answers every name the dex does not carry
-     * @param localFirst the names to answer from the dex before asking the parent, which is the
-     *                   stand-in types and the mixins that name them, and nothing else
+     * @param dexFiles 要持有的 dex，按搜索顺序排列
+     * @param optimizedDirectory 平台可在此保存自身优化产物的目录
+     * @param parent dex 未包含某个类名时负责提供该类的父加载器
+     * @param localFirst 先从 dex 查找、之后才询问父加载器的类名；包括替身类型以及 mixin 所引用的扩展自有类型
      */
     static ClassLoader mountIsolated(List<Path> dexFiles, Path optimizedDirectory, ClassLoader parent,
                                      Set<String> localFirst) throws IOException {
@@ -131,18 +121,17 @@ final class DexClassPath {
             optimizedDirectory.toAbsolutePath().toString(), null, parent, localFirst);
     }
 
-    /** @return whether the loader has the dex on its own path, meaning app classes should not shadow it. */
+    /** @return 加载器是否在自身路径上拥有此 dex；若是，则应用类不应遮蔽其中的类。 */
     static boolean isAppLoader(ClassLoader loader) {
         return loader != null && loader == DexClassPath.class.getClassLoader();
     }
 
     /**
-     * Asks the platform to stop refusing the members this class needs.
+     * 请求平台允许访问此类所需的成员。
      *
-     * <p>{@code VMRuntime.setHiddenApiExemptions} is the platform's own escape hatch from its
-     * hidden-API policy, and a prefix of {@code "L"} exempts every member at once. It is hidden
-     * itself, so it is reached the same way as the call it is meant to unblock, and a platform that
-     * refuses it simply keeps the fallback.</p>
+     * <p>{@code VMRuntime.setHiddenApiExemptions} 是平台绕过隐藏 API 策略的内部接口，使用前缀
+     * {@code "L"} 可以一次豁免所有成员。该接口本身也是隐藏 API，因此仍通过反射访问；若平台拒绝访问，
+     * 就继续使用回退方案。</p>
      */
     private static void exemptHiddenApi() {
         try {
@@ -154,7 +143,7 @@ final class DexClassPath {
             exemptions.setAccessible(true);
             exemptions.invoke(runtime, (Object) new String[] {"L"});
         } catch (Throwable ignored) {
-            // A platform that refuses this refuses the dex path as well; the fallback loader stands.
+            // 拒绝此操作的平台也会拒绝 dex 路径访问，因此继续使用回退加载器。
         }
     }
 
@@ -173,10 +162,10 @@ final class DexClassPath {
         if (parameters.length == 1) {
             add.invoke(pathList, path);
         } else if (parameters[1] == Boolean.TYPE) {
-            // Later releases take whether the dex is trusted rather than an optimized directory.
+            // 较新版本接收 dex 是否可信的标志，而不是优化目录。
             add.invoke(pathList, path, Boolean.TRUE);
         } else {
-            // API 26 and later take the optimized directory for compatibility and ignore it.
+            // 为兼容性，API 26 及之后版本仍接收优化目录参数，但会忽略它。
             add.invoke(pathList, path, (File) null);
         }
     }
@@ -206,7 +195,7 @@ final class DexClassPath {
                 field.setAccessible(true);
                 return field.get(target);
             } catch (NoSuchFieldException ignored) {
-                // Keep walking up.
+                // 继续向父加载器查找。
             } catch (Throwable ignored) {
                 return null;
             }
@@ -215,19 +204,16 @@ final class DexClassPath {
     }
 
     /**
-     * A dex loader that answers a named set of classes from its own dex before asking its parent.
+     * 一种 dex 加载器：针对指定类名，优先从自身 dex 加载，然后再询问父加载器。
      *
-     * <p>The platform's loaders all search the parent first, which for the mixin registration means
-     * the extension classes come from the loader the game runs on, carrying the game-typed signatures
-     * that cannot resolve there. Searching locally first is what puts the mixin classes and the
-     * stand-ins in the same loader, and the two have to be in the same loader for a signature naming
-     * one to resolve against the other.</p>
+     * <p>平台的加载器都会先搜索父加载器。用于注册 mixin 时，这会导致扩展类来自游戏运行所用的加载器，
+     * 但扩展中的签名引用了该加载器无法解析的游戏类型。优先搜索自身路径可让 mixin 类和替身类位于同一
+     * 加载器中；签名引用的类型必须与 mixin 位于同一加载器，才能相互解析。</p>
      *
-     * <p>The set is named rather than derived from what the dex happens to carry, so a name the
-     * platform already answers - the framework, the app's own classes, the Android API the archives
-     * still carry a copy of - keeps coming from the parent.</p>
+     * <p>需要查找的类名是显式指定的，而不是根据 dex 内容推导。注册器会将游戏替身和扩展 mixin 引用的扩展自有
+     * 类型列入此集合；平台、框架、应用及共享运行库类型仍由父加载器提供。</p>
      *
-     * <p>Nothing it defines escapes: the object is handed to the registration and dropped with it.</p>
+     * <p>此加载器定义的内容不会泄漏：它只交给注册过程使用，并会随注册过程一起丢弃。</p>
      */
     private static final class LocalFirstDexLoader extends DexClassLoader {
 
@@ -245,8 +231,8 @@ final class DexClassPath {
             if (!localFirst.contains(name)) {
                 return super.loadClass(name, resolve);
             }
-            // The monitor is this loader's own, because ClassLoader has no getClassLoadingLock on
-            // Android and the platform's parallel-capable loaders are not reachable here.
+            // 监视器由此加载器自行持有，因为 Android 上的 ClassLoader 没有 getClassLoadingLock，
+            // 这里也无法访问平台的并行加载器实现。
             synchronized (this) {
                 Class<?> found = findLoadedClass(name);
                 if (found == null) {

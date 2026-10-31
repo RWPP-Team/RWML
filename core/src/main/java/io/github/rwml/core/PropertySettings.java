@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -12,7 +13,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.function.Supplier;
 
-/** Adapts a host's public scalar settings without exposing its engine or platform classes. */
+/** 适配宿主公开的标量设置，同时避免暴露引擎或平台类。 */
 public final class PropertySettings implements GameSettings {
 
     private final Supplier<Object> settings;

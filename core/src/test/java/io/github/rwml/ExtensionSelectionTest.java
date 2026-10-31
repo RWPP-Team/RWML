@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -50,7 +51,7 @@ class ExtensionSelectionTest {
     @Test void disabledVersionConflictsDoNotBlockOtherExtensionsAndStaleChoiceIsNotArbitrary() {
         ExtensionDescriptor one = ext("versioned", false);
         ExtensionDescriptor two = new ExtensionDescriptor(one.id(), one.name(), "2", "", List.of(), "", "", "", "",
-            List.of(), "1", 8, "Main", "", List.of(), List.of(), List.of(), Path.of("two.jar"), 0, "different");
+            List.of(), "1", 8, "Main", "", false, List.of(), List.of(), List.of(), Path.of("two.jar"), 0, "different");
         ExtensionSelection disabled = ExtensionSelection.resolve(List.of(one, two, builtin), Set.of("versioned"));
         assertEquals(List.of("builtin"), ids(disabled.enabled()));
         assertFalse(disabled.excluded().containsKey("versioned"));
@@ -64,7 +65,7 @@ class ExtensionSelectionTest {
         ExtensionDescriptor one = ext("versioned", false);
         ExtensionDescriptor copy = new ExtensionDescriptor(one.id(), one.name(), one.version(), one.description(),
             one.authors(), one.license(), one.licenseUrl(), one.homepage(), one.icon(), one.tags(), one.apiVersion(),
-            one.requiredJavaVersion(), one.mainClass(), one.uiFramework(), one.dependsOn(), one.loadBefore(),
+            one.requiredJavaVersion(), one.mainClass(), one.uiFramework(), one.resourcePack(), one.dependsOn(), one.loadBefore(),
             one.loadAfter(), Path.of("copy.jar"), one.sourceSize(), one.sourceSha256());
         ExtensionSelection plan = ExtensionSelection.resolve(List.of(one, copy), Set.of());
         assertEquals(List.of(one), plan.enabled());
@@ -78,6 +79,6 @@ class ExtensionSelectionTest {
     }
     private static ExtensionDescriptor ext(String id, boolean ui, String... deps) {
         return new ExtensionDescriptor(id, id, "1", "", List.of(), "", "", "", "", List.of(), "1", 8,
-            "Main", ui ? "Ui" : "", List.of(deps), List.of(), List.of(), Path.of(id + ".jar"), 0, id);
+            "Main", ui ? "Ui" : "", false, List.of(deps), List.of(), List.of(), Path.of(id + ".jar"), 0, id);
     }
 }

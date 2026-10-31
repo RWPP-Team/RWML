@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -26,6 +27,7 @@ import io.github.rwml.android.HostLog;
 import io.github.rwml.android.MainActivity;
 import io.github.rwml.android.RestartActivity;
 import io.github.rwml.api.extensions.ExtensionEntry;
+import io.github.rwml.api.extensions.ExtensionPackReport;
 import io.github.rwml.api.i18n.Messages;
 import io.github.rwml.api.ui.UiHooks;
 import io.github.rwml.api.ui.UiServices;
@@ -39,7 +41,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Management is independent of game dex and remains available after a failed game boot. */
+/** 管理功能独立于游戏 dex，即使游戏启动失败仍可使用。 */
 public final class ExtensionManagerActivity extends Activity {
 
     private static final int PICK_ARCHIVE = 402;
@@ -236,27 +238,60 @@ public final class ExtensionManagerActivity extends Activity {
                 if (isDestroyed() || isFinishing()) { return; }
                 new AlertDialog.Builder(this).setTitle(messages.text("extensions.import"))
                     .setMessage(displayName).setNegativeButton(messages.text("common.cancel"), null)
-                    .setPositiveButton(messages.text("common.confirm"), (dialog, which) -> importArchive(uri, false)).show();
+                    .setPositiveButton(messages.text("common.confirm"),
+                        (dialog, which) -> importArchive(uri, displayName, false)).show();
             });
         });
     }
 
-    private void importArchive(Uri uri, boolean replace) {
+    private void importArchive(Uri uri, String name, boolean replace) {
         ExtensionEntry[] imported = new ExtensionEntry[1];
+        ExtensionPackReport[] pack = new ExtensionPackReport[1];
         run(() -> {
             try (InputStream input = getContentResolver().openInputStream(uri)) {
                 if (input == null) { throw new IOException("Cannot open archive"); }
-                imported[0] = services.extensions().importArchive(input, replace);
+                if (name != null && name.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                    pack[0] = services.extensions().importPack(input, replace);
+                } else {
+                    imported[0] = services.extensions().importArchive(input, replace);
+                }
             } catch (FileAlreadyExistsException exists) {
                 runOnUiThread(() -> {
                     if (isDestroyed()) { return; }
                     new AlertDialog.Builder(this).setTitle(messages.text("extensions.replace"))
                         .setMessage(messages.text("extensions.replaceConfirm"))
                         .setNegativeButton(messages.text("common.cancel"), null)
-                        .setPositiveButton(messages.text("common.confirm"), (dialog, which) -> importArchive(uri, true)).show();
+                        .setPositiveButton(messages.text("common.confirm"),
+                            (dialog, which) -> importArchive(uri, name, true)).show();
                 });
             }
-        }, () -> { if (imported[0] != null) { chooseVersion(imported[0].id()); } });
+        }, () -> {
+            if (pack[0] != null) { showReport(name, pack[0]); }
+            else if (imported[0] != null) { chooseVersion(imported[0].id()); }
+        });
+    }
+
+    /** 整合包的成员逐个安装，因此结果以汇总形式呈现。 */
+    private void showReport(String file, ExtensionPackReport report) {
+        if (isDestroyed() || isFinishing()) { return; }
+        StringBuilder text = new StringBuilder();
+        text.append(file);
+        if (!report.name().isEmpty()) { text.append(" · ").append(report.name()); }
+        if (!report.version().isEmpty()) { text.append(' ').append(report.version()); }
+        text.append("\n\n").append(messages.text("extensions.packSummary", report.installed(),
+            report.skipped().size(), report.failed().size()));
+        if (!report.skipped().isEmpty()) {
+            text.append("\n\n").append(messages.text("extensions.packSkipped")).append(':');
+            for (String skipped : report.skipped()) { text.append("\n    ").append(skipped); }
+        }
+        if (!report.failed().isEmpty()) {
+            text.append("\n\n").append(messages.text("extensions.packFailed")).append(':');
+            for (java.util.Map.Entry<String, String> failure : report.failed().entrySet()) {
+                text.append("\n    ").append(failure.getKey()).append(": ").append(failure.getValue());
+            }
+        }
+        new AlertDialog.Builder(this).setTitle(messages.text("extensions.packTitle"))
+            .setMessage(text.toString()).setPositiveButton(messages.text("common.close"), null).show();
     }
 
     private void chooseVersion(String id) {

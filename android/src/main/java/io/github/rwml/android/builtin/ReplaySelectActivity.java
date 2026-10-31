@@ -28,21 +28,18 @@ import java.util.Comparator;
 import io.github.rwml.android.R;
 
 /**
- * The replay list: the game's own replay layout, one button per recorded game.
+ * 录像列表：沿用游戏自身的录像布局，每段录像对应一个按钮。
  *
- * <p>The folder RWML lists is the one the engine records into, and the engine loads a replay by its
- * file name, so this screen never has to know where the folder really is. The newest recording is
- * listed first, which is the order the game lists them in.</p>
+ * <p>RWML 列出的是引擎写入录像的目录，引擎通过文件名加载录像，因此此界面无需知道目录的实际位置。列表按时间从新到旧排列，
+ * 与游戏原有顺序一致。</p>
  *
- * <p>Choosing one hands the file to the engine's replay engine and opens the game screen, which is
- * where a replay is watched: replays run through the same screen as a game, because they are the
- * same stream of commands played back.</p>
+ * <p>选择录像后会将文件交给引擎的录像处理器，并打开游戏界面进行播放：录像和游戏使用同一界面，因为录像就是对游戏命令流的回放。</p>
  */
 public final class ReplaySelectActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** Where the engine keeps recordings, as its own file layer names the folder. */
+    /** 引擎存放录像的位置，目录名称由引擎文件层定义。 */
     private static final String REPLAYS = "/SD/rustedWarfare/replays/";
 
     @Override
@@ -62,7 +59,7 @@ public final class ReplaySelectActivity extends BuiltinActivity {
         Log.i(TAG, "Replay list open.");
     }
 
-    /** Fills the list from the engine's replay folder. */
+    /** 从引擎的录像目录填充列表。 */
     private void listReplays() {
         LinearLayout holder = findViewById(R.id.replayHolder);
         if (holder == null) {
@@ -108,7 +105,7 @@ public final class ReplaySelectActivity extends BuiltinActivity {
                 names[index++] = name;
             }
         }
-        // Newest first, which is the order the game's own screen uses.
+        // 按时间从新到旧排列，与游戏原生界面一致。
         Arrays.sort(names, new Comparator<String>() {
             @Override
             public int compare(String left, String right) {
@@ -130,7 +127,7 @@ public final class ReplaySelectActivity extends BuiltinActivity {
         }
     }
 
-    /** One replay, as a button named after the recording. */
+    /** 一个录像按钮，名称取自录像文件。 */
     private View entry(final String name) {
         Button button = new Button(this);
         button.setBackgroundResource(R.drawable.btn_dropdown);
@@ -155,7 +152,7 @@ public final class ReplaySelectActivity extends BuiltinActivity {
         return display;
     }
 
-    /** Hands the recording to the engine and opens the screen a replay plays on. */
+    /** 将录像交给引擎，并打开录像播放界面。 */
     private void play(String name) {
         GameEngine engine = GameEngine.getInstance();
         if (engine == null) {

@@ -7,10 +7,11 @@
 
 package io.github.rwml.android;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
 import android.widget.TextView;
+
+import androidx.activity.ComponentActivity;
 
 import io.github.rwml.android.builtin.LauncherActivity;
 import io.github.rwml.api.i18n.Messages;
@@ -21,8 +22,8 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
 
-/** Platform entry point. UI ownership belongs to the selected ui-framework extension. */
-public final class MainActivity extends Activity {
+/** 平台入口。界面由选中的 ui-framework 扩展负责。 */
+public final class MainActivity extends ComponentActivity {
     private Messages messages;
 
     @Override
@@ -119,7 +120,7 @@ public final class MainActivity extends Activity {
                     throw failure;
                 }
             } else {
-                // Management remains reachable even when every UI extension was disabled.
+                // 即使禁用了所有界面扩展，管理功能仍然可用。
                 runOnUiThread(() -> {
                     startActivity(new Intent(this, LauncherActivity.class));
                     finish();
@@ -155,7 +156,7 @@ public final class MainActivity extends Activity {
                 AndroidBootstrap.get(this).ui();
                 openExtensionManager(intent);
             } catch (IllegalStateException preparing) {
-                // The running launcher worker reads the latest intent after preparation.
+                // 正在运行的启动器工作线程会在准备完成后读取最新 Intent。
             }
         }
     }

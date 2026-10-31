@@ -27,51 +27,45 @@ import com.corrodinggames.rts.gameFramework.render.CanvasLike;
 import io.github.rwml.android.AndroidBootstrap;
 
 /**
- * The surface the game is drawn into, as the engine sees it: the engine does not own a window, it asks
- * whoever implements {@link GameViewInterface} for a canvas.
+ * 引擎看到的游戏绘制表面：引擎不拥有窗口，而是向 {@link GameViewInterface} 的实现请求画布。
  *
- * <p>The engine runs the frame loop on its own thread and, on the buffered render path, asks for a
- * canvas with {@link #getCanvas}, draws into it and presents it with {@link #drawCanvas}. The two calls
- * bracket one frame: {@link #getCanvas} locks the SurfaceView and wraps the locked Android canvas in the
- * game's own {@link CanvasDirect}, and {@link #drawCanvas} posts it. The platform-independent archive
- * already carries {@link CanvasDirect}, so this view only has to supply the surface the game lacks.</p>
+ * <p>引擎在自己的线程中运行帧循环；使用缓冲渲染路径时，会通过 {@link #getCanvas} 请求画布，在其上绘制，然后通过
+ * {@link #drawCanvas} 显示画面。这两个调用分别对应一帧的开始和结束：{@link #getCanvas} 锁定 SurfaceView，并将锁定的
+ * Android 画布包装为游戏自身的 {@link CanvasDirect}；{@link #drawCanvas} 则提交画布。平台无关归档已经包含
+ * {@link CanvasDirect}，因此此视图只需提供游戏缺少的绘制表面。</p>
  */
 public final class AndroidGameView extends SurfaceView implements GameViewInterface {
 
     private static final String TAG = "RWML";
 
-    /** The canvas the engine draws into, wrapping the SurfaceView's locked canvas. */
+    /** 引擎使用的绘图画布，包装了已锁定的 SurfaceView 画布。 */
     private CanvasDirect surfaceCanvas;
 
-    /** The SurfaceView canvas locked for the current frame, posted in {@link #drawCanvas}. */
+    /** 当前帧锁定的 SurfaceView 画布，由 {@link #drawCanvas} 提交。 */
     private android.graphics.Canvas lockedCanvas;
 
-    /** The lock the buffered render path synchronises the frame on. */
+    /** 缓冲渲染路径用于同步帧的锁。 */
     private final Object renderLock = new Object();
 
     /**
-     * Whether the engine is given a canvas to draw into.
+     * 是否向引擎提供画布进行绘制。
      *
-     * <p>The engine asks for a canvas on every frame and never asks whether the screen that owns the
-     * surface is still the one in front. A screen opened over this one leaves the frame loop running
-     * and drawing into a surface nobody is looking at, which is what the game's own build avoids by
-     * handing its view back to the engine as the screen behind goes into the background. The archive
-     * this app runs carries no call that does that, so the same thing is done from this side: the
-     * buffered render path is the only path that presents, and reporting it as off leaves the engine
-     * updating without drawing a single frame.</p>
+     * <p>引擎每帧都会请求画布，却不会检查拥有该表面的界面是否仍位于前台。若在此界面上方打开另一个界面，帧循环仍会运行，
+     * 并继续绘制到无人查看的表面。游戏原生版本会在当前界面进入后台时将视图状态通知引擎，以避免这种情况；当前应用运行的归档
+     * 没有提供此调用，因此由此处补充处理：只有缓冲渲染路径会显示画面，将其报告为关闭会让引擎只更新、不绘制任何帧。</p>
      */
     private volatile boolean drawing = true;
 
-    /** The engine's touch state, filled from the events this view receives. */
+    /** 引擎触摸状态，根据此视图收到的事件填充。 */
     private final TouchEvent touchEvent = new TouchEvent();
 
     private int viewWidth;
     private int viewHeight;
 
-    /** The host activity, which the engine asks for through {@link #getActivity()}. */
+    /** 宿主 Activity，供引擎通过 {@link #getActivity()} 查询。 */
     private GameActivity hostActivity;
 
-    /** Cached handles into the engine's {@link TouchEvent} for the pointer count, which has no public setter. */
+    /** 缓存的引擎 {@link TouchEvent} 触点数量字段句柄；该字段没有公开的设置方法。 */
     private static Field touchPointerCountField;
     private static Field touchPointerDownField;
     private static boolean touchFieldsReady;
@@ -89,12 +83,9 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
     }
 
     /**
-     * Remembers the activity that carries the game, which the engine asks for through
-     * {@link #getActivity()}. The engine fills its in-game pause menu from the activity's
-     * {@code onPrepareOptionsMenu} and routes menu clicks back to it, so a null host leaves that menu
-     * with only the hard-coded Resume button. The host activity is a GameActivity: the type the engine
-     * expects, and a real foreground activity whose window tokens are valid for the dialogs the engine
-     * shows.
+     * 保存承载游戏的 Activity，以供引擎通过 {@link #getActivity()} 查询。引擎会通过 Activity 的
+     * {@code onPrepareOptionsMenu} 填充游戏内暂停菜单，并将菜单点击事件回传给 Activity；若宿主为空，菜单就只剩下硬编码的
+     *“继续”按钮。宿主 Activity 是引擎所需的 GameActivity 类型，也是有效的前台 Activity，因此引擎显示的对话框可以使用其窗口令牌。
      */
     private void captureHost(Context context) {
         if (context instanceof GameActivity) {
@@ -110,28 +101,27 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
     }
 
     /**
-     * Gives the engine a canvas, or takes it away.
+     * 向引擎提供画布，或撤销画布。
      *
-     * @param drawing whether the frame loop may draw into this surface
+     * @param drawing 帧循环是否可以在此表面上绘制
      */
     public void setDrawingEnabled(boolean drawing) {
         this.drawing = drawing;
     }
 
-    /** @return whether the engine is currently given a canvas to draw into */
+    /** @return 当前是否向引擎提供了画布进行绘制 */
     public boolean isDrawingEnabled() {
         return drawing;
     }
 
     /**
-     * Stops the engine drawing into the surface it is holding, or lets it start again.
+     * 停止引擎向当前持有的表面绘制，或允许它恢复绘制。
      *
-     * <p>The engine holds one game view at a time and takes the one it was last handed on the next
-     * frame, so both are switched: the one it is drawing into now, and the one it has been asked to
-     * draw into. A view of another kind is left alone.</p>
+     * <p>引擎一次只持有一个游戏视图，并会在下一帧使用最近收到的视图，因此需要同时切换当前正在绘制的视图和此前请求绘制的视图。
+     * 其他类型的视图保持不变。</p>
      *
-     * @param engine the engine whose view is switched off or on
-     * @param drawing whether the frame loop may draw into the surface the engine is holding
+     * @param engine 要切换其视图状态的引擎
+     * @param drawing 帧循环是否可以在引擎当前持有的表面上绘制
      */
     public static void setEngineDrawingEnabled(GameEngine engine, boolean drawing) {
         if (engine == null) {
@@ -147,24 +137,24 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
         }
     }
 
-    /** @return the width the surface was last sized to */
+    /** @return 表面最近一次设置的宽度 */
     public int getViewWidth() {
         return viewWidth;
     }
 
-    /** @return the height the surface was last sized to */
+    /** @return 表面最近一次设置的高度 */
     public int getViewHeight() {
         return viewHeight;
     }
 
     // ------------------------------------------------------------------
-    // The engine's questions
+    // 引擎查询
     // ------------------------------------------------------------------
 
     @Override
     public CanvasLike getCanvas(boolean primary) {
         if (lockedCanvas != null) {
-            // The frame is already locked; hand back the same canvas rather than lock twice.
+            // 当前帧已经锁定画布；直接返回同一个画布，避免重复锁定。
             return surfaceCanvas;
         }
         android.graphics.Canvas canvas = getHolder().lockCanvas(null);
@@ -175,7 +165,7 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
         if (surfaceCanvas == null) {
             surfaceCanvas = new CanvasDirect(canvas);
         } else {
-            // lockCanvas returns a fresh canvas each frame; point the wrapper at it.
+            // lockCanvas 每帧都会返回新的画布；将包装器指向该画布。
             surfaceCanvas.canvas = canvas;
         }
         return surfaceCanvas;
@@ -202,15 +192,14 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
 
     @Override
     public Basic2DGLRenderer getRenderer() {
-        // The renderer belongs to the GL path, which no archive carries a usable version of yet.
+        // 渲染器属于 GL 路径，目前没有归档提供可用的实现。
         return null;
     }
 
     @Override
     public GameActivity getActivity() {
-        // The host activity is a GameActivity and a real foreground activity, so its window tokens are
-        // valid for the dialogs the engine shows, and its onPrepareOptionsMenu fills the in-game pause
-        // menu the engine draws. A null here would leave that menu with only the hard-coded Resume.
+        // 宿主 Activity 是 GameActivity 类型，也是有效的前台 Activity，因此它的窗口令牌可用于引擎显示的对话框；
+        // 其 onPrepareOptionsMenu 还会填充引擎绘制的游戏内暂停菜单。此处若返回 null，菜单就只剩下硬编码的“继续”按钮。
         return hostActivity;
     }
 
@@ -221,35 +210,33 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
 
     @Override
     public boolean isBufferedRendering() {
-        // The buffered render path is the only one that presents: the engine fetches a canvas with
-        // getCanvas and posts it with drawCanvas. Reporting it as off leaves the frame loop running
-        // its update while the whole draw block is skipped, which is what a screen that has been
-        // covered over wants.
+        // 只有缓冲渲染路径会显示画面：引擎通过 getCanvas 获取画布，再通过 drawCanvas 提交。若报告该路径已关闭，帧循环仍会更新，
+        // 但会完全跳过绘制；界面被其他界面覆盖时正需要这种行为。
         return drawing;
     }
 
     @Override
     public boolean usesExternalRendering() {
-        // The view supplies its own canvas; the engine does not hand rendering to an external surface.
+        // 画布由视图自身提供；引擎不会将渲染交给外部表面。
         return false;
     }
 
     @Override
     public boolean isFullscreen() {
-        // The activity owns the window chrome; the engine should not force its own fullscreen mode.
+        // 窗口装饰由 Activity 管理；引擎不应强制切换自己的全屏模式。
         return false;
     }
 
     @Override
     public boolean isDirectCanvasMode() {
-        // The direct render path does not call drawCanvas, so a SurfaceView never gets posted. The
-        // buffered path (isBufferedRendering) is the one that presents, so this stays false.
+        // 直接渲染路径不会调用 drawCanvas，因此 SurfaceView 永远不会提交画面。只有缓冲路径
+        //（isBufferedRendering）会显示画面，所以此处保持 false。
         return false;
     }
 
     @Override
     public Object getGameThreadSync() {
-        // The frame synchronisation lock the buffered render path waits on.
+        // 缓冲渲染路径等待的帧同步锁。
         return renderLock;
     }
 
@@ -274,8 +261,7 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
     }
 
     /**
-     * The engine reports the start of a frame with a timestamp; the view has nothing to do with it,
-     * so it is recorded and otherwise ignored.
+     * 引擎使用时间戳报告帧开始时间；视图无需处理该值，因此会记录并忽略。
      */
     @Override
     public void notifyDrawStart(float value, int code) {
@@ -286,7 +272,7 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
     }
 
     // ------------------------------------------------------------------
-    // Input: the platform's events, in the shape the engine reads
+    // 输入：将平台事件转换为引擎可读取的格式
     // ------------------------------------------------------------------
 
     @Override
@@ -307,11 +293,9 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
                 return true;
         }
 
-        // The engine reads every reported finger: it loops over getPointerX()[i] / getPointerY()[i]
-        // for i in 0..getPointerCount()-1. The primary pointer is what the desktop feeds from the
-        // mouse, so a single touch fills only index 0; a multi-touch gesture fills the whole array so
-        // the engine sees every finger. TouchEvent has no public setter for the count, so the pending
-        // count is written through reflection into the engine's own field.
+        // 引擎会读取所有报告的触点：遍历 getPointerX()[i] / getPointerY()[i]，其中 i 的范围为
+        // 0..getPointerCount()-1。主触点对应桌面端鼠标输入，因此单指触摸只填充索引 0；多点手势会填满整个数组，
+        // 让引擎识别每个触点。TouchEvent 没有公开的数量设置方法，因此通过反射写入引擎自身的字段。
         int count = event.getPointerCount();
         float[] pointerX = touchEvent.getPointerX();
         float[] pointerY = touchEvent.getPointerY();
@@ -329,15 +313,11 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
     }
 
     /**
-     * Clears the per-pointer mouse-button state array. {@link TouchEvent#getPointerIds()} is not a
-     * list of platform pointer ids: the engine reads it as mouse-button states through
-     * {@code GameEngine.getPointerState} and {@code GameEngine.findPointerIndexWithState} (the desktop
-     * fills it from the mouse buttons, 1 = primary, 2 = secondary, 3 = middle). A touch reports no
-     * button, so every entry is zero. That keeps the two engine paths apart. With the primary state at
-     * zero, {@code InterfaceEngine.update} takes the camera-pan branch for a one-finger drag; and with
-     * no pointer carrying state 1 or 2, {@code BattleInterface.handleDragSelection} skips its
-     * single-anchor branch and takes its two-finger branch, which builds the selection rectangle from
-     * the two contact points.
+     * 清除每个触点对应的鼠标按钮状态数组。{@link TouchEvent#getPointerIds()} 并非平台触点 ID 列表：引擎会通过
+     * {@code GameEngine.getPointerState} 和 {@code GameEngine.findPointerIndexWithState} 将其解释为鼠标按钮状态
+     *（桌面端从鼠标按钮填充该数组：1 = 主键，2 = 次键，3 = 中键）。触摸输入不报告鼠标按钮，因此所有元素均为零。这样可以区分两种
+     * 引擎输入路径。主键状态为零时，{@code InterfaceEngine.update} 会在单指拖动时执行摄像机平移逻辑；如果没有触点携带状态 1 或 2，
+     * {@code BattleInterface.handleDragSelection} 就会跳过单点锚定分支，并进入双指分支，根据两个触点构建选区矩形。
      */
     private void clearPointerStates() {
         int[] states = touchEvent.getPointerIds();
@@ -350,11 +330,9 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
     }
 
     /**
-     * Writes the number of active pointers into the engine's {@link TouchEvent}, which has no public
-     * setter for it. The engine derives {@code getPointerCount()} from this field after
-     * {@code updateTouchState()}, so a pinch (two fingers) or a three-finger gesture is only seen when
-     * the count here matches the fingers the platform reported. The field handles are cached; a miss
-     * leaves single-touch working and is logged rather than thrown.
+     * 将活动触点数量写入引擎的 {@link TouchEvent}。该类没有公开的设置方法；引擎会在
+     * {@code updateTouchState()} 后从此字段推导 {@code getPointerCount()}。因此，平台报告的触点数量必须与此处一致，
+     * 引擎才能识别双指缩放或三指手势。字段句柄会被缓存；若查找失败，单指触摸仍可正常使用，且只记录日志，不抛出异常。
      */
     private void setTouchPointerCount(int count, boolean down) {
         Field countField = touchPointerCountField();
@@ -404,7 +382,7 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
         super.onWindowFocusChanged(focused);
     }
 
-    /** Reports the surface geometry into the view, which is where the engine reads it. */
+    /** 将表面尺寸写入视图，供引擎读取。 */
     private final class SurfaceEvents implements SurfaceHolder.Callback {
 
         @Override
@@ -427,13 +405,11 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
     }
 
     /**
-     * Tells the engine how large the surface is, when the dex that carries it is mounted.
+     * dex 挂载后，向引擎报告表面的尺寸。
      *
-     * <p>The original renderer reports the canvas size every frame, which is what sets the screen
-     * size and the sidebar width the minimap reads. With no renderer in the loop that never happens,
-     * and a zero screen size leaves the sidebar width at zero, so the minimap asks
-     * {@code Bitmap.createBitmap} for a zero-sized buffer and the frame dies. The surface's own
-     * geometry is the size to report.</p>
+     * <p>原始渲染器每帧都会报告画布大小，并据此设置屏幕尺寸和小地图使用的侧栏宽度。当前循环中没有渲染器，因此该步骤不会发生；
+     * 屏幕尺寸为零时侧栏宽度也会是零，小地图随后会通过 {@code Bitmap.createBitmap} 请求创建零尺寸缓冲区，导致帧循环崩溃。
+     * 应报告表面自身的几何尺寸。</p>
      */
     public void pushScreenSize() {
         if (viewWidth <= 0 || viewHeight <= 0) {

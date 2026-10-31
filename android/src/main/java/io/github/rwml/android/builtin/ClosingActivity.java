@@ -15,11 +15,10 @@ import com.corrodinggames.rts.gameFramework.GameEngine;
 import com.corrodinggames.rts.gameFramework.network.NetworkEngine;
 
 /**
- * The screen the game leaves through.
+ * 游戏退出时经过的界面。
  *
- * <p>It is started when the process is on its way out, so it does nothing but settle what the game
- * had open and close itself: the engine's ready flags are cleared, the way the game's own copy of
- * this screen clears them, and the screen finishes before it is ever drawn.</p>
+ * <p>该界面在进程即将退出时启动，因此只负责清理游戏当前打开的内容，然后关闭自身：它会像游戏自带的同名界面一样，
+ * 清除引擎的就绪标志，并在绘制前结束。</p>
  */
 public final class ClosingActivity extends BuiltinActivity {
 
@@ -42,7 +41,7 @@ public final class ClosingActivity extends BuiltinActivity {
 
     @Override
     protected void onResume() {
-        // Reaching the screen at all means leaving: there is nothing to show and nothing to wait for.
+            // 进入此界面就意味着即将退出：没有需要显示或等待的内容。
         super.onResume();
         finish();
     }

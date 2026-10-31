@@ -26,18 +26,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.Timer;
 
 /**
- * The desktop builtin UI's delayed game-loading window.
+ * 桌面端内置界面中的延迟加载窗口。
  *
- * <p>Game initialization runs before the game's own window appears, so without this the player sees
- * nothing at all for the duration - which looks like a hang, especially when a large extension is
- * being scanned. The window mirrors the load pass progress and disappears as soon as the game is
- * handed over to.</p>
+ * <p>游戏初始化发生在游戏窗口显示之前；如果没有此窗口，玩家在初始化期间将看不到任何内容，看起来就像卡住了，尤其是在扫描大型扩展时。
+ * 此窗口会显示加载进度，并在控制权移交给游戏后立即关闭。</p>
  *
- * <p>It is strictly best-effort. A headless JVM, a broken display or a windowing toolkit that
- * refuses to start all degrade to {@code null}, and the loader carries on with console output only.
- * The window is also only revealed after {@link #SHOW_DELAY_MILLIS}: a typical load takes a few
- * hundred milliseconds, and flashing a window on every launch would be worse than showing
- * nothing.</p>
+ * <p>此窗口按尽力而为方式显示。无界面 JVM、故障显示设备或无法启动的窗口工具包都会导致返回 {@code null}，加载器会仅通过控制台继续运行。
+ * 此外，只有等待 {@link #SHOW_DELAY_MILLIS} 后才会显示窗口：正常加载通常只需几百毫秒，每次启动都闪现一次窗口比完全不显示更糟。</p>
  */
 public final class LoadingProgressWindow implements AutoCloseable {
 
@@ -80,17 +75,16 @@ public final class LoadingProgressWindow implements AutoCloseable {
     }
 
     /**
-     * Creates the window when a display is available.
+     * 有可用显示设备时创建窗口。
      *
-     * @return the window, or {@code null} when the caller should fall back to console progress
+     * @return 加载窗口；调用方应回退到控制台显示进度时返回 {@code null}
      */
     public static LoadingProgressWindow showIfPossible(String title) {
         try {
             if (GraphicsEnvironment.isHeadless()) {
                 return null;
             }
-            // Touching the toolkit is what actually fails on a half-configured display, so it is
-            // done here, inside the try, rather than lazily on the swing thread.
+            // 配置不完整的显示设备通常会在访问工具包时失败，因此在此处的 try 块中主动初始化，而不是留到 Swing 线程中延迟初始化。
             Toolkit.getDefaultToolkit().getScreenSize();
             AtomicReference<LoadingProgressWindow> result = new AtomicReference<>();
             Runnable create = () -> {
@@ -123,11 +117,11 @@ public final class LoadingProgressWindow implements AutoCloseable {
             window.setVisible(true);
             window.toFront();
         } catch (Throwable ignored) {
-            // A window we cannot show is not a reason to stop loading extensions.
+            // 无法显示窗口不应成为停止加载扩展的原因。
         }
     }
 
-    /** @return a listener that mirrors load progress into the window. */
+    /** @return 将加载进度同步到窗口的监听器 */
     public ProgressListener listener() {
         return (percent, message) -> {
             if (closed.get()) {
@@ -157,11 +151,11 @@ public final class LoadingProgressWindow implements AutoCloseable {
                     window.setVisible(false);
                     window.dispose();
                 } catch (Throwable ignored) {
-                    // Nothing left to clean up.
+                    // 没有需要清理的内容。
                 }
             });
         } catch (Throwable ignored) {
-            // Already shut down.
+            // 已经关闭。
         }
     }
 }

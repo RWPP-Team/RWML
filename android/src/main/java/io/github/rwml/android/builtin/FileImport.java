@@ -21,16 +21,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 /**
- * Bringing a file into the game's own storage through the platform's file picker.
+ * 通过平台文件选择器将文件导入游戏自己的存储空间。
  *
- * <p>The game's own screens browse folders through the storage-access framework, which the archive
- * RWML mounts does not carry. The platform's picker is the way in instead: a screen asks for one
- * file, and this copies what came back into a folder of the game's storage.</p>
+ * <p>游戏自身的界面通过存储访问框架浏览目录，但 RWML 挂载的归档并未包含该框架。改用平台文件选择器：界面请求
+ * 选择一个文件，然后将选中的文件复制到游戏存储目录中。</p>
  *
- * <p>The name is the one the platform reports, not the last path segment of the URI, because a
- * picker hands out a synthetic URI whose tail has nothing to do with the file. The copy goes
- * through the engine's own file layer so it lands where the engine reads from, whichever storage
- * mode the settings choose.</p>
+ * <p>文件名采用平台报告的名称，而不是 URI 的最后一段，因为选择器返回的是合成 URI，其末尾与文件名无关。复制操作
+ * 通过引擎自身的文件层完成，因此文件会写入引擎读取的位置，无论设置中选择了哪种存储模式。</p>
  */
 final class FileImport {
 
@@ -40,9 +37,9 @@ final class FileImport {
     }
 
     /**
-     * Asks the platform for one file.
+     * 请求平台选择一个文件。
      *
-     * @return whether a picker answered
+     * @return 是否成功打开文件选择器
      */
     static boolean choose(Activity from, int requestCode) {
         try {
@@ -57,7 +54,7 @@ final class FileImport {
         }
     }
 
-    /** The name the platform knows a picked file by, or {@code null} when it has none. */
+    /** 平台报告的选中文件名称；平台未提供名称时返回 {@code null}。 */
     static String nameOf(Context context, Uri uri) {
         Cursor cursor = null;
         try {
@@ -83,10 +80,10 @@ final class FileImport {
     }
 
     /**
-     * Copies a picked file into the game's storage.
+     * 将选中的文件复制到游戏存储空间。
      *
-     * @param targetPath the abstract storage path to write, as {@link FileLoader} names it
-     * @return {@code null} on success, otherwise what went wrong
+     * @param targetPath {@link FileLoader} 使用的抽象存储路径
+     * @return 成功时返回 {@code null}，否则返回失败原因
      */
     static String copyInto(Context context, Uri source, String targetPath) {
         InputStream in = null;
@@ -115,7 +112,7 @@ final class FileImport {
         }
     }
 
-    /** Joins a folder and a file name in the shape the engine's file layer expects. */
+    /** 按引擎文件层所需的格式拼接目录和文件名。 */
     static String join(String folder, String name) {
         return folder.endsWith("/") ? folder + name : folder + "/" + name;
     }

@@ -29,52 +29,45 @@ import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 
 /**
- * Compiles a stand-in dex for every class of the game archives, with no members at all.
+ * 为游戏归档中的每个类编译一个完全不含成员的替身 dex。
  *
- * <p>An extension mixin names the game types it patches in its own signatures, and the runtime
- * resolves those signatures when the mixin class is defined. On Android that happens during
- * {@code Class.forName}, which is how the mixins are registered, and the game only reaches the
- * runtime as dex after they have been applied. So at registration time nothing on any loader can
- * answer for a single game type, and the mixin cannot be defined at all. This is the step that makes
- * the registration possible: it gives the loader a type of the right name, right shape and right
- * place in the hierarchy, and nothing else.</p>
+ * <p>扩展 mixin 会在自身签名中引用要修补的游戏类型，而运行时会在定义 mixin 类时解析这些签名。在 Android
+ * 上，此过程发生于注册 mixin 时调用的 {@code Class.forName} 期间；只有应用完 mixin 后，游戏才会以 dex
+ * 形式进入运行时。因此，注册期间任何加载器都无法提供游戏类型，mixin 也无法完成定义。此步骤通过为加载器
+ * 提供名称、结构和继承层级都正确的类型，使注册成为可能；除此之外不提供其他信息。</p>
  *
- * <p>The members are deliberately absent. Everything the framework reads off a referenced type is
- * either a name, a descriptor, or an inheritance answer, and all three come from the header this
- * class keeps. The field a {@code @Accessor} binds to is read from the target class's own bytes, and
- * the method the injectors bind to is named as a descriptor string in the annotation, so no code
- * path ever looks inside a stand-in.</p>
+ * <p>替身会有意省略所有成员。框架从引用类型读取的信息只有名称、描述符和继承关系，这三者都来自此类保留的
+ * 类头。{@code @Accessor} 绑定的字段从目标类自身的字节码中读取；注入器绑定的方法则以描述符字符串的形式
+ * 写在注解中，因此任何代码路径都不会读取替身的内部成员。</p>
  *
- * <p>Two access flags have to go. {@code ACC_FINAL} is dropped because a final type cannot be
- * extended and the archive's own subtypes are in the same dex. {@code ACC_ANNOTATION} is dropped
- * because the dexer treats an annotation as a contract to carry out rather than as a shape to copy.
- * Neither flag takes part in any decision the framework makes about a referenced type.</p>
+ * <p>有两个访问标志必须移除。由于 final 类型不可继承，且归档自己的子类型位于同一个 dex 中，因此移除
+ * {@code ACC_FINAL}。dex 编译器会将注解视为需要实现的约定，而非待复制的结构，因此移除
+ * {@code ACC_ANNOTATION}。框架对引用类型所做的判断都不会用到这两个标志。</p>
  *
- * <p>The result is keyed by a digest of the archives it was built from, so a launch that finds a
- * valid cache compiles nothing. Nothing here depends on the extensions, which is what lets the cache
- * survive a change of them.</p>
+ * <p>结果以源归档的摘要作为缓存键，因此启动时若找到有效缓存，就无需重新编译。此处的内容都不依赖扩展，
+ * 所以扩展变化后缓存仍然有效。</p>
  */
 final class StubDex {
 
-    /** Name of the jar handed to dx, inside the output directory and deleted again right after. */
+    /** 传给 dx 的 JAR 名称；文件位于输出目录中，并会在之后立即删除。 */
     private static final String INPUT_FILE = "stub.jar";
 
     private static final int ACC_FINAL = 0x0010;
 
     private static final int ACC_ANNOTATION = 0x2000;
 
-    /** The version dx accepts, and the one every stub is written at; see {@link Dexer}. */
+    /** dx 接受的版本，也是所有替身采用的版本；详见 {@link Dexer}。 */
     private static final int STUB_VERSION = Opcodes.V1_7;
 
     private StubDex() {
     }
 
     /**
-     * Compiles one stand-in dex covering every class of {@code gameArchives}.
+     * 编译单个替身 dex，覆盖 {@code gameArchives} 中的所有类。
      *
-     * @param gameArchives the game jars, which are the types a mixin may name
-     * @param cacheDirectory the directory the keyed result is cached in
-     * @return the dex files that were written, or the cached ones when the key matches
+     * @param gameArchives 游戏 JAR；mixin 可能引用其中的类型
+     * @param cacheDirectory 按键缓存结果的目录
+     * @return 写入的 dex 文件；缓存键匹配时返回缓存文件
      */
     static List<Path> build(List<Path> gameArchives, Path cacheDirectory) throws IOException {
         if (gameArchives.isEmpty()) {
@@ -96,15 +89,13 @@ final class StubDex {
     }
 
     /**
-     * @return the cache key, which is a digest of the archives and of nothing else
+     * @return 缓存键，只由归档摘要构成
      *
-     * <p>The extensions are not part of it. A stand-in only describes the game, so it stays valid
-     * across every change an extension can undergo.</p>
+     * <p>扩展不属于缓存键的一部分。替身只描述游戏，因此扩展发生任何变化时，缓存依然有效。</p>
      */
     private static String key(List<Path> gameArchives) {
-        // The layout belongs in the key: stand-ins used to be written for every class the archives
-        // carry, including the copies of the Android API, and the dex cached under the bare digest
-        // would keep answering with them.
+        // 目录布局也属于缓存键的一部分：以前会为归档中的所有类生成替身，包括 Android API 的副本；若只按摘要
+        // 缓存，旧 dex 就会继续为这些类型提供替身。
         StringBuilder material = new StringBuilder("stand-in-2\n");
         for (Path archive : gameArchives) {
             material.append(AssetInstaller.Digest.sha256(archive));
@@ -113,10 +104,8 @@ final class StubDex {
     }
 
     /**
-     * Writes one stub class per class of the archives into {@code target}, keeping the header of
-     * each: its access flags without the two that cannot be copied, its superclass and its
-     * interfaces. Those four are the whole content, which is why an archive of 1 700 classes compiles
-     * in a fraction of the time the real one takes.
+     * 将归档中的每个类各写入一个替身类到 {@code target}，并保留其类头信息：移除两个不可复制标志后的访问
+     * 标志、父类和接口。这些就是替身的全部内容，因此包含 1,700 个类的归档只需实际编译时间的一小部分。
      */
     private static void writeStubs(List<Path> gameArchives, Path target) throws IOException {
         Files.createDirectories(target.getParent());
@@ -142,18 +131,17 @@ final class StubDex {
         }
     }
 
-    /** @return whether a stand-in for {@code internalName} has any use, or the platform answers it. */
+    /** @return 是否需要为 {@code internalName} 创建替身；平台已提供该类时则返回 false */
     static boolean standsIn(String internalName) {
-        // The archives carry a copy of the Android API, which the rewrite drops for the same reason:
-        // a device already has it, and a stand-in would hide the real one.
+        // 归档中包含 Android API 的副本，改写时会出于相同原因将其移除：设备已提供这些 API，替身会遮蔽真实类型。
         return !internalName.startsWith("android/") || internalName.startsWith("android/support/");
     }
 
     /**
-     * @return the dotted names of the classes the stand-in dex would carry, in archive order
+     * @return 替身 dex 将包含的类名，使用点号分隔并按归档顺序排列
      *
-     * <p>The registration loader asks its own dex before its parent, and only for these names. A
-     * broader rule would answer for the platform's own types out of a stand-in as well.</p>
+     * <p>注册加载器会先查询自身 dex 再查询父加载器，并且只对这些类名执行此操作。扩大范围会导致平台自身的
+     * 类型也被替身提供。</p>
      */
     static Set<String> classNames(List<Path> gameArchives) throws IOException {
         Set<String> names = new LinkedHashSet<>();
@@ -176,7 +164,7 @@ final class StubDex {
         return names;
     }
 
-    /** Reads the header of every class of one archive into {@code headers}. */
+    /** 将一个归档中所有类的类头读取到 {@code headers}。 */
     private static void readHeaders(Path archive, Map<String, Header> headers) throws IOException {
         try (JarFile jar = new JarFile(archive.toFile())) {
             Enumeration<JarEntry> entries = jar.entries();
@@ -202,7 +190,7 @@ final class StubDex {
         }
     }
 
-    /** What the framework can ask about a type it does not define: flags, superclass, interfaces. */
+    /** 框架可查询的非自身定义类型信息：标志、父类和接口。 */
     private static final class Header {
 
         private int access;
@@ -212,7 +200,7 @@ final class StubDex {
         private final List<String> interfaces = new ArrayList<>();
     }
 
-    /** Collects the four header values and ignores everything the class body carries. */
+    /** 收集四项类头信息，忽略类体中的所有内容。 */
     private static final class HeaderReader extends ClassVisitor {
 
         private final Header header;

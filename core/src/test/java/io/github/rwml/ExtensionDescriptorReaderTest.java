@@ -24,6 +24,7 @@ import java.util.jar.JarOutputStream;
 import javax.tools.ToolProvider;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -87,8 +88,7 @@ class ExtensionDescriptorReaderTest {
             "id=com.acme.quiet\nname=Quiet\nmainClass=com.acme.Quiet\n"
                 .getBytes(StandardCharsets.UTF_8));
 
-        // An extension that says nothing about an interface declares none, which is the headless
-        // default rather than an empty class name to be looked up.
+        // 未声明界面的扩展表示不提供界面，这是无界面模式的默认行为，而不是要查找空类名。
         assertEquals("", ExtensionDescriptorReader.read(jar).uiFramework());
     }
 
@@ -165,6 +165,35 @@ class ExtensionDescriptorReaderTest {
         assertEquals("1.0.0", descriptor.version());
         assertEquals(List.of("Ada Lovelace"), descriptor.authors());
         assertEquals(8, descriptor.requiredJavaVersion());
+    }
+
+    @Test
+    void dependencyConstraintsSurviveWhitespaceAndExposeTheirIds() throws Exception {
+        Path jar = tempDir.resolve("versioned.jar");
+        writeJar(jar, "META-INF/extension.properties", ("id=versioned\nmainClass=sample.Entry\n"
+            + "dependsOn=com.acme.core >= 1.2, com.acme.extra^2.0 com.acme.plain\n").getBytes(StandardCharsets.UTF_8));
+
+        ExtensionDescriptor descriptor = ExtensionDescriptorReader.read(jar);
+
+        assertEquals(List.of("com.acme.core>=1.2", "com.acme.extra^2.0", "com.acme.plain"), descriptor.dependsOn());
+        assertEquals(List.of("com.acme.core", "com.acme.extra", "com.acme.plain"), descriptor.dependencyIds());
+        assertEquals(3, descriptor.requirements().size());
+        assertTrue(descriptor.requirements().get(0).satisfiedBy("1.5"));
+        assertFalse(descriptor.requirements().get(0).satisfiedBy("1.1"));
+        assertTrue(descriptor.requirements().get(2).isUnconstrained());
+        assertTrue(descriptor.accepts("com.acme.extra", "2.3"));
+        assertFalse(descriptor.accepts("com.acme.extra", "3.0"));
+    }
+
+    @Test
+    void rejectsADependencyConstraintThatCannotBeParsed() throws Exception {
+        Path jar = tempDir.resolve("broken-constraint.jar");
+        writeJar(jar, "META-INF/extension.properties",
+            "id=broken\nmainClass=sample.Entry\ndependsOn=com.acme.core>=\n".getBytes(StandardCharsets.UTF_8));
+
+        ExtensionException error = assertThrows(ExtensionException.class,
+            () -> ExtensionDescriptorReader.read(jar));
+        assertTrue(error.getMessage().contains("com.acme.core"));
     }
 
     // ------------------------------------------------------------------

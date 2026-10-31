@@ -27,21 +27,18 @@ import io.github.rwml.api.ui.GameSettings;
 import java.io.IOException;
 
 /**
- * The settings screen, laid out by the game's own settings layout and backed by the game's own
- * {@link GameSettings}. Every control the layout carries is read from the engine when the screen
- * opens and written back when it is closed with Done; Cancel closes without writing.
+ * 设置界面：使用游戏自身的设置布局，并由游戏自身的 {@link GameSettings} 提供数据。界面打开时会从引擎读取布局中的所有控件值，
+ * 点击“完成”关闭时写回；点击“取消”则不写入。
  *
- * <p>The layout names its labels with the game's locale keys behind an {@code i:} marker, because a
- * layout cannot call into the engine's language file; {@link #applyLocaleText} replaces those markers
- * with the engine's words once the screen is up. The keyboard bindings open their own screen, which
- * writes into the same engine settings. The external-storage setup belongs to the Android build's
- * file picker, which this host does not carry, so it is hidden.</p>
+ * <p>布局会在游戏本地化键前加上 {@code i:} 标记，以便标识标签；布局本身无法查询引擎语言文件。界面显示后，
+ * {@link #applyLocaleText} 会将这些标记替换为引擎中的文本。键盘绑定会打开独立界面，并写入同一份引擎设置。外部存储设置属于
+ * Android 版本文件选择器的功能，本宿主未携带该选择器，因此会隐藏此项。</p>
  */
 public final class SettingsActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** The choices behind the team unit-cap spinners, in the layout's order. */
+    /** 队伍单位上限下拉框的选项，顺序与布局一致。 */
     private static final int[] UNIT_CAP_OPTIONS = {100, 250, 500, 1000, 2000, 5000, 10000};
 
     private GameSettings settings;
@@ -119,7 +116,7 @@ public final class SettingsActivity extends BuiltinActivity {
         Log.i(TAG, "Settings open.");
     }
 
-    /** Looks up every control the layout names, by the same ids the game's layout uses. */
+    /** 使用与游戏布局相同的 ID 查找布局中声明的所有控件。 */
     private void findControls() {
         enableSounds = findViewById(R.id.SettingsEnableSounds);
         musicVolume = findViewById(R.id.musicVolume);
@@ -173,16 +170,15 @@ public final class SettingsActivity extends BuiltinActivity {
     }
 
     /**
-     * Hides what this host cannot honour: the external-storage (SAF) setup and the video recording
-     * that belongs to the Android build's capture path. The keyboard-configuration button stays,
-     * because this host carries the screen it opens.
+     * 隐藏此宿主无法支持的功能：外部存储（SAF）设置，以及 Android 版本录制流程中的视频录制。键盘配置按钮仍然保留，
+     * 因为本宿主包含该按钮打开的界面。
      */
     private void hideUnsupported() {
         hide(R.id.settingsSetupExternalFolder);
         hide(R.id.settingsExternalFolderInfo);
         hide(R.id.settingsStorageLayout);
         hide(R.id.settingsAllowGameRecording);
-        // Visibility that depends on another control is applied by updateDependentVisibility().
+        // 依赖其他控件状态的可见性由 updateDependentVisibility() 处理。
     }
 
     private void hide(int id) {
@@ -192,7 +188,7 @@ public final class SettingsActivity extends BuiltinActivity {
         }
     }
 
-    /** Fills every control from the engine's current settings. */
+    /** 使用引擎当前设置填充所有控件。 */
     private void loadFromEngine() {
         setChecked(enableSounds, settings.get("enableSounds", Boolean.class));
         musicVolume.setProgress((int) (settings.get("musicVolume", Float.class) * 100.0F));
@@ -264,7 +260,7 @@ public final class SettingsActivity extends BuiltinActivity {
         onClick(R.id.settingsConfKeys, this::openKeyboardSettings);
     }
 
-    /** Writes every control back into the engine's settings, saves them, and closes the screen. */
+    /** 将所有控件的值写回引擎设置并保存，然后关闭界面。 */
     private void saveSettings() {
         settings.set("enableSounds", true);
         settings.set("musicVolume", musicVolume.getProgress() / 100.0F);
@@ -336,24 +332,23 @@ public final class SettingsActivity extends BuiltinActivity {
         finish();
     }
 
-    /** Opens the credits screen. */
+    /** 打开制作人员名单界面。 */
     private void openCredits() {
         startActivity(new android.content.Intent(this, CreditsActivity.class));
     }
 
-    /** Opens the mods screen. */
+    /** 打开模组界面。 */
     private void openMods() {
         startActivity(new android.content.Intent(this, ModsActivity.class));
     }
 
-    /** Opens the keyboard bindings, which are written into the same engine settings. */
+    /** 打开按键绑定界面；绑定信息写入同一组引擎设置。 */
     private void openKeyboardSettings() {
         startActivity(new android.content.Intent(this, SettingsKeysActivity.class));
     }
 
     /**
-     * The Android build's debug console. A few of its commands are wired here, against the engine
-     * fields they touch; anything else is reported as unknown rather than silently ignored.
+     * Android 版本的调试控制台。这里会将其中几个命令连接到它们操作的引擎字段；其他命令会明确报告为未知，而不会静默忽略。
      */
     private void openDebugOptions() {
         final EditText input = new EditText(this);
@@ -391,7 +386,7 @@ public final class SettingsActivity extends BuiltinActivity {
         Toast.makeText(this, result, Toast.LENGTH_SHORT).show();
     }
 
-    /** Shows the shader toggles only while the new renderer is on, as the game's screen does. */
+    /** 仅在启用新渲染器时显示着色器开关，与游戏界面行为一致。 */
     private void updateDependentVisibility() {
         int visibility = newRender != null && newRender.isChecked() ? View.VISIBLE : View.GONE;
         if (shaderEffects != null) {
@@ -403,7 +398,7 @@ public final class SettingsActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // Helpers
+    // 辅助方法
     // ------------------------------------------------------------------
 
     private void onClick(int id, Runnable action) {
@@ -421,7 +416,7 @@ public final class SettingsActivity extends BuiltinActivity {
         }
     }
 
-    /** Selects the unit-cap entry whose value equals {@code value}, defaulting to the first entry. */
+    /** 选择值等于 {@code value} 的单位上限选项；未匹配时默认选择第一项。 */
     private void setSpinnerByValue(Spinner spinner, int value) {
         if (spinner == null) {
             return;
@@ -447,14 +442,14 @@ public final class SettingsActivity extends BuiltinActivity {
     }
 
     /**
-     * Replaces every label the layout marks with {@code i:} with the engine's own words. The marker
-     * exists because a layout cannot call into the engine's language file; this is where it is read.
+     * 将布局中以 {@code i:} 标记的所有标签替换为引擎自身的文本。此标记用于弥补布局无法查询引擎语言文件的限制；
+     * 本方法负责读取并替换标记内容。
      */
     private void applyLocaleText() {
         LocalizedText.applyTo(findViewById(android.R.id.content));
     }
 
-    /** Keeps a percentage label in step with its seek bar. */
+    /** 同步百分比文本与滑动条的值。 */
     private final class PercentageListener implements SeekBar.OnSeekBarChangeListener {
         private final TextView label;
 
@@ -478,7 +473,7 @@ public final class SettingsActivity extends BuiltinActivity {
         }
     }
 
-    /** The scroll-speed bar is offset by 20, so its label reads the value the engine stores. */
+    /** 滚动速度滑动条偏移 20，因此标签需显示引擎实际保存的值。 */
     private final class ScrollSpeedListener implements SeekBar.OnSeekBarChangeListener {
         @Override
         public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {

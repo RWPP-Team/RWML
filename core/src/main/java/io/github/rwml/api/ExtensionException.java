@@ -7,7 +7,7 @@
 
 package io.github.rwml.api;
 
-/** Checked exception raised for every recoverable extension failure. */
+/** 扩展发生可恢复故障时抛出的受检异常。 */
 public class ExtensionException extends Exception {
 
     private static final long serialVersionUID = 1L;

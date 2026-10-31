@@ -23,17 +23,15 @@ import java.util.List;
 import java.util.Properties;
 
 /**
- * Copies one group of the archives the APK carries into a writable directory, and copies only what
- * changed.
+ * 将 APK 中某一组归档复制到可写目录，并且只复制有变化的文件。
  *
- * <p>The packaged assets are read-only, so anything the runtime has to patch, dex or delete lives in
- * app storage. Two sources of truth decide whether a copy is needed: the digest the build recorded
- * for the asset, and the digest of the file that was installed last time. When all three agree, the
- * expensive path - decoding a multi-megabyte result - is skipped.</p>
+ * <p>打包资源是只读的，因此运行时需要修补、转换为 dex 或删除的文件都放在应用存储中。是否需要复制
+ * 由两个摘要共同判断：构建时记录的资源摘要，以及上次安装文件的摘要。若三者一致，就跳过开销较大的
+ * 解码操作，避免处理数 MB 的数据。</p>
  */
 final class AssetInstaller {
 
-    /** Root of everything the build stages into {@code assets/}. */
+    /** 构建流程暂存到 {@code assets/} 中的所有资源的根目录。 */
     static final String ASSET_ROOT = "rwml";
 
     private static final String MANIFEST = ASSET_ROOT + "/manifest.properties";
@@ -43,10 +41,10 @@ final class AssetInstaller {
     }
 
     /**
-     * Installs every asset under {@code rwml/<group>/} into {@code targetDirectory}.
+     * 将 {@code rwml/<group>/} 下的所有资源安装到 {@code targetDirectory}。
      *
-     * @param group one of the directories the build stages, for example {@code extensions}
-     * @return one line per archive, describing what was done to it
+     * @param group 构建时暂存的目录之一，例如 {@code extensions}
+     * @return 每个归档对应一行，说明对其执行的操作
      */
     static List<String> install(Context context, String group, Path targetDirectory) {
         List<String> log = new ArrayList<>();
@@ -106,7 +104,7 @@ final class AssetInstaller {
         return log;
     }
 
-    /** @return the archives of one group that are currently installed. */
+    /** @return 当前已安装的指定组归档。 */
     static List<Path> installed(Path targetDirectory) throws IOException {
         if (!Files.isDirectory(targetDirectory)) {
             return Collections.emptyList();
@@ -130,12 +128,12 @@ final class AssetInstaller {
         try (InputStream in = Files.newInputStream(file)) {
             record.load(in);
         } catch (IOException ignored) {
-            // Recompute everything rather than fail to start.
+            // 重新计算所有内容，不要因此阻止应用启动。
         }
         return record;
     }
 
-    /** Written in a fixed key order so the file does not change when nothing else did. */
+    /** 按固定键顺序写入，确保其他内容不变时文件本身也不会变化。 */
     private static void writeRecord(Path targetDirectory, Properties record) throws IOException {
         List<String> keys = new ArrayList<>(record.stringPropertyNames());
         Collections.sort(keys);
@@ -147,7 +145,7 @@ final class AssetInstaller {
             text.toString().getBytes(StandardCharsets.UTF_8));
     }
 
-    /** Content digests, used to decide what has to be reprocessed. */
+    /** 内容摘要，用于判断哪些文件需要重新处理。 */
     static final class Digest {
 
         private Digest() {

@@ -14,15 +14,13 @@ import io.github.rwml.api.game.GameBoot;
 import java.util.List;
 
 /**
- * What a {@link UiFramework} is handed when the host starts it.
+ * 宿主启动 {@link UiFramework} 时提供给它的对象。
  *
- * <p>The interface is deliberately small. It carries the platform handle an implementation needs to
- * reach its own platform, the arguments the host was started with, and the one action every platform
- * can perform: putting a screen up.</p>
+ * <p>此接口刻意保持精简，仅提供实现类访问平台所需的平台句柄、宿主启动参数，以及所有平台都能执行的操作：显示界面。</p>
  */
 public interface UiHost {
 
-    /** Shared translations, extension management, events and host-provided data services. */
+    /** 提供共享翻译、扩展管理、事件和宿主数据服务。 */
     default UiServices services() {
         RwmlRuntime runtime = Rwml.get();
         if (runtime == null) {
@@ -32,29 +30,52 @@ public interface UiHost {
     }
 
     /**
-     * The platform handle.
+     * 平台句柄。
      *
-     * <p>On Android this is the {@code android.content.Context} of the launcher activity, which is
-     * also the only way to start another activity. On the desktop it is the host runtime. The value
-     * is never null, but its type is only known to the platform, so an implementation casts it after
-     * checking the platform it was written for.</p>
+     * <p>Android 上这是启动器 Activity 的 {@code android.content.Context}，也是启动其他 Activity 的唯一方式；
+     * 桌面端则是宿主运行时。该值不会为 null，但其类型只有平台自身知道，因此实现类应先确认运行平台，再进行类型转换。</p>
      *
-     * @return the host's platform object, never null
+     * @return 宿主的平台对象，不为 null
      */
     Object platform();
 
     /**
-     * The arguments the host was started with, in the order they were given.
+     * Creates an extension-owned UI surface when the platform supports native extension content.
      *
-     * @return an immutable argument list, never null
+     * <p>Desktop and Android hosts return a surface that accepts their native window/view types. A framework
+     * should build and attach its content on the returned surface's UI executor.</p>
+     *
+     * @return a newly created platform surface
+     * @throws UnsupportedOperationException if this host cannot create an extension-owned surface
+     */
+    default UiSurface createSurface() {
+        throw new UnsupportedOperationException("This host does not support extension-owned UI surfaces");
+    }
+
+    /**
+     * Creates a surface over the host's already-running game view when supported.
+     *
+     * <p>This lets a framework keep native game input and lifecycle handling while displaying extension content
+     * over the game. The returned surface may defer content creation until the game screen opens.</p>
+     *
+     * @return a surface associated with the game's native screen
+     * @throws UnsupportedOperationException if this host cannot create game overlays
+     */
+    default UiSurface createGameSurface() {
+        throw new UnsupportedOperationException("This host does not support game UI surfaces");
+    }
+
+    /**
+     * 宿主启动时传入的参数，顺序与传入时一致。
+     *
+     * @return 不可变的参数列表，不为 null
      */
     List<String> arguments();
 
     /**
-     * The shared game initialization sequence. A framework may show its own launcher, then run
-     * this boot on a worker with its own progress listener before opening a game screen.
+     * 共享的游戏初始化流程。界面框架可以显示自己的启动器，然后在工作线程中运行此流程并提供进度监听器，完成后再打开游戏界面。
      *
-     * @return the host's boot, available after extension loading on both platforms
+     * @return 宿主的启动流程；两个平台都会在扩展加载后提供
      */
     default GameBoot gameBoot() {
         RwmlRuntime runtime = Rwml.get();
@@ -65,17 +86,26 @@ public interface UiHost {
     }
 
     /**
-     * Asks the platform to put a screen up.
+     * 请求平台显示一个界面。
      *
-     * <p>The name is a hint, not a contract: a platform maps the names it knows onto its own screens
-     * and reports an unknown one instead of failing. The call may return before the screen is
-     * visible, because starting a screen is asynchronous on Android.</p>
+     * <p>名称仅作提示，而非强制约定：平台会将已知名称映射到自身界面；遇到未知名称时会报告该情况，而不会直接失败。
+     * 由于 Android 上界面启动是异步操作，此方法可能在界面显示前就已返回。</p>
      *
-     * @param screen the requested screen, e.g. {@code game}
+     * @param screen 请求的界面，例如 {@code game}
      */
     void openScreen(String screen);
 
-    /** Restarts the host in a fresh process so changed extension classes and mixins can take effect. */
+    /**
+     * Opens a screen with an extension surface associated with it, when supported.
+     *
+     * @param screen requested screen name
+     * @param surface surface that should be attached to the screen
+     */
+    default void openScreen(String screen, UiSurface surface) {
+        openScreen(screen);
+    }
+
+    /** 在新进程中重启宿主，使扩展类和 mixin 的变更生效。 */
     default void restart() {
         throw new UnsupportedOperationException("This host does not support restart");
     }

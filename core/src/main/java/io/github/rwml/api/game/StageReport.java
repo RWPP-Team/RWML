@@ -14,12 +14,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The outcome of one {@link GameBoot#start()}.
+ * 一次 {@link GameBoot#start()} 的执行结果。
  *
- * <p>Every stage that ran is listed, in order, and every stage that failed is listed against the
- * reason it failed. The two are separate on purpose: a boot in which the fonts could not be loaded
- * still has the engine in it, and the caller needs to tell the difference between "this never got
- * a chance to run" and "this failed".</p>
+ * <p>此报告按顺序列出所有已运行阶段，并列出每个失败阶段及其原因。两类结果有意分开：字体加载失败时引擎阶段仍可能成功，
+ * 调用方需要区分“尚未运行”和“运行失败”。</p>
  */
 public final class StageReport {
 
@@ -31,24 +29,23 @@ public final class StageReport {
         this.failed = Collections.unmodifiableMap(new LinkedHashMap<>(failed));
     }
 
-    /** @return the names of the stages that ran to completion, in the order they ran */
+    /** @return 已成功完成的阶段名称，顺序与运行顺序一致 */
     public List<String> ran() {
         return ran;
     }
 
-    /** @return the stages that failed, keyed by name with the reason as the value */
+    /** @return 失败阶段及其原因，以阶段名称为键 */
     public Map<String, String> failed() {
         return failed;
     }
 
-    /** @return whether every stage ran to completion */
+    /** @return 所有阶段是否都已成功完成 */
     public boolean isClean() {
         return failed.isEmpty();
     }
 
     /**
-     * @return whether a stage of that name both ran and completed, which is how a caller asks
-     *     whether the engine came up
+     * @return 指定阶段是否已运行并完成；调用方可据此判断引擎是否启动
      */
     public boolean contains(String name) {
         return ran.contains(name);

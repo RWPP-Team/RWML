@@ -8,20 +8,18 @@
 package io.github.rwml.api.game;
 
 /**
- * A stage written as a lambda.
+ * 以 lambda 表达的启动阶段。
  *
- * <p>Declaring a class for every step of a boot would put more ceremony in the way than the steps
- * deserve, and most of them are a handful of calls. An action is registered through
- * {@link GameBoot#add(String, GameAction)}, which gives it the name a {@link GameStage} would have
- * had.</p>
+ * <p>为启动流程的每一步都声明一个类会带来不必要的样板代码，大多数步骤也只有少数几次调用。可通过
+ * {@link GameBoot#add(String, GameAction)} 注册操作，并为其指定原本由 {@link GameStage} 提供的名称。</p>
  */
 public interface GameAction {
 
     /**
-     * Runs the step.
+     * 执行此步骤。
      *
-     * @param context the running boot, never null
-     * @throws Exception when the step could not be completed
+     * @param context 正在运行的启动流程上下文，不为 null
+     * @throws Exception 步骤无法完成时抛出
      */
     void run(GameContext context) throws Exception;
 }

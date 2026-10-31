@@ -28,6 +28,9 @@ import io.github.rwml.core.ExtensionManager;
 import io.github.rwml.core.GameContextImpl;
 import io.github.rwml.core.LoadReport;
 import io.github.rwml.game.LocaleUiMixin;
+import io.github.rwml.game.ResourcePackAssetMixin;
+import io.github.rwml.game.ResourcePackResourcePathMixin;
+import io.github.rwml.game.ResourcePackTexturePathMixin;
 
 import java.io.File;
 import java.io.IOException;
@@ -39,21 +42,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The desktop host prepares metadata first and loads extensions only after its bootstrap is visible.
+ * 桌面宿主先准备元数据，并在启动界面显示后再加载扩展。
  *
- * <p>It is separate from {@code com.corrodinggames.rts.java.Main}, which is compiled for Java 8 so it
- * can start on any JVM; everything here is modern bytecode, reached once {@code Bootstrap} has made
- * sure the JVM is suitable. The running instance is this process's {@link RwmlRuntime}.</p>
+ * <p>它与 {@code com.corrodinggames.rts.java.Main} 分开；后者按 Java 8 编译，以便在任意 JVM 上启动。此处代码使用较新字节码，
+ * 只有 {@code Bootstrap} 确认 JVM 满足要求后才会访问。运行实例是当前进程的 {@link RwmlRuntime}。</p>
  *
- * <p>{@link #prepare(String[])} prepares metadata and UI services only. Extension failures during the
- * later launch return to the bootstrap and require a fresh process before game preparation.</p>
+ * <p>{@link #prepare(String[])} 只准备元数据和界面服务。之后启动扩展时若发生失败，会返回启动器，并要求在准备游戏前重启进程。</p>
  */
 public final class DesktopRuntime implements RwmlRuntime {
 
-    /** The mixin registry is global; preparing twice would double-register every mixin. */
+    /** Mixin 注册表是全局的；重复准备会导致每个 Mixin 被注册两次。 */
     private static boolean prepared;
 
-    /** The one runtime of this process, set once the extension system is up. */
+    /** 当前进程唯一的运行时，在扩展系统启动后设置。 */
     private static DesktopRuntime current;
 
     private final ExtensionManager manager;
@@ -72,31 +73,29 @@ public final class DesktopRuntime implements RwmlRuntime {
             new DefaultExtensionLibrary(manager, manager.extensionDirectory(),
                 () -> Collections.singletonList(manager.extensionDirectory()),
                 () -> report, archive -> { }, hooks), hooks);
-        // The boot belongs to the platform, so the desktop fills it here: the canvas class, the
-        // platform flags, the HTTP factory, and the hand-over to the launcher that owns the window.
-        // The interface extension only decides that those steps should run.
+        // 引导流程属于平台，因此由桌面端在此提供画布类、平台标志、HTTP 工厂，以及交给窗口所属启动器的移交操作。
+        // 界面扩展只决定是否执行这些步骤。
         this.gameBoot = new GameBoot(new GameContextImpl(
             this, gameArguments(args), manager.rootDirectory(), System.out::println));
         this.gameBoot.stopOnFailure();
         this.gameBoot.beforeStages("extensions", stage -> {
             loadExtensions((percent, message) -> stage.subProgress(message));
         });
-        // Lambdas defer resolving game-facing code; extensions can still replace these stages in onLoad.
+        // Lambda 会延迟解析面向游戏的代码；扩展仍可在 onLoad 中替换这些阶段。
         this.gameBoot.add("desktop platform", context -> DesktopInterface.choosePlatform(context));
         this.gameBoot.add(GameBoot.ENGINE, context -> DesktopInterface.handOverToTheGame(context));
     }
 
-    /** @return the running runtime, or {@code null} before a successful {@link #prepare} */
+    /** @return 正在运行的运行时；{@link #prepare} 成功前返回 {@code null} */
     public static DesktopRuntime current() {
         return current;
     }
 
     /**
-     * Prepares the extension catalog and bootstrap services without loading extension code.
+     * 准备扩展目录和启动服务，但不加载扩展代码。
      *
-     * @param args the game's arguments, forwarded by the bootstrap
-     * @return whether the extension system is up; {@code false} means the game still starts, without
-     *         extensions
+     * @param args 游戏参数，由启动器转发
+     * @return 扩展系统是否已就绪；返回 {@code false} 时仍会启动游戏，只是不加载扩展
      */
     public static boolean prepare(String[] args) {
         synchronized (DesktopRuntime.class) {
@@ -129,7 +128,7 @@ public final class DesktopRuntime implements RwmlRuntime {
         return report;
     }
 
-    /** @return the platform this runtime runs on, which is a JVM. */
+    /** @return 此运行时所在的平台，即 JVM */
     @Override
     public Platform platform() {
         return Platform.DESKTOP;
@@ -146,11 +145,10 @@ public final class DesktopRuntime implements RwmlRuntime {
     }
 
     /**
-     * Starts the interface an extension declared, when one did; a declaration that cannot be used
-     * leaves the built-in launcher running.
+     * 若扩展声明了界面，则启动该界面；声明的界面不可用时继续使用内置启动器。
      *
-     * @param args the game's arguments, forwarded to the extension's interface
-     * @return whether an extension's interface was started
+     * @param args 游戏参数，转发给扩展界面
+     * @return 是否已启动扩展界面
      */
     public static boolean startExtensionInterface(String[] args) {
         DesktopRuntime runtime = current;
@@ -184,7 +182,7 @@ public final class DesktopRuntime implements RwmlRuntime {
         } finally { starting = false; }
     }
 
-    /** Called only after the host bootstrap is visible, or from an explicitly headless launch. */
+    /** 仅在宿主引导界面显示后调用，或由明确指定的无头启动流程调用。 */
     private synchronized void loadExtensions(ProgressListener progress) throws Exception {
         if (report == null) {
             installTransformer();
@@ -195,13 +193,35 @@ public final class DesktopRuntime implements RwmlRuntime {
                 } catch (Exception error) { report("Cannot recover a failed mixin", error); }
             });
             MixinSupport.instance().register(LocaleUiMixin.class);
+            // 资源包重定向必须与界面 mixin 同时注册：两者都在游戏类加载之前生效，且资源包目录在加载阶段就已物化。
+            registerResourcePackMixin();
             report = manager.loadAll(manager.discover(), progress);
             printReport(report);
+            if (manager.resourcePackFailure() != null) {
+                System.out.println("[rwml]   ! " + manager.resourcePackFailure());
+            }
             if (report.isClean()) { MixinSupport.instance().validateRegistered(); }
         }
         if (!report.isClean() || manager.recoveryRequired()) {
             ui.hooks().publish(UiHooks.EXTENSIONS_CHANGED, null);
             throw manager.recoveryFailure("Extension preparation failed: " + report.failed());
+        }
+    }
+
+    /**
+     * 注册资源包重定向。
+     *
+     * <p>这些 mixin 由宿主自带，不属于任何扩展归档。游戏只在三条互不重叠的路径上读取资源，因此逐个注册：某一类资源
+     * 的注入点消失时，其余类别仍然可以替换，资源包整体不会被停用。</p>
+     */
+    private static void registerResourcePackMixin() {
+        Class<?>[] mixins = {ResourcePackAssetMixin.class, ResourcePackResourcePathMixin.class, ResourcePackTexturePathMixin.class};
+        for (Class<?> mixin : mixins) {
+            try {
+                MixinSupport.instance().register(mixin);
+            } catch (ExtensionException failure) {
+                System.err.println("[rwml] Resource pack cannot redirect " + mixin.getSimpleName() + ": " + failure.getMessage());
+            }
         }
     }
 
@@ -219,13 +239,14 @@ public final class DesktopRuntime implements RwmlRuntime {
             .toArray(String[]::new);
     }
 
-    /** @return a runtime whose extension system is up, or {@code null} when nothing can be loaded */
+    /** @return 扩展系统已启动的运行时；无法加载任何内容时返回 {@code null} */
     private static DesktopRuntime start(String[] args) throws Exception {
         Path root = resolveRootDirectory();
         System.out.println("[rwml] Game directory: " + root);
         System.out.println("[rwml] Extensions directory: " + root.resolve("extensions"));
 
-        ExtensionManager manager = new ExtensionManager(root, new DesktopHost());
+        ExtensionManager manager = new ExtensionManager(root, new DesktopHost(root));
+        manager.platform().stageArchives(manager.extensionDirectory());
         DesktopRuntime runtime = new DesktopRuntime(manager, args);
         runtime.ui.extensions().entries();
         Rwml.install(runtime);
@@ -234,8 +255,7 @@ public final class DesktopRuntime implements RwmlRuntime {
     }
 
     /**
-     * Makes sure the ASM transformer is live. In a packaged jar the bootstrap already restarted the
-     * game with {@code -javaagent}; this covers the rest by attempting a self-attach.
+     * 确保 ASM 转换器已启用。使用打包 JAR 时，启动器已经通过 {@code -javaagent} 重启游戏；其余情况会尝试自附加 agent。
      */
     private static void installTransformer() {
         MixinSupport mixin = MixinSupport.instance();
@@ -249,10 +269,9 @@ public final class DesktopRuntime implements RwmlRuntime {
     }
 
     /**
-     * Resolves the directory RWML keeps {@code extensions/} and {@code data/} in.
+     * 查找 RWML 存放 {@code extensions/} 和 {@code data/} 的目录。
      *
-     * <p>The directory holding the game jar, so extensions live next to the game and are found
-     * without configuration.</p>
+     * <p>使用游戏 JAR 所在目录，使扩展存放在游戏旁边并能自动发现，无需额外配置。</p>
      */
     private static Path resolveRootDirectory() {
         File jar = Relauncher.ownJar();
@@ -262,10 +281,13 @@ public final class DesktopRuntime implements RwmlRuntime {
         return Paths.get(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
     }
 
-    /** Prints the outcome of the load pass, one line per extension so failures are visible. */
+    /** 输出每轮加载结果，每个扩展占一行，以便查看失败情况。 */
     private static void printReport(LoadReport report) {
         for (String line : report.staged()) {
             System.out.println("[rwml]   " + line);
+        }
+        if (report.hasResourcePack()) {
+            System.out.println("[rwml]   = resource pack " + report.resourcePack());
         }
         for (ExtensionHandle handle : report.loaded()) {
             ExtensionDescriptor d = handle.descriptor();
@@ -282,8 +304,7 @@ public final class DesktopRuntime implements RwmlRuntime {
     }
 
     /**
-     * The headless fallback, used when no window can be shown: a load pass is short, so every step
-     * is reported on the console. The per-extension summary is printed either way.
+     * 无法显示窗口时使用无界面模式回退：加载过程较短，因此每个步骤都会输出到控制台。无论是否显示窗口，都会打印扩展摘要。
      */
     private static ProgressListener consoleListener() {
         return (percent, message) ->

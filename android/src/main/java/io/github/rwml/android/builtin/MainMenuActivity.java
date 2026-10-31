@@ -28,25 +28,21 @@ import io.github.rwml.api.ui.GameSettings;
 import io.github.rwml.android.R;
 
 /**
- * The menu: the screen the splash hands over to, and the way into a game.
+ * 菜单：启动画面交接到的界面，也是进入游戏的入口。
  *
- * <p>The layout is the game's own, and so is everything done with it: the buttons are named in the
- * game's language file, the version line is the engine's, and which buttons show is decided the way
- * the game's own menu decides it. Each button leads to the screen the game leads to: the mode chooser
- * for a new single-player game, the lobby for multiplayer, the settings screen, the mod list and the
- * help slides.</p>
+ * <p>布局和交互都沿用游戏自身实现：按钮名称来自游戏语言文件，版本行由引擎提供，按钮是否显示也按游戏菜单的规则决定。
+ * 每个按钮都会打开游戏对应的界面：新单人游戏的模式选择器、多人游戏大厅、设置界面、模组列表或帮助幻灯片。</p>
  *
- * <p>The engine is already up by the time this screen appears, so everything asked of it is read, not
- * started, and a missing engine degrades the screen to its layout text.</p>
+ * <p>此界面出现时引擎已经启动，因此这里只读取引擎状态，不会启动引擎；如果引擎缺失，就退回显示布局中的原始文本。</p>
  */
 public final class MainMenuActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** The store page the demo's buy button leads to. This build is never the demo. */
+    /** 演示版购买按钮打开的商店页面。本构建版本不是演示版。 */
     private static final String STORE_PACKAGE = "com.corrodinggames.rts";
 
-    /** The surface the engine's own menu map is drawn into, behind the layout. */
+    /** 引擎绘制菜单背景地图所用的表面，位于布局后方。 */
     private AndroidGameView background;
 
     @Override
@@ -54,9 +50,8 @@ public final class MainMenuActivity extends BuiltinActivity {
         super.onCreate(state);
         AndroidApp.prepare(this, true);
 
-        // The menu is a layout over the engine's own rendering, the way the game's screens are: the
-        // engine draws a map behind, the layout puts the buttons on top. The order of the two is the
-        // whole of it, so the container is filled here rather than in a layout file.
+        // 菜单与游戏界面一样，叠加在引擎自身的绘制内容之上：引擎在后方绘制地图，布局在上方放置按钮。顺序就是全部关键，
+        // 因此在此处填充容器，而不是写入布局文件。
         FrameLayout root = new FrameLayout(this);
         background = new AndroidGameView(this);
         root.addView(background, new FrameLayout.LayoutParams(
@@ -92,13 +87,11 @@ public final class MainMenuActivity extends BuiltinActivity {
     }
 
     /**
-     * Puts the engine's own background behind the menu.
+     * 在菜单后方显示引擎自身绘制的背景。
      *
-     * <p>The surface is handed over through the engine's own attach call, and that is the whole of
-     * it: the call brings up a menu map when the engine has neither a loaded map nor a match being
-     * loaded, and it leaves a game that is still going alone, which is what keeps the continue button
-     * honest. The game's own screen does exactly this and nothing more, and so does this one; loading
-     * a background here by hand would replace a game the player suspended.</p>
+     * <p>通过引擎自身的 attach 调用交接绘制表面即可：如果引擎既未加载地图，也没有正在加载的对局，该调用会显示菜单背景地图；
+     * 如果游戏仍在运行，则不会干扰它，从而确保“继续”按钮状态正确。游戏原生界面只执行此操作，本界面也一样；如果在此手动
+     * 加载背景，就会替换玩家暂停的游戏。</p>
      */
     private void showBackground() {
         GameEngine engine = GameEngine.getInstance();
@@ -110,20 +103,16 @@ public final class MainMenuActivity extends BuiltinActivity {
             engine.setActivityAndGameView(this, background, true);
             background.pushScreenSize();
         } catch (Throwable t) {
-            // A menu without its background is still a menu, and the failure is worth reporting
-            // rather than worth losing the screen over.
+            // 没有背景的菜单仍然可以使用，应报告该失败，但不应因此关闭整个界面。
             Log.w(TAG, "The engine's menu background could not be brought up.", t);
         }
     }
 
     /**
-     * Shows and hides what the state of the game decides: the buy and mods buttons belong to the demo
-     * build, continue exists while a game is still on the engine and has not ended.
+     * 根据游戏状态显示或隐藏控件：购买和模组按钮属于演示版；只有引擎中仍有尚未结束的游戏时，才显示继续按钮。
      *
-     * <p>The test is the engine's own load state rather than the network mode a game was started
-     * through: the loop flag says a map is loaded and its frames are running, the ended flag says it
-     * has finished, and the path check keeps a map the engine loaded only to sit behind this menu
-     * from reading as a game. The game's own menu reads the same three things.</p>
+     * <p>判断依据是引擎自身的加载状态，而不是启动游戏时使用的网络模式：loop 标志表示地图已加载且帧循环正在运行，ended
+     * 标志表示游戏已经结束，路径检查则排除仅作为菜单背景加载的地图。游戏原生菜单也会检查这三项内容。</p>
      */
     private void setup() {
         GameUi.Snapshot game = Rwml.get().ui().game();
@@ -137,7 +126,7 @@ public final class MainMenuActivity extends BuiltinActivity {
         if (version != null) { version.setText(game.version()); }
     }
 
-    /** Names the buttons in the game's own words; the layout's own text stands when they cannot be read. */
+    /** 使用游戏自身文本为按钮命名；无法读取时保留布局中的原始文本。 */
     private void setButtonText() {
         try {
             text(R.id.buyButton, LocalizedText.get("menus.front.buyNow"));
@@ -153,48 +142,47 @@ public final class MainMenuActivity extends BuiltinActivity {
         }
     }
 
-    /** Opens the game screen, continuing the game in progress. */
+    /** 打开游戏界面，继续当前正在进行的游戏。 */
     private void openGame() {
         Log.i(TAG, "Opening the game screen.");
         startActivity(new Intent(this, InGameActivity.class));
     }
 
-    /** Starts a new single-player game, which begins by choosing a mode. */
+    /** 开始新的单人游戏，首先进入模式选择界面。 */
     private void openSinglePlayer() {
         checkIfHelpShouldBeShown(this::openLevelSelect);
     }
 
-    /** Opens the mode chooser, which is the game's own way into a single-player game. */
+    /** 打开模式选择界面，这是游戏自身进入单人游戏的流程。 */
     private void openLevelSelect() {
         Log.i(TAG, "Opening the single-player mode chooser.");
         startActivity(new Intent(this, LevelGroupSelectActivity.class));
     }
 
-    /** Opens the multiplayer lobby, which is where hosting and joining both begin. */
+    /** 打开多人游戏大厅，从此处开始创建或加入游戏。 */
     private void openMultiplayer() {
         startActivity(new Intent(this, MultiplayerLobbyActivity.class));
     }
 
-    /** Opens the settings screen. */
+    /** 打开设置界面。 */
     private void openSettings() {
         startActivity(new Intent(this, SettingsActivity.class));
     }
 
-    /** Opens the mod list. */
+    /** 打开模组列表。 */
     private void openMods() {
         startActivity(new Intent(this, ModsActivity.class));
     }
 
-    /** Opens the help slides. */
+    /** 打开帮助幻灯片。 */
     private void openHelp() {
         startActivity(new Intent(this, QuickHelpActivity.class));
     }
 
     /**
-     * Offers the help slides the first time a game is started, then runs what was asked for.
+     * 首次启动游戏时显示帮助幻灯片，然后执行用户请求的操作。
      *
-     * <p>The prompt is the game's own: it fires once, the answer is remembered in the game's
-     * settings, and viewing the slides marks them seen as well.</p>
+     * <p>此提示沿用游戏自身逻辑：只显示一次，用户的选择会保存到游戏设置中，查看幻灯片也会将其标记为已读。</p>
      */
     private void checkIfHelpShouldBeShown(Runnable then) {
         if (Rwml.get().ui().find(GameSettings.class).get("hasPlayedGameOrSeenHelp", Boolean.class)) {
@@ -213,7 +201,7 @@ public final class MainMenuActivity extends BuiltinActivity {
             .show();
     }
 
-    /** Opens the game's store page, which is what the demo's buy button does. */
+    /** 打开游戏商店页面，与演示版购买按钮的行为一致。 */
     private void openStorePage() {
         try {
             startActivity(new Intent(Intent.ACTION_VIEW,
@@ -229,7 +217,7 @@ public final class MainMenuActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // The layout, looked up by name
+    // 按名称查找布局
     // ------------------------------------------------------------------
 
     private void onClick(int id, Runnable action) {

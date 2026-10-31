@@ -8,28 +8,26 @@
 package io.github.rwml.android;
 
 /**
- * Says where a thread still is, while it is still there.
+ * 在线程仍在运行时，报告它当前所处的位置。
  *
- * <p>The work that brings the game up runs off the main thread and takes long enough that a reader
- * cannot tell a slow run from a stopped one, and both look the same: no lines. A watchdog started
- * around a piece of work writes the stack of the thread doing it to {@link HostLog} every few
- * seconds, so a stack that moves is a run that is proceeding and a stack that does not, under a
- * {@code WAITING} or {@code BLOCKED} state, is a run that is stuck.</p>
+ * <p>游戏启动工作在主线程之外执行，耗时较长时，读者无法区分运行缓慢和进程停止，因为两者看起来都没有输出。
+ * 在某项工作期间启动的 watchdog 会每隔几秒将执行线程的堆栈写入 {@link HostLog}。堆栈发生变化说明流程仍在
+ * 继续；堆栈不变且线程处于 {@code WAITING} 或 {@code BLOCKED} 状态则说明流程卡住了。</p>
  *
- * <p>It interrupts nothing: a slow boot is still the only thing that can finish it.</p>
+ * <p>它不会中断任何操作：只有启动流程本身能完成缓慢的启动。</p>
  */
 public final class Watchdog {
 
-    /** How long the work may run before the first stack is written. */
+    /** 工作开始后，首次写入堆栈前的等待时长。 */
     private static final long GRACE_MILLIS = 10_000L;
 
-    /** How long between two stacks after the first. */
+    /** 首次之后，相邻两次堆栈输出之间的间隔。 */
     private static final long PERIOD_MILLIS = 10_000L;
 
-    /** How finely the observer notices that the work has finished. */
+    /** 观察线程检查工作是否结束的频率。 */
     private static final long SLICE_MILLIS = 500L;
 
-    /** How many frames of a stack are worth writing; the rest is the thread's own history. */
+    /** 堆栈中值得写出的栈帧数量；其余部分属于线程自身的调用历史。 */
     private static final int MAX_FRAMES = 24;
 
     private final Thread watched;
@@ -45,21 +43,21 @@ public final class Watchdog {
     }
 
     /**
-     * Starts watching the calling thread.
+     * 开始监视当前调用线程。
      *
-     * @param what the name of the work, which the reports are headed with
-     * @return the watchdog; {@link #stop()} ends it
+     * @param what 工作名称，会显示在报告开头
+     * @return watchdog 实例；调用 {@link #stop()} 可结束监视
      */
     public static Watchdog start(String what) {
         return start(what, Thread.currentThread());
     }
 
     /**
-     * Starts watching a thread.
+     * 开始监视指定线程。
      *
-     * @param what    the name of the work, which the reports are headed with
-     * @param watched the thread doing it
-     * @return the watchdog; {@link #stop()} ends it
+     * @param what    工作名称，会显示在报告开头
+     * @param watched 执行该工作的线程
+     * @return watchdog 实例；调用 {@link #stop()} 可结束监视
      */
     public static Watchdog start(String what, Thread watched) {
         Watchdog watchdog = new Watchdog(what, watched);
@@ -69,7 +67,7 @@ public final class Watchdog {
         return watchdog;
     }
 
-    /** Ends the watching. The observer notices within one slice and goes away. */
+    /** 结束监视。观察线程会在一个检查周期内发现并退出。 */
     public void stop() {
         stopped = true;
     }

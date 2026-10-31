@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -123,27 +124,33 @@ class ExtensionLibraryTest {
     }
 
     @Test
-    void differentVersionsCoexistAndChoiceSurvivesRestartAndRenaming() throws Exception {
+    void differentVersionsCoexistAndTheNewestIsSelectedUntilAnExplicitChoiceOverridesIt() throws Exception {
         DefaultExtensionLibrary library = library();
         ExtensionEntry first = library.importArchive(new ByteArrayInputStream(archive("example", "1", "")), false);
         ExtensionEntry second = library.importArchive(new ByteArrayInputStream(archive("example", "2", "")), false);
         assertNotEquals(first.source(), second.source());
         assertEquals(2, library.entries().size());
-        assertTrue(library.versionSelectionRequired());
-        assertTrue(library.entries().stream().noneMatch(ExtensionEntry::versionSelected));
+        // 两个版本共存不再需要人工选择：默认取最新版本。
+        assertFalse(library.versionSelectionRequired());
+        assertEquals("2", selected(library).version());
         library.selectVersion(second.source());
-        assertEquals("2", library.entries().stream().filter(ExtensionEntry::versionSelected).findFirst().orElseThrow().version());
+        assertEquals("2", selected(library).version());
         assertFalse(library.versionSelectionRequired());
         library.setEnabled("example", false);
         Path renamed = second.source().resolveSibling("renamed.jar");
         Files.move(second.source(), renamed);
         DefaultExtensionLibrary next = library();
-        assertEquals(renamed, next.entries().stream().filter(ExtensionEntry::versionSelected).findFirst().orElseThrow().source());
+        // 选择以内容标识为准，因此重命名归档不会改变它。
+        assertEquals(renamed, selected(next).source());
         assertTrue(next.entries().stream().noneMatch(ExtensionEntry::enabled));
         next.setEnabled("example", true);
         assertFalse(next.versionSelectionRequired());
         next.selectVersion(first.source());
-        assertEquals("1", next.entries().stream().filter(ExtensionEntry::versionSelected).findFirst().orElseThrow().version());
+        assertEquals("1", selected(next).version());
+    }
+
+    private static ExtensionEntry selected(DefaultExtensionLibrary library) throws IOException {
+        return library.entries().stream().filter(ExtensionEntry::versionSelected).findFirst().orElseThrow();
     }
 
     @Test
@@ -169,7 +176,9 @@ class ExtensionLibraryTest {
         DefaultExtensionLibrary library = library(bundled);
         ExtensionEntry imported = library.importArchive(new ByteArrayInputStream(archive("packaged", "2", "")), false);
         assertEquals(2, library.entries().size());
-        assertTrue(library.versionSelectionRequired());
+        // 自动解析取较高版本，且不必请求用户确认。
+        assertFalse(library.versionSelectionRequired());
+        assertEquals("2", selected(library).version());
         library.selectVersion(original);
         assertTrue(library.entries().stream().anyMatch(entry -> entry.builtIn() && entry.versionSelected()));
         library.selectVersion(imported.source());

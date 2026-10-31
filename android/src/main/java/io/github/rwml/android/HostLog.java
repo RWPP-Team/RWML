@@ -18,30 +18,26 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Where the Android host says what it is doing, and where the game's own console ends up.
+ * Android 宿主在此报告运行状态，游戏控制台输出也会转发到此处。
  *
- * <p>Every line is written twice: logcat under one tag, {@value #TAG}, and the standard output
- * stream, because a reader who filters logcat by tag or by process can miss the first and will still
- * see the second. Both are written on the thread that produced the line, so the two accounts agree.</p>
+ * <p>每行内容都会写入两处：使用 {@value #TAG} 标签写入 logcat，并写入标准输出流。按标签或进程过滤 logcat
+ * 的读者可能看不到第一处内容，但仍可看到第二处。两处内容都由产生该行的线程写入，因此记录保持一致。</p>
  *
- * <p>The standard streams are teed rather than replaced: a host that prints to {@code System.err}
- * writes somewhere no console is attached to, so the line is written and never seen. The tee forwards
- * every byte and takes a copy.</p>
+ * <p>标准流采用分流而非替换方式：如果宿主向 {@code System.err} 输出内容，替换后的流可能没有连接任何控制台，
+ * 导致内容被写入却无人可见。分流器会转发每个字节，同时保留一份副本。</p>
  *
- * <p>A failure is never reduced to its message. The throwable goes to logcat, which prints the whole
- * stack, and the same stack goes to the standard error stream; the default uncaught handler is
- * replaced with one that does the same, so a thread that dies is said to have died and where.</p>
+ * <p>失败不会被简化为一条消息。异常会写入 logcat，由其输出完整堆栈；相同堆栈也会写入标准错误流。默认的
+ * 未捕获异常处理器也会被替换为执行相同操作的处理器，以便记录线程在哪里终止及其原因。</p>
  *
- * <p>A screen that wants the game's console registers a {@link Sink}, and only the lines the game
- * printed are offered to it: a warning from the host over the game's own account of the load is noise.
- * Every line goes to logcat, to the standard stream and into a bounded buffer regardless.</p>
+ * <p>需要显示游戏控制台的界面可以注册 {@link Sink}，且只会收到游戏输出的内容：若将宿主警告混入游戏自身的
+ * 加载信息，只会造成干扰。无论是否注册接收器，每行内容都会写入 logcat、标准流和有界缓冲区。</p>
  */
 public final class HostLog {
 
-    /** The tag every line carries in logcat. */
+    /** 每条 logcat 日志使用的标签。 */
     public static final String TAG = "RWML";
 
-    /** How many lines the buffer keeps; the oldest is dropped past that. */
+    /** 缓冲区保留的日志行数；超出后会丢弃最旧的日志。 */
     private static final int MAX_LINES = 500;
 
     private static final int INFO = 0;
@@ -53,8 +49,8 @@ public final class HostLog {
     private static final List<String> lines = new ArrayList<>();
 
     /**
-     * Guards against a stream that leads back here: a host may replace {@code System.out} with
-     * something of its own, and an echo into this log would be logged again, without end.
+     * 防止输出流回指到此处：宿主可能会将 {@code System.out} 替换为自己的流，若再将内容回写到此日志，
+     * 就会不断重复记录。
      */
     private static final ThreadLocal<boolean[]> ECHOING = new ThreadLocal<boolean[]>() {
         @Override
@@ -66,31 +62,31 @@ public final class HostLog {
     private static volatile Sink sink;
     private static volatile boolean installed;
 
-    /** The stream that was {@code System.out} before the tee replaced it. */
+    /** 分流器替换 {@code System.out} 前使用的输出流。 */
     private static volatile PrintStream out;
 
-    /** The stream that was {@code System.err} before the tee replaced it. */
+    /** 分流器替换 {@code System.err} 前使用的输出流。 */
     private static volatile PrintStream err;
 
-    /** Who handled an uncaught throwable before this class did. */
+    /** 此类接管前负责处理未捕获异常的处理器。 */
     private static volatile Thread.UncaughtExceptionHandler previousHandler;
 
     private HostLog() {
     }
 
-    /** Takes one line while a screen wants to show them. */
+    /** 在界面需要显示日志时接收一行内容。 */
     public interface Sink {
 
         /**
-         * @param line one completed line, never empty and never null
+     * @param line 一条完整日志行，不为空且不为 null
          */
         void accept(String line);
     }
 
     /**
-     * Tee the standard streams into this log, once, and take over uncaught failures.
+     * 将标准流分流到此日志，并接管未捕获异常；只执行一次。
      *
-     * <p>It has to be up before anything prints, which is why the bootstrapper calls it first.</p>
+     * <p>必须先完成初始化才能开始输出，因此启动器会最先调用此方法。</p>
      */
     public static void install() {
         if (installed) {
@@ -116,42 +112,42 @@ public final class HostLog {
     }
 
     /**
-     * Sets the screen that shows the game's console, replacing whatever showed it before.
+     * 设置显示游戏控制台的界面，并替换之前设置的界面。
      *
-     * <p>It stays for the life of the process: the game keeps printing after the splash is gone.</p>
+     * <p>该界面会在进程存续期间一直有效：启动画面关闭后，游戏仍会继续输出内容。</p>
      */
     public static void sink(Sink listener) {
         sink = listener;
     }
 
-    /** Records one line of the host's own account of what it did. */
+    /** 记录一条宿主自身的操作信息。 */
     public static void add(String line) {
         publish(line, INFO, null);
     }
 
-    /** Records one line that is not the happy path. */
+    /** 记录一条异常路径信息。 */
     public static void warn(String line) {
         publish(line, WARNING, null);
     }
 
-    /** Records a line and the failure behind it, with the stack the failure carries. */
+    /** 记录一条日志和对应异常，并附上异常堆栈。 */
     public static void warn(String line, Throwable failure) {
         publish(line, WARNING, failure);
     }
 
-    /** Records a failure, with the stack the failure carries. */
+    /** 记录异常及其堆栈。 */
     public static void error(String line, Throwable failure) {
         publish(line, ERROR, failure);
     }
 
-    /** @return the lines recorded so far, oldest first */
+    /** @return 目前记录的日志行，从最旧到最新排列 */
     public static List<String> lines() {
         synchronized (LOCK) {
             return Collections.unmodifiableList(new ArrayList<>(lines));
         }
     }
 
-    /** Reports a thread that died of something it did not catch. */
+    /** 报告线程因未捕获异常而终止。 */
     private static void uncaught(Thread thread, Throwable failure) {
         error("unhandled on thread '" + thread.getName() + "'", failure);
         Thread.UncaughtExceptionHandler previous = previousHandler;
@@ -159,9 +155,8 @@ public final class HostLog {
             previous.uncaughtException(thread, failure);
             return;
         }
-        // Taking over the default handler means the thread group's own is not reached any more, and
-        // that one is what ends a process for a failure on its main thread. Handing the failure back
-        // to it keeps the run's fate what the platform made it.
+        // 接管默认处理器后，线程组自己的处理器将不再被调用，而主线程发生未捕获异常时正是由它结束进程。
+        // 将异常交还给该处理器，可保留平台原有的进程处理方式。
         ThreadGroup group = thread.getThreadGroup();
         if (group != null) {
             group.uncaughtException(thread, failure);
@@ -202,7 +197,7 @@ public final class HostLog {
             try {
                 current.accept(text);
             } catch (Throwable ignored) {
-                // A screen that cannot take a line does not stop the run it was only describing.
+                // 界面无法接收日志行时，不应影响其原本只负责描述的运行流程。
             }
         }
     }
@@ -217,11 +212,9 @@ public final class HostLog {
     }
 
     /**
-     * Writes one line to the stream it has to appear on, which is the standard output or error stream
-     * as it was before the tee replaced it.
+     * 将一行内容写入对应输出流，也就是分流器替换前的标准输出流或标准错误流。
      *
-     * <p>Writing to the stream as it is now would write into the tee, which would log the line again
-     * and echo it again, without end.</p>
+     * <p>若写入当前输出流，内容会进入分流器并再次记录、转发，最终形成无限循环。</p>
      */
     private static void echo(String text, int kind) {
         boolean[] guard = ECHOING.get();
@@ -233,19 +226,19 @@ public final class HostLog {
             boolean toErr = kind == WARNING || kind == ERROR;
             PrintStream stream = toErr ? err : out;
             if (stream == null) {
-                // Not installed yet, so the streams are still their own; neither leads back here.
+                // 分流器尚未安装，因此此时的流仍为原始流，不会回指到此处。
                 stream = toErr ? System.err : System.out;
             }
             stream.println(text);
             stream.flush();
         } catch (Throwable ignored) {
-            // A stream that will not take the line does not stop the run that printed it.
+            // 输出流无法写入日志时，不应中断产生该日志的运行流程。
         } finally {
             guard[0] = false;
         }
     }
 
-    /** Writes the whole of a failure's stack to the standard error stream. */
+    /** 将完整异常堆栈写入标准错误流。 */
     private static void echoTrace(Throwable failure) {
         boolean[] guard = ECHOING.get();
         if (guard[0]) {
@@ -257,13 +250,13 @@ public final class HostLog {
             failure.printStackTrace(stream);
             stream.flush();
         } catch (Throwable ignored) {
-            // Nothing to do: the stack has already reached logcat through Log.
+            // 无需额外处理：堆栈已通过 Log 写入 logcat。
         } finally {
             guard[0] = false;
         }
     }
 
-    /** Writes every byte through to the stream it replaced, and whole lines into this log. */
+    /** 将每个字节转发到被替换的流，并将完整日志行写入此日志。 */
     private static final class Tee extends OutputStream {
 
         private final PrintStream original;

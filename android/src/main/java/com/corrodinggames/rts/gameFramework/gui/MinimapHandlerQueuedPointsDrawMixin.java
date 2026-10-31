@@ -20,21 +20,17 @@ import kim.der.asm.api.annotation.InjectionPoint;
 import kim.der.asm.api.annotation.Redirect;
 
 /**
- * Draws the minimap's queued points as the small squares the game's own Android build draws.
+ * 将小地图待绘制点画成游戏 Android 版本所用的小方块。
  *
- * <p>The archive this app runs is the engine's platform-independent build, and its queued points
- * draw hands the whole batch to {@code drawLines}, which paints one segment between every two
- * consecutive units — which is why the minimap's unit marks read as long bars crossing the map.
- * The game's own Android build queues the same batch but draws it as points: one square per unit,
- * sized by the paint's line width, which is what the setting named for line width means.</p>
+ * <p>此应用运行的是引擎跨平台构建，其待绘制点会整批交给 {@code drawLines}，该方法会在每两个相邻单位之间绘制线段，
+ * 因而小地图上的单位标记看起来像横穿地图的长条。游戏 Android 版本也会将相同批次排队，但会将其绘制为点：每个单位对应
+ * 一个方块，大小由画笔线宽决定，这也符合“线宽”设置项的含义。</p>
  *
- * <p>Both drawing modes go through the batch call, redirected to a square per point. The game's
- * per-point branch steps one float at a time and reads past a full array, so it is bypassed. A
- * rectangle per drawing thread is reused across batches.</p>
+ * <p>两种绘制模式都会经过批次调用，并在重定向后为每个点绘制一个方块。游戏逐点处理的分支每次只移动一个 float，
+ * 会越过完整数组，因此此处绕过该分支。每个绘图线程会重复使用同一个矩形对象处理多个批次。</p>
  *
- * <p>Handler signatures use Object for game types: the framework reflects on these methods before
- * the game dex exists. The cast belongs in the handler body, which runs only after mounting. Unlike
- * an overwrite, a redirect needs no JVM class-file resource for the mixin in the APK.</p>
+ * <p>处理器签名使用 Object 表示游戏类型：游戏 dex 尚未生成时，框架就会通过反射检查这些方法。类型转换放在处理器方法体内，
+ * 因为只有挂载 dex 后才会执行该方法。与覆盖式 mixin 不同，重定向式 mixin 无需在 APK 中提供 JVM 类文件资源。</p>
  */
 @AsmMixin("com/corrodinggames/rts/gameFramework/gui/MinimapHandlerQueuedPointsDraw")
 public final class MinimapHandlerQueuedPointsDrawMixin {
@@ -48,7 +44,7 @@ public final class MinimapHandlerQueuedPointsDrawMixin {
         }
     };
 
-    /** Routes both modes through the corrected batch renderer. */
+    /** 将两种模式都转交给修正后的批次渲染器。 */
     @Redirect(
         method = "execute(Lcom/corrodinggames/rts/gameFramework/render/GraphicsEngine;)V",
         at = @At(value = InjectionPoint.FIELD, target = "drawAsPoints:Z"),
@@ -58,7 +54,7 @@ public final class MinimapHandlerQueuedPointsDrawMixin {
         return false;
     }
 
-    /** The batch, as one square per queued point instead of one line per point pair. */
+    /** 待绘制批次：每个排队点绘制一个方块，而不是每对点绘制一条线。 */
     @Redirect(
         method = "execute(Lcom/corrodinggames/rts/gameFramework/render/GraphicsEngine;)V",
         target = "com.corrodinggames.rts.gameFramework.render.GraphicsEngine.drawLines"

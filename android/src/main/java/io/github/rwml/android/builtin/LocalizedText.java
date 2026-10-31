@@ -24,35 +24,32 @@ import io.github.rwml.api.i18n.Messages;
 import io.github.rwml.api.ui.GameUi;
 
 /**
- * The game's own words, read from the game's language file.
+ * 从游戏语言文件中读取游戏自身的文本。
  *
- * <p>A layout cannot call into the engine, so a label that has to be translated writes the engine's
- * locale key behind an {@code i:} marker, which is how the game's own layouts name their text. This
- * is where that marker is read: {@link #applyTo(View)} walks a view tree and replaces every marked
- * label with the engine's word, {@link #get} resolves one key, and {@link #setName} names one view
- * of an activity, which is what a screen needs for a button it wired in code.</p>
+ * <p>布局无法调用引擎，因此需要翻译的标签会在引擎本地化键前加上 {@code i:} 标记，这也是游戏自身布局指定文本的方式。
+ * 此处负责读取该标记：{@link #applyTo(View)} 遍历视图树并替换所有带标记的标签，{@link #get} 解析单个键，
+ * {@link #setName} 为 Activity 的单个视图设置名称，供通过代码创建按钮的界面使用。</p>
  *
- * <p>A key the language file does not answer leaves the label as the layout wrote it, and a language
- * file that cannot be read at all leaves every label alone. That is what the game's own screens do,
- * and it is not worth failing a screen over.</p>
+ * <p>语言文件中没有对应值时会保留布局中的原始标签；如果语言文件完全无法读取，则所有标签都保持原样。游戏原生界面也是
+ * 这样处理的，不值得因此让整个界面加载失败。</p>
  */
 public final class LocalizedText {
 
     private static final String TAG = "RWML";
 
-    /** What the game's layouts put in front of a locale key. */
+    /** 游戏布局放在本地化键前面的标记。 */
     private static final String MARKER = "i:";
 
     private LocalizedText() {
     }
 
-    /** RWML-owned labels use the shared bundle, which is also available before engine startup. */
+    /** RWML 自身的标签使用共享资源包，该资源包在引擎启动前也可用。 */
     public static String ui(String key, Object... arguments) {
         return Rwml.get() == null ? Messages.fallback(key, arguments)
             : Rwml.get().ui().messages().text(key, arguments);
     }
 
-    /** Called while a layout is attached, before a screen binds player-provided text into it. */
+    /** 布局附加时调用，早于界面将玩家提供的文本绑定到布局。 */
     static void applyLabels(View root) {
         if (root instanceof TextView && !(root instanceof EditText) && Rwml.get() != null) {
             TextView label = (TextView) root;
@@ -66,9 +63,9 @@ public final class LocalizedText {
     }
 
     /**
-     * The engine's word for a locale key.
+     * 获取引擎中本地化键对应的文本。
      *
-     * @return the text, or {@code null} when the language file does not answer for the key
+     * @return 对应文本；语言文件中没有该键时返回 {@code null}
      */
     public static String get(String key) {
         if (key == null) {
@@ -79,16 +76,14 @@ public final class LocalizedText {
             String value = game == null ? null : game.text(key);
             return value == null || value.isEmpty() ? null : value;
         } catch (Throwable notInTheLanguageFile) {
-            // A key the language file does not carry is an ordinary answer rather than a fault: the
-            // layout's own text stays, which is what the game's own screens do. It is a debug line
-            // and not a warning, and the failure is not printed: the engine reports a miss by
-            // throwing, so a stack trace here would say nothing about what went wrong.
+            // 语言文件中没有该键是正常情况，不视为错误：保留布局中的文本，与游戏原生界面一致。此处只记录调试信息，
+            // 不作为警告；也不会输出异常，因为引擎会通过抛出异常表示缺少条目，在这里打印堆栈无法说明具体原因。
             Log.d(TAG, "The language file has no word for '" + key + "'.");
             return null;
         }
     }
 
-    /** The engine's word for a marked label, or {@code null} when the label carries no marker. */
+    /** 带标记标签对应的引擎文本；标签未带标记时返回 {@code null}。 */
     public static String resolve(CharSequence marked) {
         if (!isMarked(marked)) {
             return null;
@@ -97,10 +92,9 @@ public final class LocalizedText {
     }
 
     /**
-     * Replaces every label under {@code root} that carries the marker with the engine's word.
+     * 将 {@code root} 下所有带标记的标签替换为引擎中的文本。
      *
-     * <p>The hint of an input field is resolved as well, since the layouts use it for the same
-     * purpose.</p>
+     * <p>输入框提示也会一并解析，因为布局也用它来显示本地化文本。</p>
      */
     public static void applyTo(View root) {
         if (root == null) {
@@ -138,18 +132,17 @@ public final class LocalizedText {
     }
 
     /**
-     * The engine's word for a locale key, or a word to fall back on when the language file has none.
+     * 获取引擎中本地化键对应的文本；语言文件中没有该键时使用备用文本。
      *
-     * <p>A label that is not part of a layout has no text of its own to keep, so a key that cannot
-     * be read has to leave something readable behind. The fallback is the word the game's own
-     * English language file carries for the key.</p>
+     * <p>不属于布局的标签没有可保留的原始文本，因此无法读取本地化键时必须提供可读内容。备用文本取自游戏自身英文语言文件
+     * 中该键对应的值。</p>
      */
     public static String word(String key, String fallback) {
         String value = get(key);
         return value == null ? fallback : value;
     }
 
-    /** Names one layout view in the engine's words, leaving the layout's own text when it cannot be read. */
+    /** 使用引擎文本为布局视图命名；无法读取时保留布局原有文本。 */
     public static void setName(Activity owner, int id, String key) {
         View view = owner.findViewById(id);
         if (!(view instanceof TextView)) {
@@ -168,7 +161,7 @@ public final class LocalizedText {
             && text.charAt(1) == ':';
     }
 
-    /** Translates rendered choices; getItem still returns the original value used by game commands. */
+    /** 翻译显示给用户的选项；getItem 仍返回游戏命令使用的原始值。 */
     private static final class TranslatedChoices extends BaseAdapter {
         private final SpinnerAdapter original;
 

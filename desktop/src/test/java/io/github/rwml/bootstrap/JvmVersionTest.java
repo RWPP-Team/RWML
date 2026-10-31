@@ -13,9 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The bootstrap decides whether to restart the game purely from the JVM's reported version, so a
- * parsing mistake here means either an unnecessary download or a JVM that is too old to run RWML.
- * Both property formats the platform has used are therefore pinned down.
+ * 启动器仅根据 JVM 报告的版本决定是否重启游戏，因此解析错误会导致不必要的下载，或使用无法运行 RWML 的旧版 JVM。需要固定测试平台使用过的两种属性格式。
  */
 class JvmVersionTest {
 

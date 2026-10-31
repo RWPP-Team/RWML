@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -13,7 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Immutable management data, including archives which could not be loaded. */
+/** 不可变的管理数据，也包括无法加载的归档文件。 */
 public record ExtensionEntry(String id, String name, String version, String description,
                              List<String> authors, List<String> dependencies, Path source,
                              boolean builtIn, boolean enabled, boolean loaded, String problem,
@@ -23,7 +24,7 @@ public record ExtensionEntry(String id, String name, String version, String desc
         dependencies = Collections.unmodifiableList(new ArrayList<>(dependencies));
     }
 
-    /** Compatibility constructor for catalogs without multiple versions. */
+    /** 为不支持多版本的目录提供兼容构造函数。 */
     public ExtensionEntry(String id, String name, String version, String description,
                           List<String> authors, List<String> dependencies, Path source,
                           boolean builtIn, boolean enabled, boolean loaded, String problem) {
@@ -33,7 +34,7 @@ public record ExtensionEntry(String id, String name, String version, String desc
 
     public boolean valid() { return id != null; }
 
-    /** A source may translate metadata through extensions.<id>.name/description keys. */
+    /** 数据来源可通过 extensions.<id>.name/description 键翻译元数据。 */
     public String displayName(Messages messages) {
         return translated(messages, "name", name);
     }

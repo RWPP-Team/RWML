@@ -9,19 +9,15 @@ package io.github.rwml.api;
 
 
 /**
- * Contract implemented by every extension entry point.
+ * 所有扩展入口点都必须实现的契约。
  *
- * <p>An extension is either loaded once at startup or it is not loaded at all.
- * When it is loaded the host instantiates the entry point and invokes
- * {@link #onLoad(ExtensionContext)} exactly once. There is no enable/disable
- * or unload callback: the only way to stop an extension from running is to
- * mark it disabled, after which the host simply skips it on the next startup.
- * All callbacks are optional and may be omitted thanks to the default
- * implementation.</p>
+ * <p>扩展会在启动时加载一次，否则完全不加载。加载时，宿主会实例化入口点并恰好调用一次
+ * {@link #onLoad(ExtensionContext)}。本接口没有启用、禁用或卸载回调；若要停止扩展运行，
+ * 只能将其标记为已禁用，宿主会在下次启动时跳过它。所有回调都有默认实现，因此都可以省略。</p>
  */
 public interface Extension {
 
-    /** Called once, immediately after the entry point has been instantiated. */
+    /** 入口点实例化后立即调用一次。 */
     default void onLoad(ExtensionContext context) throws Exception {
     }
 }

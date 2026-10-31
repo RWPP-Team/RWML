@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -16,7 +17,7 @@ import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-/** SHA-checked private copies of the shared extension directory, including replacement and removal. */
+/** 对共享扩展目录进行 SHA 校验的私有副本，支持替换和移除扩展。 */
 public final class SharedExtensions {
     private SharedExtensions() { }
 

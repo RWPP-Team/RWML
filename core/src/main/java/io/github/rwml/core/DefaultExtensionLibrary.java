@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -9,6 +10,7 @@ package io.github.rwml.core;
 import io.github.rwml.api.ExtensionException;
 import io.github.rwml.api.extensions.ExtensionEntry;
 import io.github.rwml.api.extensions.ExtensionLibrary;
+import io.github.rwml.api.extensions.ExtensionPackReport;
 import io.github.rwml.api.ui.UiHooks;
 
 import java.io.IOException;
@@ -24,12 +26,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.function.Supplier;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-/** One archive catalog for both hosts, independent of which extensions were loaded this session. */
+/** 两种宿主共用一个归档目录，且不受本会话已加载扩展的影响。 */
 public final class DefaultExtensionLibrary implements ExtensionLibrary {
 
     @FunctionalInterface
@@ -38,6 +41,8 @@ public final class DefaultExtensionLibrary implements ExtensionLibrary {
     }
 
     private static final long MAX_ARCHIVE_BYTES = 128L * 1024 * 1024;
+    /** 整合包包含多个归档，因此上限高于单个扩展，但仍设有界限。 */
+    private static final long MAX_PACK_BYTES = 512L * 1024 * 1024;
     private final ExtensionManager manager;
     private final Path directory;
     private final Supplier<List<Path>> directories;
@@ -63,6 +68,22 @@ public final class DefaultExtensionLibrary implements ExtensionLibrary {
     @Override public boolean versionSelectionRequired() { return versionSelectionRequired; }
 
     @Override
+    public void selectResourcePack(String id) throws IOException {
+        try {
+            manager.selectResourcePack(id);
+        } catch (ExtensionException e) {
+            throw new IOException(e.getMessage(), e);
+        }
+        changed = true;
+        hooks.publish(UiHooks.EXTENSIONS_CHANGED, null);
+    }
+
+    @Override
+    public String selectedResourcePack() {
+        return manager.extensionStates().selectedResourcePack();
+    }
+
+    @Override
     public synchronized List<ExtensionEntry> entries() throws IOException {
         List<ExtensionDescriptor> descriptors = new ArrayList<>(manager.platform().builtInExtensions());
         List<ExtensionEntry> broken = new ArrayList<>();
@@ -86,9 +107,11 @@ public final class DefaultExtensionLibrary implements ExtensionLibrary {
         DependencyResolution versions = ExtensionVersions.resolve(descriptors,
             manager.extensionStates().selectedVersions());
         ExtensionSelection selection = ExtensionSelection.resolve(descriptors,
-            manager.extensionStates().disabledIds(), manager.extensionStates().selectedVersions());
-        versionSelectionRequired = versions.excluded().keySet().stream()
-            .anyMatch(id -> !manager.extensionStates().isDisabled(id));
+            manager.extensionStates().disabledIds(), manager.extensionStates().selectedVersions(),
+            manager.extensionStates().selectedResourcePack());
+        // 版本冲突不再需要人工选择：只有指向已删除归档的显式选择才必须由用户重新确认。
+        versionSelectionRequired = ExtensionVersions.hasStaleSelection(descriptors,
+            manager.extensionStates().selectedVersions());
         LoadReport loaded = report.get();
         List<ExtensionEntry> result = new ArrayList<>();
         for (ExtensionDescriptor descriptor : descriptors) {
@@ -144,71 +167,160 @@ public final class DefaultExtensionLibrary implements ExtensionLibrary {
         Files.createDirectories(directory);
         Path temporary = Files.createTempFile(directory, "import-", ".tmp");
         try {
-            try (OutputStream output = Files.newOutputStream(temporary)) {
-                byte[] buffer = new byte[16384];
-                long total = 0;
-                int size;
-                while ((size = input.read(buffer)) != -1) {
-                    if (Thread.currentThread().isInterrupted()) { throw new InterruptedIOException(); }
-                    total += size;
-                    if (total > MAX_ARCHIVE_BYTES) { throw new IOException("Extension exceeds 128 MiB"); }
-                    output.write(buffer, 0, size);
-                }
-            }
-            ExtensionDescriptor descriptor;
-            try {
-                descriptor = ExtensionDescriptorReader.read(temporary);
-            } catch (ExtensionException failure) {
-                throw new IOException(failure.getMessage(), failure);
-            }
-            if (!descriptor.id().matches("[A-Za-z0-9][A-Za-z0-9._-]{0,159}")) {
-                throw new IOException("Invalid extension id: " + descriptor.id());
-            }
-            try (JarFile jar = new JarFile(temporary.toFile())) {
-                if (jar.getJarEntry(descriptor.mainClass().replace('.', '/') + ".class") == null) {
-                    throw new IOException("The entry point class is missing: " + descriptor.mainClass());
-                }
-            }
-            validator.validate(temporary);
-            Path target = directory.resolve("extension-" + descriptor.id() + "-"
-                + descriptor.sourceSha256().substring(0, 16) + ".jar");
-            List<ExtensionEntry> matches = new ArrayList<>();
-            for (ExtensionEntry existing : entries()) {
-                if (descriptor.id().equals(existing.id())) { matches.add(existing); }
-            }
-            if (matches.stream().anyMatch(entry -> entry.source() == null)) {
-                throw new IOException("Cannot replace a built-in extension: " + descriptor.id());
-            }
-            List<ExtensionEntry> sameVersion = new ArrayList<>();
-            for (ExtensionEntry existing : matches) {
-                if (descriptor.version().equals(existing.version())) { sameVersion.add(existing); }
-            }
-            boolean replaceSelected = false;
-            if (!sameVersion.isEmpty()) {
-                if (sameVersion.size() > 1) { throw new IOException("Remove duplicate archives of version " + descriptor.version() + " before replacing it"); }
-                ExtensionEntry existing = sameVersion.get(0);
-                if (existing.builtIn()) { throw new IOException("Bundled archives cannot be replaced"); }
-                if (!replace) { throw new FileAlreadyExistsException(descriptor.id() + " " + descriptor.version()); }
-                target = managed(existing.source());
-                replaceSelected = existing.versionSelected();
-            } else if (Files.exists(target)) {
-                throw new IOException("The destination is occupied by another archive: " + target);
-            }
-            try {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException unsupported) {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
-            }
-            // A replacement of the chosen version keeps that decision, even though its bytes changed.
-            changed();
-            if (replaceSelected) {
-                manager.extensionStates().setSelectedVersion(descriptor.id(), ExtensionVersions.identity(descriptor));
-            }
-            for (ExtensionEntry entry : entries()) {
-                if (target.equals(entry.source())) { return entry; }
-            }
-            throw new IOException("Imported archive is missing from the catalog: " + target);
+            copy(input, temporary, MAX_ARCHIVE_BYTES);
+            ExtensionEntry entry = install(temporary, replace, false);
+            if (entry == null) { throw new IOException("The archive could not be installed"); }
+            return entry;
         } finally { Files.deleteIfExists(temporary); }
+    }
+
+    /**
+     * 导入 zip 整合包。
+     *
+     * <p>包内每个扩展独立安装，一个成员的失败不影响其他成员。包里已有的同一版本不再重复写入，因此重复导入同一个包是安全的。
+     * 清单中的固定版本与启用状态在安装完成后写入，使下一次启动按作者意图解析。</p>
+     */
+    @Override
+    public synchronized ExtensionPackReport importPack(InputStream input, boolean replace) throws IOException {
+        Files.createDirectories(directory);
+        Path temporary = Files.createTempFile(directory, "pack-", ".zip");
+        try {
+            copy(input, temporary, MAX_PACK_BYTES);
+            ExtensionPackImporter.Result result = ExtensionPackImporter.importPack(temporary, directory,
+                (jar, member) -> install(jar, replace, true));
+            apply(result.manifest());
+            return result.report();
+        } finally { Files.deleteIfExists(temporary); }
+    }
+
+    private static void copy(InputStream input, Path target, long limit) throws IOException {
+        try (OutputStream output = Files.newOutputStream(target)) {
+            byte[] buffer = new byte[16384];
+            long total = 0;
+            int size;
+            while ((size = input.read(buffer)) != -1) {
+                if (Thread.currentThread().isInterrupted()) { throw new InterruptedIOException(); }
+                total += size;
+                if (total > limit) { throw new IOException("Archive exceeds " + (limit / (1024 * 1024)) + " MiB"); }
+                output.write(buffer, 0, size);
+            }
+        }
+    }
+
+    /**
+     * 校验并写入一个扩展归档。单文件导入与整合包导入共用此流程。
+     *
+     * @param tolerateExisting 已安装同一版本时返回 {@code null} 而不是报告冲突
+     * @return 目录中对应的条目；{@code tolerateExisting} 且版本已存在时返回 {@code null}
+     */
+    private ExtensionEntry install(Path temporary, boolean replace, boolean tolerateExisting) throws IOException {
+        ExtensionDescriptor descriptor;
+        try {
+            descriptor = ExtensionDescriptorReader.read(temporary);
+        } catch (ExtensionException failure) {
+            throw new IOException(failure.getMessage(), failure);
+        }
+        if (!descriptor.id().matches("[A-Za-z0-9][A-Za-z0-9._-]{0,159}")) {
+            throw new IOException("Invalid extension id: " + descriptor.id());
+        }
+        try (JarFile jar = new JarFile(temporary.toFile())) {
+            if (jar.getJarEntry(descriptor.mainClass().replace('.', '/') + ".class") == null) {
+                throw new IOException("The entry point class is missing: " + descriptor.mainClass());
+            }
+        }
+        validator.validate(temporary);
+        Path target = directory.resolve("extension-" + descriptor.id() + "-"
+            + descriptor.sourceSha256().substring(0, 16) + ".jar");
+        // 整合包成员的临时文件本身就是可读的归档，因此它也在目录列表中；比对时排除自己。
+        Path staging = temporary.toAbsolutePath().normalize();
+        List<ExtensionEntry> matches = new ArrayList<>();
+        for (ExtensionEntry existing : entries()) {
+            if (staging.equals(existing.source())) { continue; }
+            if (descriptor.id().equals(existing.id())) { matches.add(existing); }
+        }
+        if (matches.stream().anyMatch(entry -> entry.source() == null)) {
+            throw new IOException("Cannot replace a built-in extension: " + descriptor.id());
+        }
+        List<ExtensionEntry> sameVersion = new ArrayList<>();
+        for (ExtensionEntry existing : matches) {
+            if (descriptor.version().equals(existing.version())) { sameVersion.add(existing); }
+        }
+        boolean replaceSelected = false;
+        if (!sameVersion.isEmpty()) {
+            if (sameVersion.size() > 1) { throw new IOException("Remove duplicate archives of version " + descriptor.version() + " before replacing it"); }
+            ExtensionEntry existing = sameVersion.get(0);
+            if (existing.builtIn()) { throw new IOException("Bundled archives cannot be replaced"); }
+            if (!replace) {
+                if (tolerateExisting) { return null; }
+                throw new FileAlreadyExistsException(descriptor.id() + " " + descriptor.version());
+            }
+            target = managed(existing.source());
+            replaceSelected = existing.versionSelected();
+        } else if (Files.exists(target)) {
+            throw new IOException("The destination is occupied by another archive: " + target);
+        }
+        try {
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException unsupported) {
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+        // 替换已选版本后仍保留原有选择，即使替换版本的字节内容已经变化。
+        changed();
+        if (replaceSelected) {
+            manager.extensionStates().setSelectedVersion(descriptor.id(), ExtensionVersions.identity(descriptor));
+        }
+        for (ExtensionEntry entry : entries()) {
+            if (target.equals(entry.source())) { return entry; }
+        }
+        throw new IOException("Imported archive is missing from the catalog: " + target);
+    }
+
+    /**
+     * 应用整合包清单表达的意图。
+     *
+     * <p>清单只补充用户与作者的选择，不改变依赖图：固定版本写入版本选择，启用或禁用写入持久状态。包内没有的扩展被忽略，
+     * 因为一个包可能只更新已安装扩展的一部分。</p>
+     */
+    private void apply(ExtensionPackManifest manifest) throws IOException {
+        if (manifest.pins().isEmpty() && manifest.enabled().isEmpty() && manifest.disabled().isEmpty()) { return; }
+        boolean touched = false;
+        List<ExtensionEntry> current = entries();
+        for (Map.Entry<String, String> pin : manifest.pins().entrySet()) {
+            ExtensionEntry match = null;
+            for (ExtensionEntry entry : current) {
+                if (pin.getKey().equals(entry.id()) && pin.getValue().equals(entry.version())) { match = entry; break; }
+            }
+            if (match == null || match.source() == null) {
+                System.err.println("[rwml] The pack pins " + pin.getKey() + " " + pin.getValue()
+                    + ", which is not installed");
+                continue;
+            }
+            try {
+                ExtensionDescriptor descriptor = ExtensionDescriptorReader.read(match.source());
+                manager.extensionStates().setSelectedVersion(match.id(), ExtensionVersions.identity(descriptor));
+                touched = true;
+            } catch (ExtensionException failure) { throw new IOException(failure.getMessage(), failure); }
+        }
+        touched |= toggle(current, manifest.enabled(), false);
+        touched |= toggle(current, manifest.disabled(), true);
+        if (touched) { changed(); }
+    }
+
+    private boolean toggle(List<ExtensionEntry> current, List<String> ids, boolean disable) throws IOException {
+        boolean touched = false;
+        for (String id : ids) {
+            boolean known = false;
+            for (ExtensionEntry entry : current) { known |= id.equals(entry.id()); }
+            if (!known) {
+                System.err.println("[rwml] The pack lists " + id + ", which is not installed");
+                continue;
+            }
+            if (manager.extensionStates().isDisabled(id) != disable) {
+                manager.extensionStates().setDisabled(id, disable);
+                touched = true;
+            }
+        }
+        return touched;
     }
 
     @Override

@@ -36,14 +36,11 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Loading an extension runs {@code onLoad} on the calling thread, with no time limit imposed on it.
+ * 加载扩展时会在调用线程中执行 {@code onLoad}，且不设定超时时间。
  *
- * <p>The host is the one process that owns the game, so a slow extension is the author's own pace
- * rather than a fault: an installation step, a first-run asset extraction or a deliberate pause all
- * legitimately outlive any fixed budget, and a loader that abandons the callback leaves the
- * extension half-initialised with its class loader already scheduled for closing. The second case
- * matters just as much: a callback that throws has to be reported as a failure of that one
- * extension, and the others still load.</p>
+ * <p>宿主进程独占游戏，因此扩展加载较慢只是作者选择的运行节奏，而非错误：安装操作、首次提取资源或有意等待都可能超过任意固定时限；
+ * 如果加载器放弃等待回调，扩展就会处于初始化一半的状态，其类加载器却已计划关闭。另一个情况同样重要：回调抛出异常时，必须将其报告为
+ * 单个扩展加载失败，同时继续加载其他扩展。</p>
  */class ExtensionLoadTest {
 
     @Test
@@ -171,7 +168,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         } finally { manager.shutdown(); }
     }
 
-    @Test void unresolvedVersionsDoNotRunCallbacksOrRegisterMixinsAndChoiceLoadsExactlyOne() throws Exception {
+    @Test void versionsResolveToTheNewestInstalledArchiveAndAnExplicitChoiceStillWins() throws Exception {
         CountingEntry.ids.clear();
         Path one = writeExtension("one", CountingEntry.class, "id=versioned\nversion=1\nmainClass=" + CountingEntry.class.getName());
         Path two = writeExtension("two", CountingEntry.class, "id=versioned\nversion=2\nmainClass=" + CountingEntry.class.getName());
@@ -179,25 +176,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         TestHost firstHost = new TestHost();
         ExtensionManager first = new ExtensionManager(root, firstHost);
         try {
-            LoadReport unresolved = first.loadAll(List.of(one, two, dependent), null);
-            assertTrue(unresolved.failed().containsKey("versioned"));
-            assertTrue(unresolved.failed().containsKey("dependent"));
-            assertTrue(CountingEntry.ids.isEmpty());
-            assertTrue(firstHost.registered.isEmpty());
+            // 没有显式选择时按版本自动解析，因此两个版本共存不再阻止加载。
+            LoadReport automatic = first.loadAll(List.of(one, two, dependent), null);
+            assertTrue(automatic.failed().isEmpty());
+            assertEquals("2", first.handle("versioned").descriptor().version());
+            assertEquals(List.of("versioned", "dependent"), CountingEntry.ids);
+            assertEquals(List.of(two, dependent), firstHost.registered);
         } finally { first.shutdown(); }
+        // 显式选择较低版本后，下一次启动只加载该版本，另一个归档不能单独加载。
         io.github.rwml.core.ExtensionStateStore.open(root.resolve("data")).setSelectedVersion("versioned",
-            io.github.rwml.core.ExtensionDescriptorReader.read(two).sourceSha256());
+            io.github.rwml.core.ExtensionDescriptorReader.read(one).sourceSha256());
         TestHost nextHost = new TestHost();
         ExtensionManager next = new ExtensionManager(root, nextHost);
         try {
-            assertThrows(io.github.rwml.api.ExtensionException.class, () -> next.load(one, null));
+            assertThrows(io.github.rwml.api.ExtensionException.class, () -> next.load(two, null));
             assertTrue(nextHost.registered.isEmpty());
             LoadReport loaded = next.loadAll(List.of(one, two, dependent), null);
             assertTrue(loaded.failed().isEmpty());
-            assertEquals("2", next.handle("versioned").descriptor().version());
-            assertEquals(List.of("versioned", "dependent"), CountingEntry.ids);
-            assertEquals(List.of(two, dependent), nextHost.registered);
-            assertThrows(io.github.rwml.api.ExtensionException.class, () -> next.load(one, null));
+            assertEquals("1", next.handle("versioned").descriptor().version());
+            assertEquals(List.of(one, dependent), nextHost.registered);
+            assertThrows(io.github.rwml.api.ExtensionException.class, () -> next.load(two, null));
         } finally { next.shutdown(); }
     }
 
@@ -335,8 +333,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
             manager.shutdown();
         }
 
-        // The callback records the thread it ran on and how long it took, which is what makes the
-        // claim checkable: a loader that wrapped the call in a worker would show another thread.
+        // 回调会记录执行线程和耗时，使这一行为可验证：如果加载器把调用包装在工作线程中，记录的就会是另一个线程。
         assertEquals(Thread.currentThread().getName(), SlowEntryPoint.threadName);
         assertTrue(SlowEntryPoint.elapsed >= SLOW_CALLBACK_MILLIS,
             "the callback returned before it had finished its work");
@@ -361,8 +358,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
     @Test
     void aDescriptorWithNoTimeoutFieldIsStillRead() throws Exception {
-        // A previously published extension may still carry the key. It is now an ordinary unknown
-        // property: reading the descriptor must not fail, and no field may be derived from it.
+        // 之前发布的扩展可能仍携带该键。现在它属于普通的未知属性：读取描述符不能失败，也不能根据此属性生成任何字段。
         Path archive = writeExtension("legacy", SlowEntryPoint.class,
             "id=com.acme.legacy\nname=Legacy\nmainClass=" + SlowEntryPoint.class.getName()
                 + "\nloadTimeoutMillis=1\n");
@@ -374,6 +370,59 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
             assertTrue(manager.extensionIds().contains("com.acme.legacy"));
         } finally {
             manager.shutdown();
+        }
+    }
+
+    @Test
+    void aResourcePackIsMaterialisedBeforeAnyExtensionRuns() throws Exception {
+        Path pack = writeResourcePack("materials", "gui/panel.png", "materialised panel");
+        Path consumer = writeExtension("consumer", PackAwareEntry.class);
+        PackAwareEntry.activatedBeforeCallback = null;
+        TestResourcePacks environment = new TestResourcePacks(root.resolve("generated"));
+        TestHost host = new TestHost();
+        host.resourcePacks = environment;
+        ExtensionManager manager = new ExtensionManager(root, host);
+        try {
+            LoadReport report = manager.loadAll(List.of(pack, consumer), null);
+
+            assertTrue(report.failed().isEmpty(), () -> "unexpected failures: " + report.failed());
+            assertEquals("com.acme.materials", report.resourcePack());
+            assertEquals("materialised panel",
+                new String(Files.readAllBytes(environment.activated.resolve("gui/panel.png")), StandardCharsets.UTF_8));
+            // 扩展在 onLoad 中读取资源，因此物化必须早于任何回调。
+            assertEquals(Boolean.TRUE, PackAwareEntry.activatedBeforeCallback);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    void selectingAResourcePackAppliesOnTheNextLaunch() throws Exception {
+        Path first = writeResourcePack("first", "gui/panel.png", "first");
+        Path second = writeResourcePack("second", "gui/panel.png", "second");
+        TestHost host = new TestHost();
+        host.resourcePacks = new TestResourcePacks(root.resolve("generated"));
+        ExtensionManager manager = new ExtensionManager(root, host);
+        try {
+            LoadReport report = manager.loadAll(List.of(first, second), null);
+
+            assertEquals("com.acme.first", report.resourcePack());
+            assertTrue(report.disabled().contains("com.acme.second"), "the other pack stays installed but idle");
+            manager.selectResourcePack("com.acme.second");
+        } finally {
+            manager.shutdown();
+        }
+
+        TestResourcePacks nextLaunch = new TestResourcePacks(root.resolve("generated"));
+        TestHost nextHost = new TestHost();
+        nextHost.resourcePacks = nextLaunch;
+        ExtensionManager relaunch = new ExtensionManager(root, nextHost);
+        try {
+            assertEquals("com.acme.second", relaunch.loadAll(List.of(first, second), null).resourcePack());
+            assertEquals("second",
+                new String(Files.readAllBytes(nextLaunch.activated.resolve("gui/panel.png")), StandardCharsets.UTF_8));
+        } finally {
+            relaunch.shutdown();
         }
     }
 
@@ -414,7 +463,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         return archive;
     }
 
-    /** Sleeps for longer than any timeout the descriptor format used to be able to express. */
+    /** @return 只携带资源的归档；条目按“路径, 内容”成对给出 */
+    private Path writeResourcePack(String id, String... entries) throws IOException {
+        Path archive = root.resolve("extensions").resolve(id + ".jar");
+        Files.createDirectories(archive.getParent());
+        try (OutputStream out = Files.newOutputStream(archive);
+             JarOutputStream jar = new JarOutputStream(out)) {
+            jar.putNextEntry(new JarEntry("META-INF/extension.properties"));
+            jar.write(("id=com.acme." + id + "\nname=" + id + "\nresourcePack=true\n")
+                .getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+            for (int index = 0; index + 1 < entries.length; index += 2) {
+                jar.putNextEntry(new JarEntry(entries[index]));
+                jar.write(entries[index + 1].getBytes(StandardCharsets.UTF_8));
+                jar.closeEntry();
+            }
+        }
+        return archive;
+    }
+
+    /** 休眠时间超过描述符格式原先能够表示的任何超时时长。 */
     public static final class SlowEntryPoint implements io.github.rwml.api.Extension {
 
         static String threadName;
@@ -442,12 +510,55 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         }
     }
 
-    /** A host that loads extensions from their archives and patches nothing. */
+    /** 记录回调开始时资源包是否已经激活。 */
+    public static final class PackAwareEntry implements io.github.rwml.api.Extension {
+
+        static Boolean activatedBeforeCallback;
+
+        @Override
+        public void onLoad(io.github.rwml.api.ExtensionContext context) {
+            activatedBeforeCallback = Boolean.valueOf(TestResourcePacks.active != null);
+        }
+    }
+
+    /** 物化目录初始为空，激活时记录核心交给宿主的目录。 */
+    private static final class TestResourcePacks implements io.github.rwml.host.ResourcePackEnvironment {
+
+        /** 最近一次激活的目录，供扩展回调检查物化是否已经完成。 */
+        static Path active;
+
+        private final Path root;
+        private Path activated;
+
+        private TestResourcePacks(Path root) {
+            this.root = root;
+        }
+
+        @Override
+        public boolean supported() {
+            return true;
+        }
+
+        @Override
+        public Path directory() {
+            return root;
+        }
+
+        @Override
+        public void activated(Path directory) {
+            activated = directory;
+            active = directory;
+        }
+    }
+
+    /** 从归档加载扩展且不应用任何补丁的宿主。 */
     private static final class TestHost implements HostPlatform {
         private final List<ExtensionDescriptor> builtins;
         private final java.util.List<Path> registered = new java.util.ArrayList<>();
         private final java.util.List<Path> closed = new java.util.ArrayList<>();
         private Path failRegistration;
+        private io.github.rwml.host.ResourcePackEnvironment resourcePacks =
+            io.github.rwml.host.ResourcePackEnvironment.unsupported();
 
         TestHost() { this(Collections.emptyList()); }
         TestHost(List<ExtensionDescriptor> builtins) { this.builtins = builtins; }
@@ -486,6 +597,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         @Override
         public List<String> stageArchives(Path extensionDirectory) {
             return Collections.emptyList();
+        }
+
+        @Override
+        public io.github.rwml.host.ResourcePackEnvironment resourcePacks() {
+            return resourcePacks;
         }
 
         @Override

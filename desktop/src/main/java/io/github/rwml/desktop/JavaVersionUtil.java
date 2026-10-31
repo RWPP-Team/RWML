@@ -22,15 +22,14 @@ import java.util.jar.JarFile;
 import java.util.stream.Stream;
 
 /**
- * Detects Java bytecode requirements of an archive and locates alternative
- * JVMs installed on the machine.
+ * 检测归档所需的 Java 字节码版本，并查找设备上安装的其他 JVM。
  */
 public final class JavaVersionUtil {
 
     private JavaVersionUtil() {
     }
 
-    /** Java version of the running JVM, e.g. {@code 17}. */
+    /** 当前运行 JVM 的 Java 版本，例如 {@code 17}。 */
     public static int currentJavaVersion() {
         String specification = System.getProperty("java.specification.version", "8");
         try {
@@ -43,7 +42,7 @@ public final class JavaVersionUtil {
         }
     }
 
-    /** Reads the major version field of a class file header. */
+    /** 读取类文件头中的主版本号字段。 */
     public static int classFileMajorVersion(byte[] header) {
         if (header == null || header.length < 8) {
             return -1;
@@ -54,7 +53,7 @@ public final class JavaVersionUtil {
         return ((header[6] & 0xFF) << 8) | (header[7] & 0xFF);
     }
 
-    /** Converts a class file major version to a Java feature version. */
+    /** 将类文件主版本号转换为 Java 功能版本号。 */
     public static int majorToJavaVersion(int major) {
         if (major <= 44) {
             return 1;
@@ -63,8 +62,7 @@ public final class JavaVersionUtil {
     }
 
     /**
-     * Scans every class file of the archive and returns the highest Java
-     * feature version required to link it.
+     * 扫描归档中的所有类文件，并返回链接这些类所需的最高 Java 主版本。
      */
     public static int requiredJavaVersion(Path jarFile) throws IOException {
         int highest = 0;
@@ -96,10 +94,9 @@ public final class JavaVersionUtil {
     }
 
     /**
-     * Tries to locate a {@code java} executable whose feature version is at
-     * least {@code minimumVersion}.
+     * 尝试查找主版本不低于 {@code minimumVersion} 的 {@code java} 可执行文件。
      *
-     * @return the executable path, or {@code null} when nothing suitable exists
+     * @return 可执行文件路径；没有合适版本时返回 {@code null}
      */
     public static Path findJvmAtLeast(int minimumVersion) {
         List<Path> candidates = new ArrayList<>();
@@ -124,7 +121,7 @@ public final class JavaVersionUtil {
             try (Stream<Path> children = Files.list(directory)) {
                 children.filter(Files::isDirectory).forEach(candidates::add);
             } catch (IOException ignored) {
-                // Unreadable root, keep going.
+                // 根目录无法读取，继续尝试其他目录。
             }
         }
 
@@ -151,7 +148,7 @@ public final class JavaVersionUtil {
         }
     }
 
-    /** Reads the {@code release} file shipped with a JDK; returns -1 when unknown. */
+    /** 读取 JDK 附带的 {@code release} 文件；无法确定时返回 -1。 */
     private static int probeVersion(Path javaHome) {
         Path release = javaHome.resolve("release");
         if (!Files.isRegularFile(release)) {
@@ -169,7 +166,7 @@ public final class JavaVersionUtil {
                 return Integer.parseInt(value.split("[.\\-_+]")[0]);
             }
         } catch (Exception ignored) {
-            // Fall through and report unknown.
+            // 继续执行，并报告版本未知。
         }
         return -1;
     }

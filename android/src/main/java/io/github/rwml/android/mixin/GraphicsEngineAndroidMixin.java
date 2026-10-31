@@ -14,20 +14,17 @@ import kim.der.asm.api.annotation.AsmMixin;
 import kim.der.asm.api.annotation.ModifyArg;
 
 /**
- * Loads the game's images out of this app instead of out of the APK the game archive was built in.
+ * 从当前应用而非游戏归档构建时所用的 APK 中加载游戏图片。
  *
- * <p>It is the same translation the sound mixin performs, applied to the ids the image loader hands
- * to the platform. The game's drawables are staged in this app under the names the archive knows
- * them by, so the id is looked up by name here rather than used as it stands.</p>
+ * <p>此处与音效 mixin 执行相同的转换，处理图片加载器传给平台的 ID。游戏 drawable 会按归档中的名称暂存于当前应用，
+ * 因此需要在此按名称查找 ID，而不能直接使用原值。</p>
  *
- * <p>The context comes from {@link GameResources}, not from a shadowed field of the target: this
- * handler runs on a mixin instance the framework constructs, where no field of the target is ever
- * assigned.</p>
+ * <p>上下文来自 {@link GameResources}，而非目标类的隐藏字段：此处理方法运行于框架构造的 mixin 实例上，目标类的字段不会被赋值。</p>
  */
 @AsmMixin("com/corrodinggames/rts/gameFramework/render/GraphicsEngineAndroid")
 public final class GraphicsEngineAndroidMixin {
 
-    /** Whether this mixin has said that it is in: it runs for every image the game loads. */
+    /** 标记该 Mixin 是否已执行；游戏每加载一张图片都会触发它。 */
     private static volatile boolean announced;
 
     private GraphicsEngineAndroidMixin() {

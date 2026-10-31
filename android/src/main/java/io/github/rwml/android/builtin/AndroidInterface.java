@@ -16,15 +16,14 @@ import io.github.rwml.api.ui.UiFramework;
 import io.github.rwml.api.ui.UiHost;
 
 /**
- * The interface this extension declares: it puts the game's Android screens on screen.
+ * 此扩展声明的界面，用于显示游戏的 Android 界面。
  *
- * <p>It is the Android counterpart of {@code io.github.rwml.builtin.VanillaInterface}, and what it
- * does is small: it opens the builtin launcher. The player starts the game through its splash; custom
- * ui-framework extensions may supply both of those screens themselves.</p>
+ * <p>这是 {@code io.github.rwml.builtin.VanillaInterface} 的 Android 对应实现，职责很简单：打开内置启动器。
+ * 玩家通过启动器的启动画面进入游戏；自定义 {@code ui-framework} 扩展也可以自行提供这两个界面。</p>
  */
 public final class AndroidInterface implements UiFramework {
 
-    /** The screen name every host knows: the game. */
+    /** 所有宿主都支持的界面名称：游戏。 */
     static final String GAME_SCREEN = "game";
 
     @Override

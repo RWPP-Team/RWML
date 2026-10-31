@@ -12,8 +12,7 @@ import io.github.rwml.bootstrap.Relauncher;
 import java.lang.instrument.Instrumentation;
 
 /**
- * Owns the desktop transformer and instrumentation. A failed transform notifies recovery and prevents
- * the JVM from defining an unpatched class. Registered targets already loaded can be retransformed.
+ * 持有桌面端转换器和 Instrumentation。转换失败时会通知恢复逻辑，并阻止 JVM 定义未修补的类。已注册且已经加载的目标类可以重新转换。
  */
 public final class RwmlAgent {
 
@@ -23,14 +22,14 @@ public final class RwmlAgent {
     private RwmlAgent() {
     }
 
-    /** JVM {@code -javaagent} entry point. */
+    /** JVM {@code -javaagent} 入口点。 */
     public static void premain(String agentArgs, Instrumentation inst) {
         instrumentation = inst;
         install(inst);
         markInstalled();
     }
 
-    /** JVM runtime {@code VirtualMachine.attach} entry point. */
+    /** JVM 运行时 {@code VirtualMachine.attach} 入口点。 */
     public static void agentmain(String agentArgs, Instrumentation inst) {
         instrumentation = inst;
         install(inst);
@@ -39,7 +38,7 @@ public final class RwmlAgent {
 
     private static synchronized void install(Instrumentation inst) {
         if (!installed) {
-            // Preserve the framework's explicit AsmCore.transform API without installing a second transformer.
+            // 保留框架显式调用的 AsmCore.transform API，同时避免安装第二个转换器。
             new kim.der.asm.agent.AsmBootstrap();
             inst.addTransformer(new FailureAwareTransformer(MixinSupport.instance()::failed), true);
             installed = true;
@@ -47,23 +46,21 @@ public final class RwmlAgent {
     }
 
     /**
-     * Publishes the fact that the transformer is live.
+     * 发布转换器已启用的状态。
      *
-     * <p>A system property rather than a static field, because the reader is the Java 8 bootstrap,
-     * which runs before this class can even be loaded. {@code Bootstrap} uses it to decide whether
-     * the game still has to be restarted with {@code -javaagent} - and, because {@code premain} runs
-     * before {@code main} starts, the answer is already known by the time the entry point runs.</p>
+     * <p>此状态使用系统属性而非静态字段，因为读取方是 Java 8 启动器，它会在此类加载之前运行。{@code Bootstrap} 会据此判断是否仍需使用
+     * {@code -javaagent} 重启游戏；由于 {@code premain} 会在 {@code main} 启动前运行，游戏入口开始执行时即可获知结果。</p>
      */
     private static void markInstalled() {
         System.setProperty(Relauncher.AGENT_INSTALLED_PROPERTY, "true");
     }
 
-    /** @return the live instrumentation, or {@code null} if the agent never started. */
+    /** @return 正在运行的 Instrumentation；Agent 从未启动时返回 {@code null} */
     public static Instrumentation instrumentation() {
         return instrumentation;
     }
 
-    /** Retransforms already-loaded classes so mixins registered after their first load are applied. */
+    /** 重新转换已加载的类，使首次加载后注册的 Mixin 也能生效。 */
     public static void retransform(Class<?>... classes) throws Exception {
         if (instrumentation != null) {
             instrumentation.retransformClasses(classes);

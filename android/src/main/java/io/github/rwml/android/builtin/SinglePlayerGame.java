@@ -16,54 +16,43 @@ import com.corrodinggames.rts.appFramework.MapSelectActivity;
 import com.corrodinggames.rts.gameFramework.GameEngine;
 
 /**
- * Starting a single-player game on a chosen map.
+ * 在选定的地图上启动单人游戏。
  *
- * <p>The game decides how a map is set up, and this class asks it to. {@code
- * MapSelectActivity.loadMapWithAI} is the game's own entry point for it: the level screen calls it
- * for a skirmish map, the level-options screen calls it with the chosen teams, and the menu calls it
- * for a background map. Its two branches are the whole of the rule. A map that is not a skirmish map
- * carries its own teams inside it and the engine builds them, which is what the black-and-white
- * {@code loadMap(true, …)} does; a skirmish map carries none, so the teams are built from the numbers
- * the player chose and {@code loadMap(false, …)} then loads what those numbers describe.</p>
+ * <p>地图的设置方式由游戏决定，此类负责向游戏发出请求。{@code MapSelectActivity.loadMapWithAI} 是游戏提供的入口：
+ * 关卡界面会在遭遇战地图上调用它，关卡选项界面会传入玩家选择的队伍，菜单则会将它用于背景地图。它的两个分支就是完整规则：
+ * 非遭遇战地图包含自己的队伍信息，由引擎创建队伍，这对应 {@code loadMap(true, …)}；遭遇战地图不包含队伍信息，因此会根据
+ * 玩家选择的数值创建队伍，然后由 {@code loadMap(false, …)} 加载对应内容。</p>
  *
- * <p>Building those teams by hand is what this class used to do, and it is not the same thing. The
- * engine keeps one table of teams indexed by team id, and an id reaches that table only through the
- * registering form of the id; the allies take the even ids first and the opponents take the rest,
- * and every opponent carries the alliance its own id implies unless the map is played as teams. A
- * table built in any other order leaves the map's own triggers pointing at teams that resolve to
- * nothing, which drops the mission's objectives along with every hint that mentions them. None of
- * that is worth restating here, so it is not: the game is asked, once, with the same numbers its own
- * screens pass.</p>
+ * <p>此类过去曾手动创建这些队伍，但结果并不等价。引擎维护一张以队伍 ID 为索引的队伍表，只有通过注册流程才能将 ID 写入该表；
+ * 盟友先使用偶数 ID，对手使用其余 ID。除非地图采用队伍模式，否则每个对手的联盟关系由其 ID 决定。以其他顺序构建队伍表会导致
+ * 地图触发器指向无法解析的队伍，从而丢失任务目标以及引用这些目标的提示。这里不再重复实现这些规则，而是使用与游戏原生界面相同的
+ * 数值调用游戏自身的加载入口。</p>
  *
- * <p>{@code Root.loadConfigCommon}, the game's level-options screen, is where those numbers come
- * from: it reads the count of opponents from its own control, reads the chosen game mode, turns that
- * mode into a count of the opponents that join the player, and passes {@code false} for the teams
- * when the mode is the free-for-all entry. It then passes {@code 0} for that count as well, so a
- * free-for-all puts nobody on the player's side.</p>
+ * <p>这些数值来自游戏关卡选项界面的 {@code Root.loadConfigCommon}：该方法从自身控件读取对手数量和游戏模式，将模式转换为
+ * 加入玩家一方的对手数量；若所选模式为各自为战，则为队伍参数传入 {@code false}。此时加入玩家一方的对手数也传入 {@code 0}，
+ * 因而各自为战模式下不会有对手加入玩家一侧。</p>
  */
 final class SinglePlayerGame {
 
     private static final String TAG = "RWML";
 
-    /** The most opponents a game can be set up with, which is the width of the level screen's list. */
+    /** 对局可设置的最大对手数，也是关卡界面列表的宽度。 */
     static final int MAX_AI = 7;
 
-    /** The game-mode entry that plays every team against every other, on its own. */
+    /** 游戏模式选项：所有队伍彼此对战。 */
     static final int MODE_FREE_FOR_ALL = 4;
 
     private SinglePlayerGame() {
     }
 
     /**
-     * Loads the map and opens the game screen.
+     * 加载地图并打开游戏界面。
      *
-     * @param from      the screen starting the game
-     * @param mapPath   the map's abstract storage path, of the form {@code maps/skirmish/x.tmx}
-     * @param aiCount   how many opponents the map is played against, clamped to
-     *                  {@code 1..}{@value #MAX_AI}
-     * @param modeIndex the chosen entry of the game-mode list: its position is the number of
-     *                  opponents that join the player, and the last entry plays a free-for-all
-     * @return whether the game was started
+     * @param from      发起游戏的界面
+     * @param mapPath   地图的抽象存储路径，例如 {@code maps/skirmish/x.tmx}
+     * @param aiCount   地图中的对手数量，限制在 {@code 1..}{@value #MAX_AI} 范围内
+     * @param modeIndex 所选游戏模式项；其位置表示加入玩家一方的对手数量，最后一项代表各自为战
+     * @return 游戏是否成功启动
      */
     static boolean start(Activity from, String mapPath, int aiCount, int modeIndex) {
         GameEngine engine = GameEngine.getInstance();
@@ -75,9 +64,8 @@ final class SinglePlayerGame {
 
         int opponents = Math.max(1, Math.min(MAX_AI, aiCount));
         int mode = Math.max(0, Math.min(MODE_FREE_FOR_ALL, modeIndex));
-        // The mode list is a count of the AI that join the player, which is the entry's own
-        // position. The last entry is not a count at all: it plays every team against every other,
-        // so no team joins the player and the sides are not drawn.
+        // 模式列表中的位置表示加入玩家一方的 AI 数量。最后一项并不代表数量，而是让各支队伍相互对战，因此没有队伍加入玩家一侧，
+        // 也不会绘制双方队伍。
         boolean freeForAll = mode == MODE_FREE_FOR_ALL;
         int allies = freeForAll ? 0 : mode;
         boolean asTeams = !freeForAll;

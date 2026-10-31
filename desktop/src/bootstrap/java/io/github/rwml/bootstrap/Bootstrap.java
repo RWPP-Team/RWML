@@ -13,43 +13,35 @@ import java.lang.reflect.Method;
 import java.util.List;
 
 /**
- * Stage 0 of RWML: the code that runs before the game does.
+ * RWML 的第 0 阶段：在游戏启动前运行的代码。
  *
- * <p>It has three jobs, in order:</p>
+ * <p>它按顺序完成三项工作：</p>
  * <ol>
- *   <li><b>Make the runtime right.</b> If the current JVM is older than the version RWML needs, or if
- *       the bytecode transformer is not installed, re-exec the game on a suitable JVM - downloading
- *       one if necessary - and relay its exit code. See {@link Relauncher} for why restarting is the
- *       only way to install the agent.</li>
- *   <li><b>Start the extension system.</b> Delegate to {@code io.github.rwml.desktop.DesktopRuntime},
- *       which discovers and loads the extensions and registers their mixins. The call is reflective
- *       on purpose: that class is modern bytecode, and this class has to be loadable on a Java 8
- *       JVM.</li>
- *   <li><b>Hand over to the game.</b> Invoke the game's relocated entry point. This happens whether
- *       or not the extension system started, so a broken extension can never stop the game from
- *       launching.</li>
+ *   <li><b>准备运行环境。</b>如果当前 JVM 版本低于 RWML 要求，或字节码转换器尚未安装，就会在合适的 JVM 中重新启动游戏；
+ *       必要时会先下载该 JVM，并转发其退出码。为何必须重启才能安装 agent，参见 {@link Relauncher}。</li>
+ *   <li><b>启动扩展系统。</b>委托给 {@code io.github.rwml.desktop.DesktopRuntime}，由其发现和加载扩展并注册 mixin。
+ *       此处有意使用反射调用：该类使用较新的字节码，而当前类必须能在 Java 8 JVM 上加载。</li>
+ *   <li><b>移交给游戏。</b>调用迁移后的游戏入口。无论扩展系统是否启动成功，都会执行此步骤，因此有问题的扩展不会阻止游戏启动。</li>
  * </ol>
  */
 public final class Bootstrap {
 
-    /** Returned by {@link #ensureRuntime} when this process should continue starting up. */
+    /** 当当前进程应继续启动时，由 {@link #ensureRuntime} 返回。 */
     public static final int CONTINUE_IN_PROCESS = -1;
 
     /**
-     * The RWML core entry point, loaded reflectively.
+     * 通过反射加载的 RWML 核心入口。
      *
-     * <p>Not a compile-time dependency: this class is compiled for Java 8 and must not link against
-     * Java 17 bytecode, or even resolving it would fail with {@code UnsupportedClassVersionError} on
-     * an old JVM.</p>
+     * <p>此处不能产生编译期依赖：当前类按 Java 8 编译，不能链接 Java 17 字节码，否则旧 JVM 甚至在解析此类时都会抛出
+     * {@code UnsupportedClassVersionError}。</p>
      */
     private static final String CORE_ENTRY_POINT = "io.github.rwml.desktop.DesktopRuntime";
 
-    /** The single method of {@link #CORE_ENTRY_POINT} the bootstrap calls. */
+    /** 引导程序调用的 {@link #CORE_ENTRY_POINT} 唯一方法。 */
     private static final String CORE_METHOD = "prepare";
 
     /**
-     * The second method of {@link #CORE_ENTRY_POINT}: it starts the interface an extension declared
-     * and answers whether it did, which decides who starts the game.
+     * {@link #CORE_ENTRY_POINT} 中的第二个方法：启动扩展声明的界面并返回是否成功，从而决定由谁启动游戏。
      */
     private static final String CORE_INTERFACE_METHOD = "startExtensionInterface";
 
@@ -57,10 +49,9 @@ public final class Bootstrap {
     }
 
     /**
-     * Ensures the JVM satisfies RWML's requirements, restarting the game on another one if needed.
+     * 确保 JVM 满足 RWML 的运行要求；必要时在另一个 JVM 中重新启动游戏。
      *
-     * @return {@link #CONTINUE_IN_PROCESS} to carry on in this JVM, or the exit code to relay when
-     *         the game has already run in a child JVM
+     * @return 返回 {@link #CONTINUE_IN_PROCESS} 表示在当前 JVM 中继续；如果游戏已在子 JVM 中运行，则返回要转发的退出码
      */
     public static int ensureRuntime(String[] args) {
         int required = GameEntry.targetJavaVersion();
@@ -75,8 +66,7 @@ public final class Bootstrap {
             + " (Java " + required + " required).");
 
         if (relaunched) {
-            // Already the child of a relaunch: never restart again, whatever the state is, or a
-            // failed hand-over would fork forever.
+            // 当前进程已经是重启产生的子进程：无论状态如何都不能再次重启，否则交接失败时会无限创建新进程。
             if (current < required) {
                 BootstrapLog.warn("This JVM is Java " + current + ", below the required Java "
                     + required + " (the relaunch target). Not restarting again; the extension "
@@ -99,8 +89,7 @@ public final class Bootstrap {
                     javaHome = JavaRuntime.provision(required);
                 }
             } else {
-                // Only the agent is missing, so the current JVM is fine - just restart on it with
-                // -javaagent added.
+                // 仅缺少 agent，当前 JVM 仍可使用；只需添加 -javaagent 参数并在此 JVM 中重启。
                 javaHome = new File(System.getProperty("java.home", "."));
                 BootstrapLog.info("Restarting on this JVM so the RWML agent is installed before "
                     + "the game's classes load.");
@@ -132,26 +121,23 @@ public final class Bootstrap {
     }
 
     /**
-     * Starts the extension system and then the game.
+     * 启动扩展系统，然后启动游戏。
      *
-     * @return the exit code to report: {@code 0} on a normal game exit
+     * @return 要报告的退出码；游戏正常退出时为 {@code 0}
      */
     public static int startGame(String[] args) {
         startExtensionSystem(args);
         if (startExtensionInterface(args)) {
-            // An extension owns the interface, so it decides what comes up, the game included. The
-            // built-in launcher stays out of the way.
+            // 界面由扩展提供，因此由扩展决定要显示什么，包括是否启动游戏。此时不显示内置启动器。
             return 0;
         }
         return handOverToGame(args);
     }
 
     /**
-     * Lets an extension put its interface up, when it declared one.
+     * 若扩展声明了界面，则尝试启动该界面。
      *
-     * <p>Best effort by design: the core answers {@code false} both when nothing declared an
-     * interface and when the declaration could not be used, and in either case the built-in launcher
-     * below still runs.</p>
+     * <p>此方法按尽力而为方式设计：核心未提供界面，或声明的界面无法使用时，都会返回 {@code false}；两种情况下都会继续运行下方的内置启动器。</p>
      */
     private static boolean startExtensionInterface(String[] args) {
         try {
@@ -164,7 +150,7 @@ public final class Bootstrap {
         }
     }
 
-    /** Loads and starts the RWML core, reporting - but never raising - any failure. */
+    /** 加载并启动 RWML 核心；报告错误，但不会抛出异常。 */
     private static void startExtensionSystem(String[] args) {
         try {
             Class<?> launcher = Class.forName(CORE_ENTRY_POINT);
@@ -183,7 +169,7 @@ public final class Bootstrap {
         }
     }
 
-    /** Invokes the game's own entry point and relays how it ended. */
+    /** 调用游戏自身的入口点，并转发其结束状态。 */
     private static int handOverToGame(String[] args) {
         String gameMain = GameEntry.GAME_MAIN;
         BootstrapLog.info("Starting the game: " + gameMain);
@@ -207,7 +193,7 @@ public final class Bootstrap {
         }
     }
 
-    /** @return the RWML version from the jar manifest, or {@code "development build"}. */
+    /** @return JAR 清单中的 RWML 版本；未提供时返回 {@code "development build"} */
     private static String version() {
         try {
             Package pkg = Bootstrap.class.getPackage();

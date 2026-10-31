@@ -9,6 +9,7 @@ package io.github.rwml.desktop;
 
 import io.github.rwml.api.game.GameBoot;
 import io.github.rwml.api.ui.UiHost;
+import io.github.rwml.api.ui.UiSurface;
 import io.github.rwml.bootstrap.GameEntry;
 import io.github.rwml.bootstrap.Relauncher;
 
@@ -19,19 +20,16 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * What an extension's interface is handed on the desktop.
+ * 桌面端提供给扩展界面的宿主对象。
  *
- * <p>The desktop's one screen is the game itself, so {@link #openScreen(String)} recognises
- * {@value #GAME_SCREEN} and invokes the game's own entry point, which is the same call the bootstrap
- * makes when no extension claims the interface. An interface that wants another screen has to draw
- * it; an unknown name is reported rather than silently ignored.</p>
+ * <p>桌面端唯一的界面就是游戏本身，因此 {@link #openScreen(String)} 会识别 {@value #GAME_SCREEN} 并调用游戏自身入口；
+ * 没有扩展提供界面时，启动器也会执行相同调用。需要其他界面的扩展必须自行绘制；遇到未知名称时会报告错误，而不是静默忽略。</p>
  *
- * <p>The class is package private on purpose: the type an extension receives is {@link UiHost}, and
- * what the host is on this platform is not part of the contract.</p>
+ * <p>此类有意设为包级私有：扩展接收的类型是 {@link UiHost}，具体宿主实现不属于平台契约。</p>
  */
 final class DesktopUiHost implements UiHost {
 
-    /** The screen name that starts the game. */
+    /** 启动游戏的界面名称。 */
     static final String GAME_SCREEN = "game";
 
     private final DesktopRuntime runtime;
@@ -48,6 +46,11 @@ final class DesktopUiHost implements UiHost {
     @Override
     public Object platform() {
         return runtime;
+    }
+
+    @Override
+    public UiSurface createSurface() {
+        return new DesktopUiSurface();
     }
 
     @Override
@@ -85,13 +88,10 @@ final class DesktopUiHost implements UiHost {
     }
 
     /**
-     * The one screen the desktop can put up: the boot an extension filled in, or the game's own
-     * entry point when nothing filled it.
+     * 桌面端唯一能显示的界面：扩展提供的引导流程，或扩展未添加步骤时的游戏自身入口。
      *
-     * <p>The boot is preferred because it is the sequence RWML knows about, and because a boot that
-     * already ran returns its first outcome instead of starting a second game. The direct call is
-     * kept for the case where no extension contributed any step: an extension that only asks for the
-     * game screen still has to get one.</p>
+     * <p>优先使用引导流程，因为 RWML 知道其步骤顺序，而且已运行的引导流程会返回首次运行结果，而不是再启动一个游戏。如果没有扩展提供任何步骤，
+     * 则保留直接调用：即使扩展只请求显示游戏界面，也必须能启动游戏。</p>
      */
     private void startGame() {
         if (gameStarted) {

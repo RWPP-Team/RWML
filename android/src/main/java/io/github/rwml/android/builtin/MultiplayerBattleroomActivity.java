@@ -30,6 +30,8 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.SpinnerAdapter;
 import android.widget.TableLayout;
@@ -51,82 +53,76 @@ import com.corrodinggames.rts.gameFramework.network.TeamLayout;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import io.github.rwml.android.R;
+import io.github.rwml.api.Rwml;
+import io.github.rwml.api.ui.GameRulesUi;
 
 /**
- * The battleroom: where a multiplayer game is set up, over the game's own layout.
+ * 多人对战房间：使用游戏自身布局配置多人游戏。
  *
- * <p>The host chooses the game type and the map and adds computer players; everyone sees the team
- * table and the chat; the host starts the game, and a client that has been handed the host's
- * controls asks for the same things with the engine's own changeable setup, which turns the changes
- * into the game's own commands to the server. The engine decides when that adds up to a start, and
- * announces it through {@link HostNetworkCallbacks}, which is also where this screen hears about
- * chat lines and team changes.</p>
+ * <p>主机选择游戏类型和地图，并添加电脑玩家；所有人都能查看队伍表格和聊天内容。主机负责开始游戏，获得主机控制权的客户端则通过引擎提供的
+ * 可变设置请求相同操作，由引擎将改动转换为发送给服务器的游戏命令。何时满足开始条件由引擎决定，并通过 {@link HostNetworkCallbacks} 发出通知；
+ * 此界面也通过该回调接收聊天内容和队伍变化。</p>
  *
- * <p>The two dropdowns are the game's own arrangement, and the shape of it is the game type's: the
- * type decides which folder the map list is read from, so the map dropdown cannot be filled without
- * one. The game reads the skirmish maps from {@code maps/skirmish}, the maps the player added from
- * {@code /SD/rusted_warfare_maps}, and the saved games from the save folder; each list is sorted and
- * shown by its name rather than by its file name. A list that is not filled for the type the player
- * is looking at is why a room can show an empty map dropdown: the game remembers which type it last
- * filled for, and the first fill has to run even though no type has been chosen yet.</p>
+ * <p>两个下拉框沿用游戏自身的组织方式，其内容由游戏类型决定：类型决定地图列表读取哪个目录，因此必须先有游戏类型才能填充地图下拉框。
+ * 游戏从 {@code maps/skirmish} 读取遭遇战地图，从 {@code /SD/rusted_warfare_maps} 读取玩家添加的地图，并从存档目录读取已保存的游戏；
+ * 每个列表都会排序，并按名称而不是文件名显示。如果没有按当前游戏类型填充列表，对战房间就会显示空的地图下拉框。游戏会记住上次填充列表时使用的类型，
+ * 因此即使尚未选择类型，也必须执行首次填充。</p>
  *
- * <p>Choosing a map writes it into the engine's game setup, which is what the clients are sent and
- * what the map is loaded from when the game begins. A client that has been given control of the
- * server does the same thing through the game's own chat command, because a client cannot set the
- * server's game up directly.</p>
+ * <p>选择地图后会将其写入引擎的游戏设置；该设置会发送给客户端，并在游戏开始时用于加载地图。获得服务器控制权的客户端也会通过游戏自身的聊天命令
+ * 执行相同操作，因为客户端无法直接配置服务器上的游戏。</p>
  *
- * <p>Two of the game's buttons belong to the Android build's own connectivity: starting the game over
- * Bluetooth, and the file browser behind importing a map. This host carries neither, so the Bluetooth
- * button stays hidden; importing is done through the platform's own file picker instead.</p>
+ * <p>游戏有两个按钮属于 Android 版本的连接和文件浏览功能：通过蓝牙开始游戏，以及导入地图时使用的文件浏览器。本宿主没有包含这些功能，
+ * 因此隐藏蓝牙按钮；导入地图改用平台自身的文件选择器。</p>
  */
 public final class MultiplayerBattleroomActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** The request code the platform's file picker answers with when a map is imported. */
+    /** 导入地图时系统文件选择器返回的请求码。 */
     private static final int REQUEST_IMPORT = 6;
 
-    /** The folder the game keeps its skirmish maps in, which is what a network game picks from. */
+    /** 游戏存放遭遇战地图的目录，联机对局也从中选择地图。 */
     private static final String SKIRMISH_FOLDER = "maps/skirmish";
 
-    /** The folder the game reads maps the player put on the device from. */
+    /** 游戏读取玩家导入到设备上的地图的目录。 */
     private static final String CUSTOM_FOLDER = "/SD/rusted_warfare_maps";
 
-    /** The folder the game writes saved games into. */
+    /** 游戏写入存档的目录。 */
     private static final String SAVES_FOLDER = "/SD/rustedWarfare/saves/";
 
-    /** The game type the map dropdown lists: the skirmish maps. */
+    /** 地图下拉框中的游戏类型：遭遇战地图。 */
     private static final int TYPE_SKIRMISH = 0;
 
-    /** The game type the map dropdown lists: the maps the player added. */
+    /** 地图下拉框中的游戏类型：玩家添加的地图。 */
     private static final int TYPE_CUSTOM = 1;
 
-    /** The game type the map dropdown lists: the saved games. */
+    /** 地图下拉框中的游戏类型：存档。 */
     private static final int TYPE_SAVED = 2;
 
-    /** What the engine is given for the map when the dropdown is on nothing at all. */
+    /** 下拉框未选择地图时传给引擎的值。 */
     private static final String NO_MAP = "<No Map>";
 
-    /** How often the room asks the engine whether anything changed. */
+    /** 房间向引擎查询状态变化的间隔。 */
     private static final int POLL_MILLIS = 1500;
 
     /**
-     * How many credit choices the game's own array lists.
+     * 游戏自身数组中列出的信用点选项数量。
      *
-     * <p>The setup carries which of the game's choices was made rather than a sum of money, and the
-     * engine turns that choice into a sum when the game is set up. The first choice is the default,
-     * which is what a room opens with, so the number is also the last choice there is.</p>
+     * <p>设置中保存的是游戏选项的索引，而非具体金额；引擎会在配置游戏时将该选项转换为金额。第一项为默认值，也是对战房间打开时使用的选项，
+     * 因此选项数量同时也是最后一项的索引值。</p>
      */
     private static final int CREDIT_CHOICES = 9;
 
-    /** The engine's income multipliers, in the order the game's own array lists them. */
+    /** 引擎中的收入倍率，顺序与游戏自带数组一致。 */
     private static final float[] INCOME = {1.0F, 1.5F, 2.0F, 2.5F};
 
-    /** The engine's team layouts, without the array's first entry, which keeps the current one. */
+    /** 引擎中的队伍布局；去掉数组首项（当前布局）。 */
     private static final TeamLayout[] LAYOUTS = {
         TeamLayout.layout_2sides, TeamLayout.layout_3sides,
         TeamLayout.layout_ffa, TeamLayout.layout_spectators,
@@ -147,63 +143,55 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     private EditText chatText;
 
     /**
-     * The map list's entries exactly as the file layer named them.
+     * 地图列表条目，名称与文件层提供的名称完全一致。
      *
-     * <p>The dropdown shows a display name, but the engine is given one of these, so the two are kept
-     * side by side and an index into the dropdown is an index into this array.</p>
+     * <p>下拉框显示的是地图名称，但传给引擎的是这些文件层名称，因此需要并行保存两种名称，且下拉框中的索引与此数组中的索引一致。</p>
      */
     private String[] mapEntries = new String[0];
 
     /**
-     * The game type the map list was last filled for.
+     * 上次填充地图列表时使用的游戏类型。
      *
-     * <p>It starts at -1 rather than at the first type, because the fill is skipped when the type has
-     * not changed, and the game's own screen starts it at -1 for the same reason: with any other
-     * starting value the first fill would be skipped and the dropdown would stay empty.</p>
+     * <p>初始值为 -1，而不是第一个类型，因为游戏类型未变化时会跳过列表填充。游戏原生界面也会将初始值设为 -1：否则首次填充会被跳过，
+     * 下拉框就会一直为空。</p>
      */
     private int filledForType = -1;
 
-    /** The map path the thumbnail is currently holding, so the image is not decoded for every redraw. */
+    /** 缩略图当前对应的地图路径，避免每次重绘都重新解码图片。 */
     private String thumbnailPath;
 
     /**
-     * Whether the proxy controller's controls were already on when the room last looked.
+     * 上次刷新对战房间时，代理控制器的控制权限是否已经启用。
      *
-     * <p>Being handed the host's controls is a change the room has to react to once: the map dropdown
-     * is moved onto the map the server holds, because until that moment the player was a spectator of
-     * the server's choices rather than the one making them. The game's own screen keeps the same
-     * flag for the same reason.</p>
+     * <p>获得主机控制权是房间必须响应一次的状态变化：地图下拉框会切换到服务器当前使用的地图，因为在此之前玩家只能旁观服务器的选择。
+     * 游戏原生界面也会为相同原因保留此标志。</p>
      */
     private boolean hadProxyControl;
 
-    /** Whether a start has already been acted on, so the engine's repeated calls land once. */
+    /** 标记是否已处理开始请求，避免重复响应引擎的调用。 */
     private boolean starting;
 
-    /** Whether the dropdowns are being written, so a write does not look like the player choosing. */
+    /** 标记是否正在更新下拉框，避免程序更新被误认为玩家选择。 */
     private boolean filling;
 
-    /** The player table's cells that are on screen, so the next redraw can take them back. */
+    /** 当前显示的玩家表格单元格，便于下次重绘时回收复用。 */
     private final List<Cell> activeCells = new ArrayList<>();
 
     /**
-     * The player table's cells that are no longer on screen.
+     * 玩家表格中已不再显示的单元格。
      *
-     * <p>The table is rebuilt every time the engine reports a change, and a row is up to five cells;
-     * keeping the views is what keeps that from allocating a new table each time. A cell is reused for
-     * the column it was made for, which is what its width and appearance were chosen for.</p>
+     * <p>引擎每次报告变化时都会重建表格；每行最多包含五个单元格。保留这些视图可避免每次都重新分配整张表格。单元格只会用于创建它时对应的列，
+     * 因为其宽度和外观都是按该列设置的。</p>
      */
     private final List<Cell> spareCells = new ArrayList<>();
 
     private final Handler poll = new Handler(android.os.Looper.getMainLooper());
 
     /**
-     * The room's own redraw, repeated while the room is on screen.
+     * 对战房间自身的重绘任务，在房间显示期间重复执行。
      *
-     * <p>On this host the engine's update call arrives only when the engine processes the game's own
-     * network packets. A session carried by something else, which is what an extension that runs its
-     * own protocol is, leaves the room with no call at all and it would keep showing the state it was
-     * drawn in the first time. Redrawing on a timer covers both: the engine's calls still land first
-     * and the timer only repeats what the engine's state already says.</p>
+     * <p>在此宿主上，只有引擎处理游戏自身的网络数据包时才会收到更新调用。如果会话由其他组件处理（例如使用自有协议的扩展），房间就完全收不到调用，
+     * 并会一直显示首次绘制时的状态。使用定时器重绘即可兼顾两种情况：引擎调用仍会优先处理，定时器只会重复显示引擎当前状态。</p>
      */
     private final Runnable refreshTask = new Runnable() {
         @Override
@@ -214,7 +202,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     };
 
     // ------------------------------------------------------------------
-    // Opening and closing
+    // 打开和关闭
     // ------------------------------------------------------------------
 
     @Override
@@ -223,9 +211,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         setTitle(LocalizedText.ui("ui.battleroom"));
         AndroidApp.prepare(this, true);
         setContentView(R.layout.multiplayer_battleroom);
-        // The room is drawn over the game's own tiled background, so the window's is taken away; the
-        // chat field is at the bottom of a long layout, which is why the window pans rather than the
-        // whole layout being resized when the keyboard opens.
+        // 对战房间绘制在游戏自身的平铺背景上，因此移除窗口背景。聊天输入框位于长布局底部，打开键盘时应平移窗口，而不是调整整个布局的大小。
         getWindow().setBackgroundDrawable(null);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
 
@@ -239,8 +225,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         }
 
         bind();
-        // The engine's calls arrive through these, so the room is handed over before the dropdowns
-        // are filled: a start announced while the screen is being built must not be missed.
+        // 引擎通过这些回调通知房间状态变化，因此应在填充下拉框前注册回调：不能漏掉界面创建期间到达的开始游戏通知。
         HostNetworkCallbacks.attach(this);
 
         LocalizedText.applyTo(findViewById(android.R.id.content));
@@ -252,8 +237,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // A host that is public on the master list keeps its entry fresh, which is a timer the engine
-        // runs only while the room is on screen.
+        // 在主服务器列表公开的主机会定时刷新其条目；引擎只会在对战房间显示期间运行此定时器。
         if (network != null) {
             try {
                 network.startMasterServerTimer();
@@ -283,8 +267,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         super.onDestroy();
         poll.removeCallbacks(refreshTask);
         HostNetworkCallbacks.detach(this);
-        // The room closes either because the player left it or because the game started, and only the
-        // first is a reason to walk away from the network: the second is the game it was set up for.
+        // 对战房间关闭可能是玩家主动离开，也可能是游戏已经开始；只有前者需要断开网络，后者正是创建该房间的目的。
         if (isFinishing() && !starting) {
             leave();
         }
@@ -292,9 +275,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
 
     @Override
     public void onBackPressed() {
-        // Leaving the room is leaving the game that was being set up, which the engine has to be told
-        // about or the other players keep waiting for this one. It is asked about first, because a
-        // chat room can also be left open behind the game.
+        // 离开房间意味着退出正在配置的游戏，必须通知引擎，否则其他玩家会继续等待此玩家。先检查房间状态，因为聊天房间也可能在游戏界面后方保持打开。
         AlertDialog.Builder dialog = new AlertDialog.Builder(this)
             .setIcon(android.R.drawable.ic_dialog_alert)
             .setTitle(LocalizedText.word("menus.ingame.multiplayerClose.title", "Close?"))
@@ -310,15 +291,14 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                 (clicked, which) -> leaveAndClose());
             dialog.setNeutralButton(LocalizedText.word("menus.ingame.multiplayerClose.minimizeButton", "Minimize"),
                 (clicked, which) -> {
-                    // The room is left on screen behind the game: the network stays up, which is what
-                    // the game's own minimize does by closing the screen without leaving it.
+                    // 游戏界面打开后，对战房间会留在后台，网络连接继续保持；游戏自身的最小化操作也是关闭界面而不离开房间。
                     moveTaskToBack(true);
                 });
         }
         dialog.show();
     }
 
-    /** Leaves the network with the game's own reason and closes the room. */
+    /** 使用游戏提供的原因离开网络，并关闭房间。 */
     private void leaveAndClose() {
         try {
             if (network != null) {
@@ -330,7 +310,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         finish();
     }
 
-    /** Leaves whatever network the room was opened on, which is what closing it means. */
+    /** 离开打开房间时加入的网络，即关闭房间时执行的操作。 */
     private void leave() {
         if (network == null) {
             return;
@@ -345,7 +325,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // The layout
+    // 布局
     // ------------------------------------------------------------------
 
     private void bind() {
@@ -360,12 +340,17 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         chatLog = findViewById(R.id.chatLog);
         chatText = findViewById(R.id.battleroom_text);
 
-        // Bluetooth play is this host's own gap, the game's inline player list is superseded by the
-        // table below, and readiness is the engine's own chat command rather than a checkbox: the
-        // host starts when it is satisfied, which is what the game's own start button does.
+        // 蓝牙游戏是此宿主缺少的功能；下方表格会取代游戏内嵌的玩家列表；就绪状态通过引擎自身的聊天命令控制，而非复选框：条件满足时由主机开始游戏，
+        // 与游戏原生开始按钮的行为一致。
         hide(R.id.battleroom_startBluetoothButton);
         hide(R.id.networkPlayerList);
         hide(R.id.battleroom_ready);
+
+        Button rules = findViewById(R.id.battleroom_rwmlRules);
+        if (rules != null) {
+            rules.setText(LocalizedText.ui("ui.rules"));
+            rules.setOnClickListener(clicked -> showGameRules());
+        }
 
         wireTypeSpinner();
         wireMapSpinner();
@@ -380,11 +365,10 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * The game type spinner.
+     * 游戏类型选择器。
      *
-     * <p>The entries are the engine's own map types with the engine's own names, and the one that is
-     * already set is the one selected, so a client sees the type the host chose. Choosing another one
-     * refills the map list, because the type is which folder the list comes from.</p>
+     * <p>列表项使用引擎自身的地图类型及其名称，当前已设置的类型会被选中，因此客户端可看到主机选择的类型。选择其他类型后会重新填充地图列表，
+     * 因为类型决定列表读取哪个目录。</p>
      */
     private void wireTypeSpinner() {
         if (typeSpinner == null) {
@@ -405,8 +389,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                 if (filling) {
                     return;
                 }
-                // The first fill is done below and this one is its consequence, so the map list is
-                // refilled here rather than in the caller.
+                // 首次填充会在下方执行；该事件由首次填充引起，因此在此重新填充地图列表，而不在调用方处理。
                 updateMapDropdown(false);
             }
 
@@ -416,12 +399,12 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         });
     }
 
-    /** The map spinner. Choosing an entry is the host setting the game up, or asking the host to. */
+    /** 地图下拉框。房主选择条目时直接设置对局，其他玩家则向房主发出请求。 */
     private void wireMapSpinner() {
         if (mapSpinner == null) {
             return;
         }
-        // The game fills the list before it listens to it, so that filling it is not read as a choice.
+        // 游戏先填充列表，再注册监听器，以免将填充操作误认为用户选择。
         updateMapDropdown(true);
         mapSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
@@ -438,19 +421,16 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // The map list
+    // 地图列表
     // ------------------------------------------------------------------
 
     /**
-     * Fills the map dropdown for the chosen game type.
+     * 根据所选游戏类型填充地图下拉框。
      *
-     * <p>The type decides the folder, the folder is read through the engine's file layer, the list is
-     * sorted, and each entry is shown by its name. Nothing happens when the type has not changed,
-     * which is what keeps the list from being rebuilt for every redraw; the first call has to run
-     * regardless, which is what the type that starts at nothing is for.</p>
+     * <p>游戏类型决定目录，目录由引擎文件层读取，列表经过排序后按名称显示。如果类型没有变化，就不执行操作，以免每次重绘都重建列表；
+     * 首次调用无论如何都必须执行，这正是初始类型设为无效值的原因。</p>
      *
-     * @param firstRun whether this is the fill the screen opens with, which also selects the map the
-     *                 engine already holds
+     * @param firstRun 是否为界面打开时的首次填充；首次填充还会选中引擎当前持有的地图
      */
     private void updateMapDropdown(boolean firstRun) {
         if (mapSpinner == null) {
@@ -460,8 +440,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         if (type < 0) {
             type = TYPE_SKIRMISH;
         }
-        // A client that has not been given control of the server cannot choose the game type, so its
-        // list is the skirmish one whatever the spinner shows.
+        // 尚未获得服务器控制权的客户端不能选择游戏类型，因此无论选择器显示什么，其列表都使用遭遇战地图。
         if (!network.isServer && !network.proxyController) {
             type = TYPE_SKIRMISH;
         }
@@ -488,15 +467,14 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         gameInfoChanged();
     }
 
-    /** The maps one game type offers, as the file layer names them, with the folder in front. */
+    /** 某种游戏类型提供的地图，使用文件层名称并附带目录前缀。 */
     private String[] listMaps(int type) {
         String folder = folderOf(type);
         String[] listed = null;
         try {
             listed = FileLoader.listDir(folder, true);
             if (type == TYPE_CUSTOM) {
-                // The maps a mod adds are not files in the folder, so the engine's own mod list is
-                // asked for them and its answer is added to the folder's.
+                // 模组添加的地图不是目录中的文件，因此向引擎请求模组地图列表，并将结果附加到目录列表中。
                 ModManager mods = engine == null ? null : engine.modManager;
                 if (mods != null) {
                     listed = mods.addExtraMapsForPath(listed, folder);
@@ -506,8 +484,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             Log.w(TAG, "The maps in " + folder + " could not be listed.", t);
         }
         if (listed == null || listed.length == 0) {
-            // The file layer says what went wrong and the status line carries a reason; an empty
-            // dropdown with nothing said about it reads as a folder that holds no maps.
+            // 文件层会报告失败原因，状态行也会显示提示；如果下拉框为空且没有说明，用户会以为目录中没有地图。
             String reason = FileLoader.takeErrorMessage();
             setStatus(reason == null || reason.isEmpty()
                 ? "No maps were found in " + folder + "." : reason);
@@ -534,19 +511,16 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * The path the engine is given for one listed entry, or {@code null} when the entry is not a map.
+     * 将单个列表项转换为传给引擎的路径；该项不是地图时返回 {@code null}。
      *
-     * <p>The file layer names a folder's files in different ways depending on which folder it is, and
-     * the path the engine loads has to be the whole one, so a name that is not already in the folder
-     * is put in it. A skirmish map is drawn beside its thumbnail, and the thumbnail is a file in the
-     * same folder, which is why the two folders of maps keep only the maps.</p>
+     * <p>文件层会根据目录类型使用不同方式命名文件，而引擎需要完整路径才能加载。因此，如果名称尚未包含目录，就会补上目录前缀。
+     * 遭遇战地图会与缩略图一起显示，缩略图也位于同一目录，所以两个地图目录只保留地图文件。</p>
      */
     private static String mapPathOf(String entry, String folder, int type) {
         if (entry == null || entry.isEmpty()) {
             return null;
         }
-        // The engine's file layer understands these two tags and resolves them itself, so they are
-        // passed through untouched; anything else is a file in the folder that was listed.
+        // 引擎文件层会识别并解析这两个标记，因此直接传递，不做修改；其他内容均为所列目录中的文件。
         if (entry.startsWith("MOD|") || entry.startsWith("NEW_PATH|")) {
             return entry;
         }
@@ -565,12 +539,10 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * Moves the dropdown onto the map the engine already holds.
+     * 将下拉框切换到引擎当前使用的地图。
      *
-     * <p>The server owns the map, so a client's dropdown has to show what the server chose rather than
-     * what the client last clicked. The two are matched on their last path segments in lower case,
-     * because the server and this screen name the map from different places: one from the folder that
-     * was listed here, the other from whatever the client was told.</p>
+     * <p>地图由服务器决定，因此客户端下拉框必须显示服务器选择的地图，而不是客户端最近点击的选项。由于服务器和此界面从不同来源获取地图名称，
+     * 会将两者转换为小写后按路径末段匹配：一方来自此处列出的目录，另一方来自服务器发送的内容。</p>
      */
     private void selectMapFromEngine() {
         if (network == null || network.gameSetup == null || mapSpinner == null) {
@@ -592,7 +564,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         Log.d(TAG, "The map the engine holds is not in the dropdown: " + wanted);
     }
 
-    /** A path reduced to what two paths that name the same file have in common. */
+    /** 将路径规范化为指向同一文件的路径共有的形式。 */
     private static String comparable(String path) {
         if (path == null) {
             return "";
@@ -605,13 +577,10 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * Acts on the host or the client choosing a map.
+     * 处理主机或客户端选择地图的操作。
      *
-     * <p>The host writes the choice into the game setup through the engine's own changeable setup,
-     * which announces it to the clients. A client that has been given control of the server does the
-     * same through the same call, which the engine turns into the game's own commands to the server.
-     * Any other client is only watching, and the selection is put back to what the server holds so
-     * the dropdown does not show a choice that was refused.</p>
+     * <p>主机通过引擎的可变设置将选择写入游戏配置，并广播给客户端。获得服务器控制权的客户端也会调用相同方法，由引擎将其转换为游戏自身的服务器命令。
+     * 其他客户端只能旁观，因此会将选择恢复为服务器当前的地图，避免下拉框显示未被接受的选择。</p>
      */
     private void mapChosen() {
         if (network.isServer) {
@@ -636,7 +605,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         updateThumbnail();
     }
 
-    /** @return the map the dropdown is on, as the file layer named it, or {@code null} for none */
+    /** @return 下拉框当前地图的文件层名称；未选择时为 {@code null} */
     private String selectedMap() {
         if (mapSpinner == null) {
             return null;
@@ -649,12 +618,10 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * The last segment of a map path, which is what the engine stores as the map's name.
+     * 地图路径的最后一段，也就是引擎保存的地图名称。
      *
-     * <p>The dropdown holds whole paths so the file layer can be asked for the file, while the engine
-     * keeps only the bare name in the game setup and derives the path from the type. A path with no
-     * separator is already the name; a tagged path is left as it is, because the engine resolves those
-     * tags itself.</p>
+     * <p>下拉框保存完整路径，以便通过文件层查询文件；引擎则只在游戏配置中保存名称，并根据类型推导路径。没有分隔符的路径本身就是名称；
+     * 带标记的路径保持原样，因为引擎会自行解析标记。</p>
      */
     private static String bareNameOf(String path) {
         if (path == null || path.isEmpty() || NO_MAP.equals(path)) {
@@ -668,14 +635,11 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * Writes the screen's choices into the engine and tells everyone.
+     * 将界面中的选择写入引擎，并通知所有玩家。
      *
-     * <p>This is the engine's own "the game information changed": the map and the type go into the
-     * changeable setup the engine hands out, and {@code applyChangedSetup} does the rest, which is
-     * the same call whether this device is the server or a client holding the host's controls. On a
-     * server the change is written and announced, on a client it is asked for with the game's own
-     * commands, and everybody else has no setup to change. A public game's entry on the master list
-     * follows the map, and the thumbnail follows the map.</p>
+     * <p>此操作对应引擎自身的“游戏信息已更改”流程：将地图和类型写入引擎提供的可变设置，再由 {@code applyChangedSetup} 完成其余工作。
+     * 无论设备是服务器还是拥有主机控制权的客户端，调用方式都相同。服务器会写入并广播修改；客户端会使用游戏自身命令请求修改；其他客户端没有可更改的设置。
+     * 公开游戏在主服务器列表中的条目会随地图更新，缩略图也会随地图更新。</p>
      */
     private void gameInfoChanged() {
         GameSetup editable = network.getChangeableSetup();
@@ -706,12 +670,10 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * Shows and hides what the state of the game decides.
+     * 根据游戏状态显示或隐藏控件。
      *
-     * <p>The host chooses the type and the map and starts the game; a client that has been given the
-     * server's controls chooses the map but not the type; any other client only watches. The game
-     * summary stands in for the map and type controls where they are hidden, because a client still
-     * needs to see what it is about to play.</p>
+     * <p>主机可以选择类型和地图并开始游戏；获得服务器控制权的客户端可以选择地图，但不能选择类型；其他客户端只能旁观。
+     * 隐藏地图和类型控件时会显示游戏摘要，因为客户端仍需了解即将开始的游戏内容。</p>
      */
     private void updateControlVisibility() {
         boolean host = network.isServer;
@@ -723,6 +685,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             boolean locked = network.gameSetup != null && network.gameSetup.teamsLocked;
             show(findViewById(R.id.battleroom_changeTeam), locked ? View.GONE : View.VISIBLE);
             show(findViewById(R.id.battleroom_otherGameOptions), View.GONE);
+            show(findViewById(R.id.battleroom_rwmlRules), View.GONE);
             show(findViewById(R.id.battleroom_addAI), View.GONE);
             show(findViewById(R.id.battleroom_startNetButton), View.GONE);
             show(gameSummary, View.VISIBLE);
@@ -731,12 +694,14 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             show(typeLayout, proxy ? View.GONE : View.VISIBLE);
             show(findViewById(R.id.battleroom_changeTeam), View.GONE);
             show(findViewById(R.id.battleroom_otherGameOptions), View.VISIBLE);
+            show(findViewById(R.id.battleroom_rwmlRules),
+                host && gameRulesUi() != null ? View.VISIBLE : View.GONE);
             show(findViewById(R.id.battleroom_addAI), View.VISIBLE);
             show(findViewById(R.id.battleroom_startNetButton), View.VISIBLE);
             show(gameSummary, View.GONE);
         }
 
-        // Only the host sets the game type; whoever may set the map is who the engine allows.
+        // 只有主机能设置游戏类型；可以设置地图的玩家由引擎决定。
         if (typeSpinner != null) {
             typeSpinner.setEnabled(host);
         }
@@ -744,22 +709,20 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             mapSpinner.setEnabled(host || proxy);
         }
 
-        // A game the player hosts alone has nobody to talk to, so the chat panel is not shown for it.
+        // 玩家单独创建的游戏没有其他聊天对象，因此不显示聊天面板。
         show(findViewById(R.id.chatLogWrap),
             network.singlePlayerServer ? View.GONE : View.VISIBLE);
     }
 
     // ------------------------------------------------------------------
-    // Drawing the room
+    // 绘制对战房间
     // ------------------------------------------------------------------
 
     /**
-     * Redraws everything the engine may have changed. Safe to call from any thread.
+     * 重绘引擎可能已更改的所有内容。可从任意线程安全调用。
      *
-     * <p>This is the room's answer to the engine's own update call, which redraws the server info,
-     * the player list and what the state of the game decides to show; the poll covers the same
-     * ground because the engine's call reaches the game's own screen, which this host does not
-     * open.</p>
+     * <p>此方法对应房间对引擎更新调用的处理，会重绘服务器信息、玩家列表，以及根据游戏状态决定显示的内容。定时轮询覆盖相同内容，因为引擎的更新调用会到达
+     * 游戏自身界面，而本宿主不会打开该界面。</p>
      */
     public void refresh() {
         if (isFinishing() || network == null) {
@@ -776,15 +739,11 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * The game's own summary of the room, in the two places the game's own screen puts it.
+     * 按游戏原生界面的两个位置显示房间摘要。
      *
-     * <p>The text is the engine's {@code getGameInfoText}, the same build-up the game's own screen
-     * shows: the addresses and port the server is reachable on, whether it is open to the internet,
-     * and the game's mode, map, credits, fog, starting units, income and restrictions. The host
-     * reads it in the status line above the room and everybody else in the summary beside the map,
-     * which is the split the game's own screen makes; a client's status line is empty, and a client
-     * that has been given the host's controls reads neither, because the room then shows the
-     * controls instead.</p>
+     * <p>文本来自引擎的 {@code getGameInfoText}，与游戏原生界面显示的内容相同：服务器地址和端口、是否允许互联网连接，以及游戏模式、地图、信用点、
+     * 战争迷雾、初始单位、收入和限制。主机会在房间上方状态栏中看到这些信息，其他玩家则会在地图旁的摘要中看到；客户端的状态栏为空，
+     * 获得主机控制权的客户端两处都不显示，因为房间会改为显示控制项。</p>
      */
     private void updateStatus() {
         String info;
@@ -803,13 +762,10 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * Moves the map dropdown onto the map the engine holds.
+     * 将地图下拉框切换到引擎当前使用的地图。
      *
-     * <p>The server owns the map, so a client's dropdown has to show what the server chose rather
-     * than what the client last clicked. A client that has just been handed the host's controls gets
-     * the same move once, which is the game's own arrangement: the player was watching the server's
-     * choices up to that moment, and the first thing the controls should show is the game as it
-     * stands. After that the dropdown is theirs to move.</p>
+     * <p>地图由服务器决定，因此客户端下拉框必须显示服务器的选择，而不是客户端最近点击的选项。客户端刚获得主机控制权时也会执行一次同样的切换，
+     * 与游戏自身行为一致：在此之前玩家一直旁观服务器的选择，因此首次显示控制项时应展示当前游戏状态。之后即可由玩家修改下拉框。</p>
      */
     private void syncMapSelection() {
         if (network.isServer) {
@@ -822,12 +778,10 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * Shows the map the game will load, which the game's own screen shows beside the map dropdown.
+     * 显示游戏即将加载的地图，与游戏原生界面一样放在地图下拉框旁边。
      *
-     * <p>The map's path comes from the engine, which builds it out of the game setup the same way
-     * for the host and for a client, and the image is the one the map keeps beside itself under a
-     * matching name, read through the engine's file layer so the maps a mod adds are found too. A
-     * thumbnail larger than the game's own limit is refused, and so is a map without one.</p>
+     * <p>地图路径由引擎根据游戏配置生成，主机和客户端使用相同规则。地图图片会以对应名称保存在地图旁边，并通过引擎文件层读取，以便找到模组添加的地图。
+     * 缩略图超过游戏自身尺寸上限时会被拒绝，没有缩略图的地图也不会显示图片。</p>
      */
     private void updateThumbnail() {
         if (thumbnail == null) {
@@ -845,7 +799,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             return;
         }
         if (path.equals(thumbnailPath)) {
-            // The same map is already loaded behind the hidden image, so it only has to be shown.
+            // 隐藏图片后方已经加载了相同地图，因此只需显示图片。
             thumbnail.setVisibility(View.VISIBLE);
             return;
         }
@@ -861,7 +815,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                 return;
             }
             if (image.getWidth() > 500 || image.getHeight() > 500) {
-                // The game's own limit, because a full map image is not what a thumbnail is for.
+                // 使用游戏自身的尺寸上限，因为完整地图图片不应作为缩略图使用。
                 image.recycle();
                 return;
             }
@@ -875,19 +829,17 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                 try {
                     stream.close();
                 } catch (Throwable ignored) {
-                    // A thumbnail that will not close is not worth failing the room over.
+                    // 无法关闭缩略图不应导致整个房间界面加载失败。
                 }
             }
         }
     }
 
     /**
-     * The player table, one row per player: name, spawn point, team and ping.
+     * 玩家表格，每个玩家一行：名称、出生点、队伍和延迟。
      *
-     * <p>The rows are the table's children that the layout did not name, which is how the game's own
-     * screen tells its rows from the heading and how the heading survives a redraw. Each row shows the
-     * player's colour on the name and their team's colour on the spawn point and the team column, and
-     * the row of the player at this device is bold and can be tapped to change teams.</p>
+     * <p>各行是布局中未命名的表格子视图，游戏原生界面也用这种方式区分数据行和标题，并在重绘时保留标题。每行会以玩家颜色显示名称，
+     * 并以队伍颜色显示出生点和队伍列；当前设备所对应玩家的行会加粗，并可点击更改队伍。</p>
      */
     private void updatePlayers() {
         if (playerTable == null) {
@@ -910,14 +862,13 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
 
             TextView name = addCell(row, nameOf(team), 1);
             name.setTypeface(null, team.isLocalPlayerTeam() ? Typeface.BOLD : Typeface.NORMAL);
-            // A player who has been given a colour is shown in it, and everyone else in white.
+            // 已分配颜色的玩家显示为该颜色，其他玩家显示为白色。
             name.setTextColor(team.colorOverride == null
                 ? Color.WHITE : Team.lookupTeamColor(team.colorOverride));
 
             TextView spawn = addCell(row, spawnOf(team), 2);
             spawn.setTypeface(null, Typeface.BOLD);
-            // A spectator's spawn point is coloured as the spectator colour, and everyone else's by
-            // the side their spawn point number puts them on.
+            // 观战者的出生点使用观战者颜色显示，其他玩家则根据其出生点所属阵营着色。
             spawn.setTextColor(team.allyTeam == -3
                 ? Team.lookupTeamColor(-3) : Team.getAllyTeamColor(team.teamId));
 
@@ -937,11 +888,9 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * Where a player will start.
+     * 玩家将从何处开始。
      *
-     * <p>The spawn points are numbered from one and a spectator has none. A player who has been given
-     * more or fewer starting units than the game is set to is told which, because the spawn point
-     * alone does not say what they will begin with.</p>
+     * <p>出生点从 1 开始编号，观战者没有出生点。如果玩家分配到的初始单位数量与游戏设置不同，界面会特别说明，因为仅凭出生点无法看出玩家的初始单位数量。</p>
      */
     private String spawnOf(Team team) {
         if (team.isSpectator()) {
@@ -961,7 +910,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         }
     }
 
-    /** Takes one cell from the spare pool, or makes one, and puts it in a row at a column. */
+    /** 从备用池取出或新建一个单元格，并将其放入指定行列。 */
     private TextView addCell(TableRow row, String text, int column) {
         TextView view = null;
         for (int i = spareCells.size() - 1; i >= 0; i--) {
@@ -990,7 +939,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         return view;
     }
 
-    /** Takes every cell back out of its row, so the next redraw can reuse it. */
+    /** 将一行中的所有单元格回收到备用池，供下次重绘复用。 */
     private void markAllActiveCellsDeleted() {
         for (int i = activeCells.size() - 1; i >= 0; i--) {
             Cell cell = activeCells.get(i);
@@ -1001,7 +950,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         activeCells.clear();
     }
 
-    /** One cell of the player table, kept so that the next redraw reuses its view. */
+    /** 玩家表格中的一个单元格，保留其视图以便下次重绘复用。 */
     private static final class Cell {
         int column;
         TableRow row;
@@ -1018,30 +967,25 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                 chatLog.setText(rendered);
             }
         } catch (Throwable t) {
-            // The log is the engine's; a log that will not render must not take the room with it.
+            // 日志由引擎提供；日志无法渲染时，不应连带关闭整个房间界面。
             Log.w(TAG, "The chat log could not be rendered.", t);
         }
     }
 
     // ------------------------------------------------------------------
-    // Acting on the room
+    // 房间操作
     // ------------------------------------------------------------------
 
     /**
-     * The start button: the host starts, and a client that holds the host's controls asks for it.
+     * 开始按钮：主机直接开始游戏，持有主机控制权的客户端则发送开始请求。
      *
-     * <p>The engine is what decides whether a game can start, because it is what knows which clients
-     * are ready. Its own call answers whether the start was accepted and announces the result through
-     * {@link HostNetworkCallbacks}, which is where the map is loaded and the play screen opened. The
-     * game's own screen asks with the start command when it is not the server itself, which reaches
-     * the same sequence on the other end; any other client has no start to press, because the button
-     * is hidden for it.</p>
+     * <p>游戏是否可以开始由引擎决定，因为只有引擎知道哪些客户端已就绪。引擎调用会返回是否接受开始请求，并通过
+     * {@link HostNetworkCallbacks} 发布结果；该回调负责加载地图并打开游戏界面。游戏原生界面在当前设备不是服务器时会使用开始命令发送请求，
+     * 服务器端会执行相同流程；其他客户端没有可点击的开始按钮，因为该按钮对它们是隐藏的。</p>
      *
-     * <p>Before the engine is asked, the map path it will read is written from the game setup, because
-     * that is what the game's own script does: {@code gameSetup.mapName} holds the bare name and
-     * {@code networkEngine.mapName} holds the path the engine loads, and the two are kept apart so the
-     * dropdown can show one while the engine reads the other. A start without the path leaves the
-     * engine writing a null map name to the network, which is the crash this guards.</p>
+     * <p>向引擎发起请求前，会根据游戏配置写入待加载的地图路径，因为游戏自身脚本也是这样处理的：{@code gameSetup.mapName} 保存纯名称，
+     * {@code networkEngine.mapName} 保存引擎加载所用路径。两者分开保存，使下拉框能显示名称，而引擎读取路径。若开始游戏时没有该路径，
+     * 引擎就会向网络写入 null 地图名称，进而崩溃；此处用于防止该问题。</p>
      */
     private void startPressed() {
         if (network.isServer) {
@@ -1051,8 +995,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                     Toast.makeText(this, LocalizedText.ui("ui.noMap"), Toast.LENGTH_SHORT).show();
                     return;
                 }
-                // The path the engine loads, derived from the type the way the game's own script derives
-                // it. A type the engine does not carry a path for is a start that cannot be made.
+                // 按照游戏自身脚本的规则，根据类型生成引擎要加载的路径。引擎没有对应路径的类型无法启动。
                 if (network.gameSetup.mapType == GameSetupMapType.skirmishMap) {
                     network.mapName = SKIRMISH_FOLDER + "/" + bareName;
                 } else if (network.gameSetup.mapType == GameSetupMapType.customMap) {
@@ -1063,8 +1006,18 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                     Toast.makeText(this, LocalizedText.ui("ui.noMapType"), Toast.LENGTH_SHORT).show();
                     return;
                 }
-                if (!network.startGame()) {
-                    Toast.makeText(this, LocalizedText.ui("ui.waitingPlayers"), Toast.LENGTH_SHORT).show();
+                GameRulesUi rules = gameRulesUi();
+                if (rules == null) {
+                    if (!network.startGame()) {
+                        Toast.makeText(this, LocalizedText.ui("ui.waitingPlayers"), Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    rules.startGame(new GameRulesUi.Callback() {
+                        @Override public void onSuccess(GameRulesUi.Snapshot snapshot) { refresh(); }
+                        @Override public void onFailure(String message) {
+                            showRulesFailure(message);
+                        }
+                    });
                 }
             } catch (Throwable t) {
                 Log.e(TAG, "The game could not be started.", t);
@@ -1080,9 +1033,20 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         refresh();
     }
 
-    /** Adds a computer player, which the engine replicates to the clients. */
+    /** 添加电脑玩家，由引擎同步到各客户端。 */
     private void addAI() {
         if (network.isServer) {
+            GameRulesUi rules = gameRulesUi();
+            if (rules != null) {
+                rules.addAi(GameRulesUi.AiOptions.defaults(), new GameRulesUi.Callback() {
+                    @Override public void onSuccess(GameRulesUi.Snapshot snapshot) { refresh(); }
+                    @Override public void onFailure(String message) {
+                        runOnUiThread(() -> Toast.makeText(MultiplayerBattleroomActivity.this,
+                            LocalizedText.ui("ui.addAiFailed") + " " + message, Toast.LENGTH_LONG).show());
+                    }
+                });
+                return;
+            }
             try {
                 network.addAIToGame();
             } catch (Throwable t) {
@@ -1091,7 +1055,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                 return;
             }
         } else if (network.proxyController) {
-            // The game's own arrangement: the host's controls ask with the game's own command.
+            // 沿用游戏自身处理方式：主机控制界面通过游戏命令发起请求。
             try {
                 network.sendChatCommand("-addai");
             } catch (Throwable t) {
@@ -1103,7 +1067,189 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         refresh();
     }
 
-    /** Moves the local player to another team, which the engine sends to the server. */
+    private GameRulesUi gameRulesUi() {
+        try {
+            return Rwml.get() == null ? null : Rwml.get().ui().find(GameRulesUi.class);
+        } catch (Throwable failure) {
+            Log.w(TAG, "The game-rule UI service is not available.", failure);
+            return null;
+        }
+    }
+
+    private void showGameRules() {
+        GameRulesUi rules = gameRulesUi();
+        if (rules == null) {
+            Toast.makeText(this, LocalizedText.ui("ui.rulesUnavailable"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        rules.refresh(new GameRulesUi.Callback() {
+            @Override public void onSuccess(GameRulesUi.Snapshot snapshot) {
+                runOnUiThread(() -> showGameRulesDialog(rules, snapshot));
+            }
+            @Override public void onFailure(String message) { showRulesFailure(message); }
+        });
+    }
+
+    private void showGameRulesDialog(GameRulesUi rules, GameRulesUi.Snapshot snapshot) {
+        if (isFinishing() || !snapshot.available()) {
+            Toast.makeText(this, LocalizedText.ui("ui.rulesUnavailable"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!snapshot.canEditRules()) {
+            Toast.makeText(this, LocalizedText.ui("ui.hostOnly"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dip(18), dip(8), dip(18), dip(8));
+        scroll.addView(content);
+
+        TextView modeLabel = new TextView(this);
+        modeLabel.setText(LocalizedText.ui("ui.rulesMode"));
+        content.addView(modeLabel);
+        Spinner modeSpinner = new Spinner(this);
+        List<Option> modes = new ArrayList<>();
+        modes.add(new Option("", LocalizedText.ui("ui.rulesMapMode"), null));
+        for (GameRulesUi.ModeOption mode : snapshot.baseModes()) {
+            modes.add(new Option(mode.id(), mode.displayName(), null));
+        }
+        modeSpinner.setAdapter(new OptionAdapter(modes));
+        choose(modeSpinner, snapshot.activeBaseModeId() == null ? "" : snapshot.activeBaseModeId());
+        content.addView(modeSpinner);
+
+        TextView speedLabel = new TextView(this);
+        content.addView(speedLabel);
+        SeekBar speed = new SeekBar(this);
+        speed.setMax(100);
+        speed.setProgress(Math.max(0, Math.min(100, Math.round(snapshot.gameSpeed() * 20f))));
+        speedLabel.setText(LocalizedText.ui("ui.rulesSpeed", String.format(Locale.US, "%.2fx", speed.getProgress() / 20f)));
+        speed.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                speedLabel.setText(LocalizedText.ui("ui.rulesSpeed", String.format(Locale.US, "%.2fx", progress / 20f)));
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) { }
+            @Override public void onStopTrackingTouch(SeekBar seekBar) { }
+        });
+        content.addView(speed);
+
+        TextView banLabel = new TextView(this);
+        banLabel.setPadding(0, dip(10), 0, dip(4));
+        banLabel.setText(LocalizedText.ui("ui.rulesBanUnits"));
+        content.addView(banLabel);
+        Set<String> banned = new HashSet<>(snapshot.bannedUnitIds());
+        Set<String> listedIds = new HashSet<>();
+        List<CheckBox> checks = new ArrayList<>();
+        List<String> checkIds = new ArrayList<>();
+        for (GameRulesUi.UnitOption unit : snapshot.units()) {
+            addBanUnitCheck(content, checks, checkIds, listedIds, banned, unit.id(), unit.displayName());
+        }
+        // Keep bans for unit types from currently unavailable mods instead of silently dropping them.
+        for (String id : banned) {
+            if (!listedIds.contains(id)) addBanUnitCheck(content, checks, checkIds, listedIds, banned, id, id);
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle(LocalizedText.ui("ui.rulesTitle"))
+            .setView(scroll)
+            .setPositiveButton(LocalizedText.ui("ui.apply"), null)
+            .setNegativeButton(LocalizedText.ui("common.cancel"), null)
+            .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(clicked -> {
+            List<String> selectedBans = new ArrayList<>();
+            for (int index = 0; index < checks.size(); index++) {
+                if (checks.get(index).isChecked()) selectedBans.add(checkIds.get(index));
+            }
+            Option selectedMode = (Option) modeSpinner.getSelectedItem();
+            String modeId = selectedMode == null || selectedMode.value.isEmpty() ? null : selectedMode.value;
+            float multiplier = speed.getProgress() / 20f;
+            rules.apply(new GameRulesUi.Options(modeId, multiplier, selectedBans), new GameRulesUi.Callback() {
+                @Override public void onSuccess(GameRulesUi.Snapshot updated) {
+                    runOnUiThread(() -> {
+                        dialog.dismiss();
+                        refresh();
+                    });
+                }
+                @Override public void onFailure(String message) { showRulesFailure(message); }
+            });
+        }));
+        dialog.show();
+    }
+
+    private void addBanUnitCheck(LinearLayout parent, List<CheckBox> checks, List<String> checkIds,
+        Set<String> listedIds, Set<String> banned, String id, String name) {
+        if (id == null || id.isEmpty() || !listedIds.add(id)) return;
+        CheckBox check = new CheckBox(this);
+        check.setText(name);
+        check.setChecked(banned.contains(id));
+        parent.addView(check);
+        checks.add(check);
+        checkIds.add(id);
+    }
+
+    private void showRulesFailure(String message) {
+        runOnUiThread(() -> Toast.makeText(this,
+            LocalizedText.ui("ui.rulesFailedPrefix") + message, Toast.LENGTH_LONG).show());
+    }
+
+    private void showAiPauseControl(View content, Team team) {
+        Button control = content.findViewById(R.id.rwml_aiPauseResume);
+        GameRulesUi rules = gameRulesUi();
+        if (control == null || !team.isAI || !network.isServer || rules == null) {
+            show(control, View.GONE);
+            return;
+        }
+        control.setEnabled(false);
+        show(control, View.VISIBLE);
+        final boolean[] paused = {false};
+        rules.refresh(new GameRulesUi.Callback() {
+            @Override public void onSuccess(GameRulesUi.Snapshot snapshot) {
+                runOnUiThread(() -> {
+                    GameRulesUi.AiOption ai = findAi(snapshot, team.teamId);
+                    if (ai == null) {
+                        show(control, View.GONE);
+                        return;
+                    }
+                    paused[0] = ai.paused();
+                    control.setText(LocalizedText.ui(paused[0] ? "ui.aiResume" : "ui.aiPause"));
+                    control.setEnabled(snapshot.canManageAi());
+                });
+            }
+            @Override public void onFailure(String message) { showRulesFailure(message); }
+        });
+        control.setOnClickListener(clicked -> {
+            control.setEnabled(false);
+            rules.setAiPaused(team.teamId, !paused[0], new GameRulesUi.Callback() {
+                @Override public void onSuccess(GameRulesUi.Snapshot snapshot) {
+                    runOnUiThread(() -> {
+                        GameRulesUi.AiOption ai = findAi(snapshot, team.teamId);
+                        if (ai == null) {
+                            show(control, View.GONE);
+                            return;
+                        }
+                        paused[0] = ai.paused();
+                        control.setText(LocalizedText.ui(paused[0] ? "ui.aiResume" : "ui.aiPause"));
+                        control.setEnabled(snapshot.canManageAi());
+                        refresh();
+                    });
+                }
+                @Override public void onFailure(String message) {
+                    runOnUiThread(() -> control.setEnabled(true));
+                    showRulesFailure(message);
+                }
+            });
+        });
+    }
+
+    private static GameRulesUi.AiOption findAi(GameRulesUi.Snapshot snapshot, int teamId) {
+        for (GameRulesUi.AiOption ai : snapshot.ais()) {
+            if (ai.teamId() == teamId) return ai;
+        }
+        return null;
+    }
+
+    /** 将本地玩家移至另一队伍，并由引擎发送到服务器。 */
     private void changeTeam() {
         final Team local = network.localTeam;
         if (local == null) {
@@ -1132,7 +1278,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             .show();
     }
 
-    /** Sends the chat line the player typed. */
+    /** 发送玩家输入的聊天内容。 */
     private void sendChat() {
         if (chatText == null) {
             return;
@@ -1152,31 +1298,24 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // One player's settings
+    // 单个玩家的设置
     // ------------------------------------------------------------------
 
     /**
-     * The dialog that edits one player: where they start, who they are allied with, how hard their
-     * computer is, what they begin with and what colour they are.
+     * 编辑单个玩家设置的对话框：选择出生点、盟友、电脑难度、初始配置和玩家颜色。
      *
-     * <p>It is the game's own dialog, over the game's own layout, with the game's own dropdowns. Each
-     * dropdown holds values rather than positions, because the values are what the engine is given:
-     * the spawn point and the side are numbers, and a dropdown that means "leave this as the game
-     * has it" carries the value -99, which is what the engine reads back as no override at all.</p>
+     * <p>该对话框沿用游戏自身的布局和下拉框。每个下拉框保存实际值而非列表位置，因为传给引擎的就是这些值：出生点和阵营使用数字表示；
+     * 表示“保持游戏当前设置”的选项会携带 -99，供引擎识别为不覆盖设置。</p>
      *
-     * <p>What the dialog offers is what the player's role allows. Only the host writes the
-     * per-player overrides, so the whole override section is hidden from everyone else. A computer
-     * player has a difficulty and a human one does not. Handing a player over is the one thing a
-     * client that was given the host's controls can do, so the button is theirs alone, and a player
-     * cannot be kicked from their own row.</p>
+     * <p>对话框中的可用选项取决于玩家身份。只有主机能写入单个玩家的覆盖设置，因此其他玩家看不到整个覆盖设置区域。电脑玩家可以设置难度，
+     * 人类玩家则没有该选项。获得主机控制权的客户端唯一能做的是移交玩家控制权，因此只有它能看到相应按钮；玩家也不能从自己的行中将自己踢出。</p>
      */
     private void showPlayerPopup(final Team team) {
         if (network == null || team == null) {
             return;
         }
         final boolean ownRow = network.localTeam == team;
-        // The host sets the game up; everyone else may only edit their own row, and only while the
-        // teams have not been locked, which is what locking them means.
+        // 只有主机可以设置游戏；其他玩家只能编辑自己的行，且必须在队伍锁定前操作。锁定队伍意味着禁止此类更改。
         if (!network.canChangeGameSetup()
             && !(ownRow && network.gameSetup != null && !network.gameSetup.teamsLocked)) {
             return;
@@ -1187,7 +1326,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         final Dialog dialog = new Dialog(this);
         dialog.setContentView(content);
         dialog.setTitle(LocalizedText.ui("ui.playerPrefix") + nameOf(team));
-        // The dialog has a field at its top, so the window pans rather than resizing the layout.
+        // 对话框顶部有输入框，因此打开键盘时平移窗口，而不是调整布局大小。
         dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
 
         final Spinner spawn = content.findViewById(R.id.teamId);
@@ -1200,8 +1339,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         choose(spawn, team.isSpectator() ? "-3" : Integer.toString(team.teamId));
 
         setupTeamAllyDropdown(ally);
-        // A player whose side is the one their spawn point puts them on is on the automatic setting,
-        // which is where the host left it.
+        // 如果玩家的阵营与出生点所属阵营一致，就使用自动设置，也就是主机未手动更改的默认状态。
         choose(ally, team.teamId % 2 == team.allyTeam ? "0" : Integer.toString(team.allyTeam + 1));
 
         setupAIDifficultyDropdown(difficulty);
@@ -1215,13 +1353,13 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         setupPlayerColorDropdown(color, team);
         choose(color, team.colorOverride == null ? "-99" : Integer.toString(team.colorOverride));
 
-        // The overrides are the host's to write, and a difficulty only means something for a computer.
+        // 只有主机能写入覆盖设置；难度仅对电脑玩家有意义。
         show(content.findViewById(R.id.playerOverridesSection),
             network.isServer ? View.VISIBLE : View.GONE);
         show(content.findViewById(R.id.aiDifficultyWrap),
             team.isAI ? View.VISIBLE : View.GONE);
-        // The team dropdown follows the spawn point where the host has not chosen otherwise, which is
-        // only a thing a client with the host's controls may do.
+        showAiPauseControl(content, team);
+        // 主机未另行选择时，队伍下拉框会根据出生点自动确定阵营；只有获得主机控制权的客户端可以执行该操作。
         show(content.findViewById(R.id.teamAllyGroupWrap),
             !network.canChangeGameSetup() && network.gameSetup != null
                 && network.gameSetup.teamsLocked ? View.GONE : View.VISIBLE);
@@ -1252,11 +1390,9 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * Where a player starts: every spawn point, grouped by the side it belongs to, and the
-     * spectator entry.
+     * 玩家出生位置：按阵营分组显示所有出生点，并提供观战选项。
      *
-     * <p>The labels are the numbers the player sees in the game with the side spelled out, while the
-     * values are the slot numbers the engine is given, which is why the two differ by one.</p>
+     * <p>标签显示玩家在游戏中看到的编号和阵营名称；值则是传给引擎的槽位编号，因此两者相差一。</p>
      */
     private void setupSpawnPositionDropdown(Spinner spinner) {
         List<Option> options = new ArrayList<>();
@@ -1272,10 +1408,9 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * Who a player is allied with.
+     * 玩家与哪一方结盟。
      *
-     * <p>The first entry leaves it to the spawn point, which is what the engine does when it is not
-     * told otherwise. The rest are the sides, each in the colour of that side.</p>
+     * <p>第一项表示根据出生点自动确定阵营，这是引擎未收到其他设置时的默认行为。其余选项对应各个阵营，并使用相应阵营的颜色显示。</p>
      */
     private void setupTeamAllyDropdown(Spinner spinner) {
         List<Option> options = new ArrayList<>();
@@ -1287,7 +1422,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         spinner.setAdapter(new OptionAdapter(options));
     }
 
-    /** How hard a computer player is, plus the entry that leaves it as the game has it. */
+    /** 电脑玩家的难度，以及游戏提供的默认难度选项。 */
     private void setupAIDifficultyDropdown(Spinner spinner) {
         List<Option> options = new ArrayList<>();
         options.add(new Option("-99", LocalizedText.word("menus.settings.option.default", "Default"), null));
@@ -1298,7 +1433,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         spinner.setAdapter(new OptionAdapter(options));
     }
 
-    /** What a player begins with, taken from the engine's own list of what a game may start with. */
+    /** 玩家开局资源，取自引擎提供的可选开局资源列表。 */
     private void setupStartingUnitsDropdown(Spinner spinner) {
         List<Option> options = new ArrayList<>();
         options.add(new Option("-99", LocalizedText.word("menus.settings.option.default", "Default"), null));
@@ -1317,10 +1452,9 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * The colours a player may be given, with the ones another player already has marked as taken.
+     * 玩家可选颜色；已分配给其他玩家的颜色会标记为占用。
      *
-     * <p>A colour that is taken cannot be chosen, so it is shown greyed out and behind the value that
-     * means no choice at all: the dropdown falls back to the game's own colour for that player.</p>
+     * <p>已被占用的颜色不可选择，因此会灰显，并放在代表不指定颜色的选项之后：下拉框会回退到游戏为该玩家分配的颜色。</p>
      */
     private void setupPlayerColorDropdown(Spinner spinner, Team team) {
         List<Option> options = new ArrayList<>();
@@ -1342,8 +1476,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                     + label.substring(1).toLowerCase(Locale.US);
             }
             if (taken) {
-                // The grey the engine paints a colour that cannot be had, and the value that leaves
-                // the player in the game's own colour rather than in one that is spoken for.
+                // 使用引擎绘制不可用颜色时的灰色；该值会让玩家保留游戏分配的颜色，而不是使用已被占用的颜色。
                 options.add(new Option("-99", label + " (used)", Team.lookupTeamColor(TAKEN_COLOR)));
             } else {
                 options.add(new Option(Integer.toString(value), label, Team.lookupTeamColor(value)));
@@ -1352,26 +1485,22 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         spinner.setAdapter(new OptionAdapter(options));
     }
 
-    /** The colour the engine paints an option that is spoken for. */
+    /** 引擎用于标记已被占用选项的颜色。 */
     private static final int TAKEN_COLOR = -7829368;
 
     /**
-     * Writes the dialog's choices back to the engine.
+     * 将对话框中的选择写回引擎。
      *
-     * <p>Every change goes through the engine's own calls rather than through the fields, because
-     * those calls are what the other players are told about: moving a player sends the move to the
-     * server when this device is only a client, and the engine decides what that means. A client that
-     * was given the host's controls asks for the change with the game's own command; any other client
-     * may only change itself, and only its own row.</p>
+     * <p>每项改动都通过引擎自身方法执行，而不是直接修改字段，因为其他玩家只会收到这些方法广播的变更：当前设备只是客户端时，移动玩家会将移动请求发送给服务器，
+     * 具体含义由引擎决定。获得主机控制权的客户端会使用游戏自身命令请求修改；其他客户端只能更改自己，且只能编辑自己的行。</p>
      *
-     * <p>The spawn point and the side are decided together, because the side may follow the spawn
-     * point: choosing the automatic side means the side the spawn point belongs to, which is what the
-     * engine records as the slot deciding it.</p>
+     * <p>出生点和阵营需要一起决定，因为阵营可以跟随出生点：选择自动阵营时，阵营由出生点所属阵营决定；引擎会将其记录为由槽位决定。</p>
      */
     private void applyPlayerPopup(Team team, Spinner spawn, Spinner ally, Spinner difficulty,
         Spinner units, Spinner color) {
         try {
             boolean mayChangeSide = false;
+            boolean aiDifficultyHandledByApi = false;
 
             int slot = chosen(spawn, 0);
             boolean spectator = slot == -3;
@@ -1410,8 +1539,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                     team.allyTeam = side;
                 } else if (network.proxyController || ownRow(team)) {
                     mayChangeSide = false;
-                    // The engine turns this into the game's own move command, which is how a client
-                    // asks for a move rather than performing one.
+                    // 引擎会将其转换为游戏自身的移动命令，客户端据此请求移动，而不是直接执行移动。
                     network.sendMoveTeamCommand(team, slot,
                         sideFollowsSlot ? Integer.valueOf(-1) : Integer.valueOf(side));
                 } else {
@@ -1422,7 +1550,16 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             if (team.isAI) {
                 Integer level = override(chosen(difficulty, -99));
                 if (!equal(team.aiDifficultyOverride, level) && network.isServer) {
-                    team.aiDifficultyOverride = level;
+                    GameRulesUi rules = gameRulesUi();
+                    if (rules == null) {
+                        team.aiDifficultyOverride = level;
+                    } else {
+                        aiDifficultyHandledByApi = true;
+                        rules.setAiDifficulty(team.teamId, level, new GameRulesUi.Callback() {
+                            @Override public void onSuccess(GameRulesUi.Snapshot snapshot) { refresh(); }
+                            @Override public void onFailure(String message) { showRulesFailure(message); }
+                        });
+                    }
                 }
             }
             Integer startingUnits = override(chosen(units, -99));
@@ -1438,13 +1575,12 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
                 if (network.isServer) {
                     team.allyTeam = side;
                 } else {
-                    // A side that follows the spawn point is asked for as "no side", which is what
-                    // the engine reads as the slot deciding it.
+                    // 若阵营跟随出生点，则传入“未指定阵营”，由引擎根据槽位决定阵营。
                     network.sendSetTeamCommand(team, sideFollowsSlot ? -1 : side);
                 }
             }
 
-            network.updateAIDifficulty();
+            if (!aiDifficultyHandledByApi) network.updateAIDifficulty();
             network.assignTeamDisplaySlots();
             refresh();
         } catch (Throwable t) {
@@ -1453,9 +1589,17 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         }
     }
 
-    /** Asks before a player is taken off the server, which is what the original asks before it. */
+    /** 移除服务器上的玩家前显示确认提示，与原界面的行为一致。 */
     private void confirmKick(final Team team) {
         Runnable kick = () -> {
+            GameRulesUi rules = team.isAI && network.isServer ? gameRulesUi() : null;
+            if (rules != null) {
+                rules.removeAi(team.teamId, new GameRulesUi.Callback() {
+                    @Override public void onSuccess(GameRulesUi.Snapshot snapshot) { refresh(); }
+                    @Override public void onFailure(String message) { showRulesFailure(message); }
+                });
+                return;
+            }
             try {
                 network.kickTeamAndAttachedPlayer(team);
             } catch (Throwable t) {
@@ -1477,10 +1621,9 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * Asks before control of a player is handed over, and hands it over with the game's own command.
+     * 在移交玩家控制权前询问用户，并使用游戏自身命令执行移交。
      *
-     * <p>The command is the engine's, because a client cannot write to the server's player list
-     * itself; this is the same path the game's own script takes.</p>
+     * <p>移交操作使用引擎提供的命令，因为客户端无法直接写入服务器的玩家列表；这与游戏自身脚本使用的流程相同。</p>
      */
     private void confirmGive(final Team team) {
         new AlertDialog.Builder(this)
@@ -1504,12 +1647,12 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             .show();
     }
 
-    /** @return whether the player is the one this device is playing */
+    /** @return 该玩家是否为本设备当前操控的玩家 */
     private boolean ownRow(Team team) {
         return network.localTeam == team;
     }
 
-    /** @return the value of the selected entry, or {@code fallback} when there is none */
+    /** @return 当前选项的值；未选择时返回 {@code fallback} */
     private static int chosen(Spinner spinner, int fallback) {
         if (spinner == null) {
             return fallback;
@@ -1525,7 +1668,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         }
     }
 
-    /** Puts a dropdown on the entry with a value, which is how the current setting is shown. */
+    /** 根据给定值设置下拉框选项，以显示当前设置。 */
     private static void choose(Spinner spinner, String value) {
         if (spinner == null) {
             return;
@@ -1542,7 +1685,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         Log.d(TAG, "No dropdown entry holds the value " + value + ".");
     }
 
-    /** @return the value the engine reads as no override at all, as {@code null} */
+    /** @return 引擎用于表示不覆盖设置的值，即 {@code null} */
     private static Integer override(int value) {
         return value == -99 ? null : Integer.valueOf(value);
     }
@@ -1552,11 +1695,9 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * One dropdown entry.
+     * 一个下拉框选项。
      *
-     * <p>The value is what the engine is given and the label is what the player reads, and the two
-     * are kept apart because a dropdown that means "leave this alone" shows the game's word for it
-     * while carrying a value that is not a choice at all.</p>
+     * <p>值会传给引擎，标签则供玩家查看，两者分开保存，因为表示“保持不变”的下拉选项会显示游戏对应文本，但其值并非实际选项。</p>
      */
     private static final class Option {
         final String value;
@@ -1575,7 +1716,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         }
     }
 
-    /** The dropdown, which paints an entry in the colour that entry stands for. */
+    /** 下拉框会用选项对应的颜色绘制当前条目。 */
     private final class OptionAdapter extends ArrayAdapter<Option> {
         OptionAdapter(List<Option> entries) {
             super(MultiplayerBattleroomActivity.this,
@@ -1597,18 +1738,15 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // The game options
+    // 游戏选项
     // ------------------------------------------------------------------
 
     /**
-     * The game's own options dialog, written back through the engine's changeable setup.
+     * 游戏自身的选项对话框，通过引擎的可变设置写回选项。
      *
-     * <p>The dialog is the host's and the proxy controller's: the changeable setup the engine hands
-     * out is the live game setup on a server and a copy on a client holding the host's controls, and
-     * applying it either writes and announces the change or asks for it with the game's own commands.
-     * The team layout is the one control the dialog keeps from a client holding the controls, which
-     * is the game's own arrangement, and the revealed-map box is one the game's own dialog does not
-     * show at all. The two buttons are the layout's own, as they are in the game's own screen.</p>
+     * <p>此对话框仅供主机和代理控制器使用：服务器上，引擎提供的可变设置就是当前游戏配置；客户端获得主机控制权后，该设置则是当前配置的副本。
+     * 应用设置时，服务器会写入并广播改动，客户端则会使用游戏自身命令发起请求。对话框会保留获得控制权的客户端可见的队伍布局控件，
+     * 与游戏自身行为一致；游戏原生对话框完全不显示已揭示地图复选框。两个按钮也沿用布局和游戏界面中的原有按钮。</p>
      */
     private void showGameOptions() {
         final GameSetup editable = currentChangeableSetup();
@@ -1639,8 +1777,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         fill(setTeams, R.array.setTeams_array, 0);
         check(noNukes, editable.noNukes);
         check(shared, editable.sharedControl);
-        // The game's own dialog keeps the team layout from a client holding the controls, and does
-        // not show the revealed-map box at all.
+        // 游戏自身对话框会为获得控制权的客户端保留队伍布局选项，并完全隐藏已揭示地图复选框。
         show(setTeams, network.isServer ? View.VISIBLE : View.GONE);
         show(content.findViewById(R.id.revealedMap), View.GONE);
 
@@ -1657,11 +1794,9 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     /**
-     * The setup the engine lets this device change, or {@code null} when it lets nobody change one.
+     * 引擎允许此设备修改的游戏配置；没有可修改配置时返回 {@code null}。
      *
-     * <p>This is the live game setup on a server and a copy on a client that holds the host's
-     * controls, and {@code applyChangedSetup} takes it back, which is the engine's own arrangement
-     * for both of them.</p>
+     * <p>服务器获得的是当前游戏配置，持有主机控制权的客户端获得的是副本；两者都会通过 {@code applyChangedSetup} 写回，这是引擎的统一处理方式。</p>
      */
     private GameSetup currentChangeableSetup() {
         try {
@@ -1672,7 +1807,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         }
     }
 
-    /** Writes the dialog's choices into the changeable setup and lets the engine apply them. */
+    /** 将对话框中的选择写入可变对局设置，并交由引擎应用。 */
     private void applyGameOptions(GameSetup editable, Spinner difficulty, Spinner units, Spinner fog,
         Spinner credits, Spinner income, Spinner setTeams, CheckBox noNukes, CheckBox shared) {
         try {
@@ -1697,7 +1832,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             if (shared != null) {
                 editable.sharedControl = shared.isChecked();
             }
-            // The first entry of the game's array keeps the teams as they are, so it is not sent.
+            // 游戏数组的第一项表示保留现有队伍设置，因此不发送该选项。
             if (setTeams != null && network.isServer) {
                 int position = setTeams.getSelectedItemPosition() - 1;
                 if (position >= 0 && position < LAYOUTS.length) {
@@ -1714,20 +1849,19 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // Starting
+    // 启动游戏
     // ------------------------------------------------------------------
 
-    /** @return whether a start has been acted on, which is what the engine asks before one. */
+    /** @return 是否已处理开始请求，引擎开始前会查询此状态 */
     public boolean isGameStarting() {
         return starting;
     }
 
     /**
-     * Loads the multiplayer map and opens the play screen.
+     * 加载多人游戏地图并打开游戏界面。
      *
-     * <p>This is what the engine's own start announcement amounts to on a host: the map is loaded
-     * through the game's own loader, which is the same call the desktop host makes, and then the play
-     * screen is started. A second announcement is ignored, because the engine repeats it.</p>
+     * <p>这是主机处理引擎自身开始通知的方式：通过游戏自身加载器加载地图，与桌面宿主使用相同调用，然后启动游戏界面。引擎可能重复发送通知，
+     * 因此第二次及之后的通知会被忽略。</p>
      */
     public void startMultiplayerGame() {
         if (starting || isFinishing() || network == null) {
@@ -1747,7 +1881,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // Importing a map
+    // 导入地图
     // ------------------------------------------------------------------
 
     private void chooseMap() {
@@ -1778,23 +1912,20 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
             return;
         }
         Toast.makeText(this, LocalizedText.ui("ui.importedPrefix") + name + ".", Toast.LENGTH_SHORT).show();
-        // The list is refilled from the folder, which now holds one more map.
+        // 从目录中重新填充列表；该目录现在多了一张地图。
         filledForType = -1;
         updateMapDropdown(false);
     }
 
     // ------------------------------------------------------------------
-    // The engine's state
+    // 引擎状态
     // ------------------------------------------------------------------
 
     /**
-     * The teams in the room, in the order the game's own room lists them.
+     * 房间中的队伍，按游戏原生房间列表的顺序排列。
      *
-     * <p>The order is the game's, not this screen's. The game sorts the teams by the side they are
-     * on, which is what puts everyone on one side above everyone on the other instead of listing
-     * them in the order they were given their slots; spectators come last. Taking the teams as they
-     * are held instead leaves the sides interleaved, and a table that reads A, B, A, B says nothing
-     * about who is on whose side.</p>
+     * <p>排序规则由游戏决定，而不是此界面。游戏按阵营对队伍排序，因此同一阵营的玩家会排在一起，而不会按分配槽位的先后顺序交错显示；
+     * 观战者排在最后。如果直接按队伍当前保存顺序显示，不同阵营就会交错排列，表格中出现 A、B、A、B 时就无法看出谁属于哪一方。</p>
      */
     private List<Team> teams() {
         List<Team> teams = new ArrayList<>();
@@ -1839,16 +1970,16 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         return 0;
     }
 
-    /** Keeps a choice inside the range a dropdown of the given length has. */
+    /** 将选项索引限制在指定长度的下拉框范围内。 */
     private static int clamp(int value, int length) {
         return Math.max(0, Math.min(length - 1, value));
     }
 
     // ------------------------------------------------------------------
-    // Helpers
+    // 辅助方法
     // ------------------------------------------------------------------
 
-    /** Fills and shows one line of status, replacing whatever the last one said. */
+    /** 更新并显示一行状态文本，替换之前显示的内容。 */
     private void setStatus(String message) {
         if (statusInfo == null) {
             return;
@@ -1856,7 +1987,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
         statusInfo.setText(message);
     }
 
-    /** Fills a spinner from one of the game's own arrays and selects an entry. */
+    /** 使用游戏自带数组填充下拉框，并选中一个条目。 */
     private void fill(Spinner spinner, int arrayId, int selection) {
         if (spinner == null) {
             return;

@@ -18,27 +18,25 @@ import io.github.rwml.api.game.GameContext;
 import io.github.rwml.bootstrap.GameEntry;
 import io.github.rwml.game.GameUiBridge;
 import io.github.rwml.api.RwmlRuntime;
+import io.github.rwml.builtin.DesktopGameRulesShortcut;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 /**
- * The desktop's half of bringing the game up.
+ * 桌面端启动游戏流程的实现。
  *
- * <p>It lives in the desktop module because the desktop build is Slick, LWJGL and libRocket, none of
- * which is portable. The core knows the shape of a boot; what the desktop puts in its steps is this
- * class.</p>
+ * <p>它位于 desktop 模块中，因为桌面构建依赖 Slick、LWJGL 和 libRocket，这些组件都无法跨平台复用。核心只定义引导流程的结构；
+ * 桌面端各步骤由此类提供。</p>
  *
- * <p>Most of the launcher's steps can only be taken from inside the launcher: a process holds one GUI
- * engine, its helpers are package private, and the engine is created with a {@code Context} only the
- * launcher can build. What is left is what this class does - the platform choices the engine reads
- * from public statics, and the hand-over. The choices are idempotent, because the launcher assigns
- * the same values on its first frame.</p>
+ * <p>启动器的大多数步骤只能在启动器内部执行：一个进程只持有一个 GUI 引擎，其辅助方法是包级私有的，而且只有启动器能创建引擎使用的
+ * {@code Context}。因此，此类只负责剩余工作：设置引擎从公开静态字段读取的平台选项，并移交控制权。这些设置具有幂等性，因为启动器会在
+ * 第一帧中写入相同的值。</p>
  */
 public final class DesktopInterface {
 
-    /** The document fonts the desktop interface needs; the list is the launcher's. */
+    /** 桌面界面所需的文档字体，列表由启动器提供。 */
     static final List<String> DOCUMENT_FONTS = Collections.unmodifiableList(Arrays.asList(
         "font/Delicious-Roman.otf",
         "font/Delicious-Italic.otf",
@@ -49,35 +47,35 @@ public final class DesktopInterface {
         "font/NotoSansCJKsc-Regular.otf",
         "font/DroidSansFallback.ttf"));
 
-    /** Fonts that also carry a family name, which is how the interface asks for them by name. */
+    /** 附带字体系列名称的字体，界面可通过名称请求这些字体。 */
     private static final String FALLBACK_FONT = "font/DroidSansFallback.ttf";
     private static final String FALLBACK_FAMILY = "fallback";
 
     private DesktopInterface() {
     }
 
-    /** @param boot the boot to contribute to */
+    /** @param boot 要参与构建的启动流程 */
     static void contribute(GameBoot boot) {
         boot.add("desktop platform", DesktopInterface::choosePlatform);
         boot.add(GameBoot.ENGINE, DesktopInterface::handOverToTheGame);
     }
 
-    /** States the desktop's choices through the statics the engine reads; the launcher sets them too. */
+    /** 通过引擎读取的静态字段设置桌面选项；启动器也会设置这些字段。 */
     static void choosePlatform(GameContext context) {
         GameEngine.isDesktopPlatform = true;
         GameEngine.isDesktopCanvas = true;
         GameEngine.graphicsCanvasClass = JavaCanvas.class;
         MasterServerConnector.httpClientFactory = new DesktopHttpClientFactory();
-        // Registration follows extension loading and platform selection. Resolving the game earlier
-        // would define its classes before user mixins were registered.
-        GameUiBridge.install(((RwmlRuntime) context.platform()).ui());
+        // 扩展加载和平台设置完成后才能注册。过早解析游戏类会导致其在用户 mixin 注册前就被定义。
+        RwmlRuntime runtime = (RwmlRuntime) context.platform();
+        GameUiBridge.install(runtime.ui());
+        DesktopGameRulesShortcut.install(runtime.ui());
         context.log("The desktop draws through " + JavaCanvas.class.getName() + " (Slick and LWJGL).");
     }
 
     /**
-     * Hands the process over to the game's own launcher, which creates the window, the GUI engine, the
-     * audio stack and the {@code Context} and then loads everything. Reached by reflection, through
-     * the constant the mappings produce.
+     * 将进程控制权交给游戏自身的启动器；它负责创建窗口、GUI 引擎、音频栈和 {@code Context}，然后加载其他内容。
+     * 通过映射产生的常量反射调用此方法。
      */
     static void handOverToTheGame(GameContext context) throws Exception {
         context.log("Handing over to " + GameEntry.GAME_MAIN + ".");
@@ -86,7 +84,7 @@ public final class DesktopInterface {
             .invoke(null, (Object) context.arguments().toArray(new String[0]));
     }
 
-    /** @param libRocket the interface engine the fonts are loaded into */
+    /** @param libRocket 加载这些字体的界面引擎 */
     static void loadFonts(CommonLibRocket libRocket) {
         if (libRocket == null) {
             return;

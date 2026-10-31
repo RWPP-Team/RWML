@@ -11,61 +11,52 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * What a {@link GameStage} is handed while it runs.
+ * {@link GameStage} 运行时接收的上下文。
  *
- * <p>The interface is deliberately small and carries no game type. The core of RWML is compiled
- * without the game on its class path and every extension has to stay portable across the two hosts,
- * so a stage reaches its platform through {@link #platform()} and casts after asking which platform
- * it is talking to. The same object is handed to every stage of one boot.</p>
+ * <p>此接口刻意保持精简，不包含任何游戏类型。RWML 核心在不依赖游戏类的情况下编译，且所有扩展都必须兼容两个宿主，
+ * 因此阶段应通过 {@link #platform()} 获取平台对象，确认平台后再进行类型转换。一次启动流程中的所有阶段都会收到同一对象。</p>
  */
 public interface GameContext {
 
     /**
-     * The host's platform object.
+     * 宿主的平台对象。
      *
-     * <p>On Android this is the {@code android.content.Context} of the application, which is what
-     * the game's own entry points ask for. On the desktop it is the running
-     * {@link io.github.rwml.api.RwmlRuntime}. It is never null, and its type is only known to the
-     * platform that supplied it.</p>
+     * <p>在 Android 上，这是应用的 {@code android.content.Context}，也是游戏入口点所需的对象。桌面端则为运行中的
+     * {@link io.github.rwml.api.RwmlRuntime}。该对象不会为 null，其类型仅对提供它的平台已知。</p>
      *
-     * @return the platform handle, never null
+     * @return 平台句柄，不为 null
      */
     Object platform();
 
     /**
-     * The arguments the process was started with, in the order they were given.
+     * 启动进程时传入的参数，顺序与传入时一致。
      *
-     * @return an immutable argument list, never null
+     * @return 不可变的参数列表，不为 null
      */
     List<String> arguments();
 
     /**
-     * The directory the game reads its data from and writes its settings to.
+     * 游戏读取数据和写入设置的目录。
      *
-     * <p>On the desktop this is the directory holding the game jar. On Android it is the runtime's
-     * private directory, because the packaged assets are read-only and the game's own storage lives
-     * outside the application.</p>
+     * <p>桌面端为存放游戏 jar 的目录。Android 上则为运行时私有目录，因为打包资源只读，而游戏数据存放在应用之外。</p>
      *
-     * @return the game directory, never null
+     * @return 游戏目录，不为 null
      */
     Path directory();
 
-    /** Writes a message describing what the stage is doing. */
+    /** 写入一条描述阶段当前操作的信息。 */
     void log(String message);
 
     /**
-     * Reports one line of sub-progress for the stage that is running.
+     * 为正在运行的阶段报告一条子进度信息。
      *
-     * <p>The engine's own loading messages are the example: a platform that performs several boot
-     * operations inside one stage forwards each message the engine prints while it works, and a
-     * loading screen then shows the real sequence rather than a single line for the whole stage.
-     * The boot that owns this context routes the line to the listener it was started with, prefixed
-     * with the stage's name.</p>
+     * <p>例如引擎自身的加载消息：如果某个平台在一个阶段内执行了多个启动操作，就可以转发引擎运行时输出的每条消息，
+     * 让加载界面显示真实步骤，而非只显示阶段的一行概述。持有此上下文的启动流程会把消息转发给启动时提供的监听器，
+     * 并在前面加上阶段名称。</p>
      *
-     * <p>The default does nothing. A stage that has nothing finer to report should not have to say
-     * so, and a context built outside a running boot has nowhere to send the line anyway.</p>
+     * <p>默认实现不执行任何操作。阶段没有更细的进度时无需特意说明；在启动流程之外创建的上下文也没有可接收消息的目标。</p>
      *
-     * @param message the line to report
+     * @param message 要报告的信息
      */
     default void subProgress(String message) {
     }

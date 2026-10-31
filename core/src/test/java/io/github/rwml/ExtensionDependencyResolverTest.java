@@ -106,7 +106,7 @@ class ExtensionDependencyResolverTest {
                                                   List<String> loadBefore) {
         return new ExtensionDescriptor(
             id, id, "1.0.0", "", List.of(), "", "", "", "", List.of(), "1.0", 8,
-            "example.Main", "", dependsOn, loadBefore, loadAfter,
+            "example.Main", "", false, dependsOn, loadBefore, loadAfter,
             Path.of(id + ".jar"), 0L, "");
     }
 }

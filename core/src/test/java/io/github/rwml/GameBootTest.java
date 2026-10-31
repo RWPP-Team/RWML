@@ -26,8 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The boot is the one place where a platform's steps are ordered, so the properties that carry
- * weight are the order, the tolerance of a step that fails, and that it runs once.
+ * 引导流程统一决定平台步骤的顺序，因此需要确保步骤顺序正确、单步失败可容忍，并且整个流程只执行一次。
  */
 class GameBootTest {
 
@@ -207,8 +206,7 @@ class GameBootTest {
     void subProgressOfAStageReachesTheListenerUnderTheStageName(@TempDir Path directory) {
         GameBoot boot = boot(directory);
         boot.add(GameBoot.ENGINE, context -> {
-            // The engine announces its own steps while the stage runs; the boot routes them to the
-            // listener so a loading screen shows the real sequence rather than one line per stage.
+            // 阶段运行期间，引擎会报告自身的步骤；引导流程将这些信息转发给监听器，使加载界面显示实际步骤顺序，而不是每个阶段只显示一行。
             context.subProgress("Asset Index");
             context.subProgress("Units");
         });
@@ -217,8 +215,7 @@ class GameBootTest {
 
         boot.start((percent, message) -> lines.add(message));
 
-        // The stage announcement comes first, then each sub-progress line named after its stage, and
-        // the second stage's announcement is not mistaken for sub-progress of the first.
+        // 首先报告阶段开始，然后报告以该阶段命名的各条子进度信息；第二个阶段的开始消息不会被误认为第一个阶段的子进度。
         assertEquals(List.of(GameBoot.ENGINE,
             GameBoot.ENGINE + ": Asset Index",
             GameBoot.ENGINE + ": Units",

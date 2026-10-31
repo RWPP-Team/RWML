@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -13,7 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Content identity, including additions/removals; size and modification time are never trusted. */
+    /** 内容身份，涵盖新增和移除；绝不只依赖文件大小和修改时间。 */
 final class ExtensionCatalog {
     static String fingerprint(Path... directories) throws IOException {
         List<String> entries = new ArrayList<>();

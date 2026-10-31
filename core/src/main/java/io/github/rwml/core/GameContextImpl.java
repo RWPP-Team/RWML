@@ -16,11 +16,10 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * The {@link GameContext} a host hands to a boot.
+ * 宿主传递给启动流程的 {@link GameContext}。
  *
- * <p>It is a plain carrier: the platform handle, the arguments and the directory come from the host
- * that built it, and the log line goes to whatever the host uses for its own messages. Nothing here
- * knows about the game, which is what lets both hosts share it.</p>
+ * <p>它只是一个数据载体：平台句柄、参数和目录均由创建它的宿主提供，日志消息会交给宿主自己的日志系统。此处不依赖游戏，
+ * 因而两个宿主可以共用此实现。</p>
  */
 public final class GameContextImpl implements GameContext {
 

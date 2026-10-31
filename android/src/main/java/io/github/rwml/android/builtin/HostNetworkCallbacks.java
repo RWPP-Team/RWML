@@ -21,27 +21,23 @@ import com.corrodinggames.rts.gameFramework.network.NetworkEngine;
 import com.corrodinggames.rts.gameFramework.network.PasswordPrompt;
 
 /**
- * The host's half of the engine's network protocol.
+ * 引擎网络协议中由宿主负责的部分。
  *
- * <p>The engine never drives a screen directly. When the battleroom has to be redrawn, when the game
- * is to start, when a chat line arrives, or when a joining client has to be asked for a password, the
- * engine calls into its {@link NetworkCallbacks}, and which object that is is the host's choice: the
- * desktop host passes its own launcher, and this is the Android host's counterpart. The engine's
- * default does nothing, which is why a host that never installs one sees a battleroom that never
- * updates and a game that never starts.</p>
+ * <p>引擎不会直接驱动界面。当需要重绘对战房间、启动游戏、接收聊天消息，或向加入的客户端索要密码时，引擎会调用
+ * {@link NetworkCallbacks}。具体使用哪个对象由宿主决定：桌面宿主传入自己的启动器，此类则是 Android 宿主的对应实现。
+ * 引擎的默认实现不执行任何操作，因此未安装回调的宿主会看到房间界面不更新、游戏也无法启动。</p>
  *
- * <p>Nothing here touches a screen field directly. The engine calls in from its own threads, so every
- * call is posted to the main thread, and the room is reached through the one that is currently open
- * rather than through a captured reference that a rotation would leave stale.</p>
+ * <p>此处不会直接操作界面字段。引擎会从自身线程调用回调，因此每次调用都会转发到主线程；房间界面也会通过当前打开的
+ * 实例获取，而不是使用旋转屏幕后可能失效的旧引用。</p>
  */
 public final class HostNetworkCallbacks extends NetworkCallbacks {
 
     private static final String TAG = "RWML";
 
-    /** The callbacks object the engine is given; installing twice reuses it. */
+    /** 交给引擎的回调对象；重复安装时会复用已有对象。 */
     private static volatile HostNetworkCallbacks installed;
 
-    /** The battleroom on screen, or {@code null} when none is. */
+    /** 当前显示的对战房间；没有显示房间时为 {@code null}。 */
     private static volatile MultiplayerBattleroomActivity room;
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -50,10 +46,9 @@ public final class HostNetworkCallbacks extends NetworkCallbacks {
     }
 
     /**
-     * Gives the engine this host's callbacks, unless it already has them.
+     * 将宿主的回调交给引擎，除非引擎已经设置了回调。
      *
-     * <p>The engine is created once and outlives every screen, so the callbacks are installed where
-     * the network is first used and stay installed.</p>
+     * <p>引擎只创建一次，生命周期长于所有界面，因此在首次使用网络时安装回调，并一直保留。</p>
      */
     static void install(NetworkEngine network) {
         if (network == null) {
@@ -72,30 +67,30 @@ public final class HostNetworkCallbacks extends NetworkCallbacks {
         network.networkCallbacks = callbacks;
     }
 
-    /** Records the room the engine's calls are about, and installs the callbacks with it. */
+    /** 记录引擎回调对应的房间，并为引擎安装这些回调。 */
     static void attach(MultiplayerBattleroomActivity activity) {
         room = activity;
         GameEngine engine = GameEngine.getInstance();
         install(engine == null ? null : engine.networkEngine);
     }
 
-    /** Forgets the room, so a call that arrives after it closes is not posted to a dead screen. */
+    /** 清除房间记录，避免关闭后到达的调用被发送到已销毁界面。 */
     static void detach(MultiplayerBattleroomActivity activity) {
         if (room == activity) {
             room = null;
         }
     }
 
-    /** @return whether a battleroom is on screen right now. */
+    /** @return 当前是否正在显示对战房间 */
     static boolean isRoomOpen() {
         return room != null;
     }
 
     // ------------------------------------------------------------------
-    // The engine's calls
+    // 引擎调用的回调
     // ------------------------------------------------------------------
 
-    /** The team list, the ready flags or the port check changed, so the room redraws. */
+    /** 队伍列表、就绪状态或端口检查结果发生变化，触发房间重绘。 */
     @Override
     public void onBattleroomUIUpdate() {
         final MultiplayerBattleroomActivity activity = room;
@@ -106,11 +101,10 @@ public final class HostNetworkCallbacks extends NetworkCallbacks {
     }
 
     /**
-     * Every client is ready: the game begins.
+     * 所有客户端均已就绪：开始游戏。
      *
-     * <p>The map is loaded and the play screen opened, which is the sequence the desktop host performs
-     * when it receives the same call. When no room is on screen the game is started from the
-     * application context instead, so a start that arrives after the room closed still lands.</p>
+     * <p>加载地图并打开游戏界面，与桌面宿主收到相同调用时执行的步骤一致。如果当前没有打开房间界面，就从应用上下文
+     * 启动游戏，确保房间关闭后到达的开始请求仍能执行。</p>
      */
     @Override
     public void startGameEvent() {
@@ -123,7 +117,7 @@ public final class HostNetworkCallbacks extends NetworkCallbacks {
         main.post(() -> startWithoutRoom());
     }
 
-    /** The server dropped the room, so no screen should stay on it. */
+    /** 服务器关闭了房间，因此界面不应继续停留在该房间。 */
     @Override
     public void onBattleroomClosed() {
         final MultiplayerBattleroomActivity activity = room;
@@ -133,12 +127,11 @@ public final class HostNetworkCallbacks extends NetworkCallbacks {
     }
 
     /**
-     * A joining client has to be asked for a password.
+     * 需要向正在加入的客户端询问密码。
      *
-     * <p>The engine asks for one through its own prompt as well as through this call: it posts the
-     * game's own password dialog to the main thread itself, because a prompt is also raised from
-     * inside the engine's connect path, where no host screen is involved. Showing it here as well
-     * would raise a second dialog over the first, so this is only where the host is told.</p>
+     * <p>引擎除调用此方法外，也会通过自己的提示框请求密码：它会自行将游戏的密码对话框发送到主线程，因为连接流程内部
+     * 也可能发起密码请求，而该流程不涉及宿主界面。如果此处也显示对话框，就会在第一个对话框上再叠加一个，因此这里只
+     * 通知宿主。</p>
      */
     @Override
     public void onShowPasswordPrompt(final PasswordPrompt prompt) {
@@ -147,7 +140,7 @@ public final class HostNetworkCallbacks extends NetworkCallbacks {
                 ? "." : " for its own question: " + prompt.question));
     }
 
-    /** A chat line arrived, so the log redraws. */
+    /** 收到聊天消息，重绘聊天日志。 */
     @Override
     public void onChatMessage(int type, String message, String senderName, Connection connection) {
         final MultiplayerBattleroomActivity activity = room;
@@ -156,7 +149,7 @@ public final class HostNetworkCallbacks extends NetworkCallbacks {
         }
     }
 
-    /** A team was added, so the player table redraws. */
+    /** 新增队伍，重绘玩家表格。 */
     @Override
     public void onPlayerAdded(Team team) {
         final MultiplayerBattleroomActivity activity = room;
@@ -188,10 +181,10 @@ public final class HostNetworkCallbacks extends NetworkCallbacks {
     }
 
     // ------------------------------------------------------------------
-    // The fallback
+    // 回退处理
     // ------------------------------------------------------------------
 
-    /** Starts a game the engine announced while no battleroom was on screen. */
+    /** 当对战房间未显示时，启动引擎通知开始的游戏。 */
     private void startWithoutRoom() {
         GameEngine engine = GameEngine.getInstance();
         if (engine == null || engine.networkEngine == null || !engine.networkEngine.gameStarted) {

@@ -16,12 +16,11 @@ import io.github.rwml.api.ui.UiFramework;
 import io.github.rwml.api.ui.UiHost;
 
 /**
- * The desktop builtin game adapter. The host bootstrap is already visible before this is invoked;
- * this adapter starts the shared boot and hands control to the game's launcher.
+ * 桌面端内置游戏适配器。调用此类前，宿主启动界面已经显示；此适配器会启动共享引导流程，并将控制权交给游戏启动器。
  */
 public final class VanillaInterface implements UiFramework {
 
-    /** The screen name every host knows: the game. */
+    /** 所有宿主都识别的界面名称：游戏。 */
     static final String GAME_SCREEN = "game";
 
     @Override
@@ -62,8 +61,7 @@ public final class VanillaInterface implements UiFramework {
         if (report.isClean()) {
             System.out.println("[builtin] The game is up.");
         } else {
-            // A partial boot is reported, not thrown: one step that could not be taken is worth
-            // less than a game that starts without it.
+            // 部分引导失败会作为报告记录，而不会抛出异常：与无法启动游戏相比，缺少一个步骤的影响较小。
             System.out.println("[builtin] The game came up with " + report.failed().size()
                 + " stage(s) missing: " + report.failed());
         }

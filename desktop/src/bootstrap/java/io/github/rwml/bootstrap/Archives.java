@@ -24,15 +24,13 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 /**
- * Archive extraction for the JDK provisioner.
+ * JDK 安装器使用的归档解压逻辑。
  *
- * <p>Adoptium publishes {@code .zip} for Windows and {@code .tar.gz} everywhere else, so both formats
- * are handled here. There is no tar support in the JDK, which is why the reader below is written by
- * hand - it covers exactly the subset GNU tar uses for a JDK image: ustar prefix names, GNU long
- * names ({@code L} entries), directories, regular files and symlinks.</p>
+ * <p>Adoptium 在 Windows 上发布 {@code .zip} 文件，在其他平台发布 {@code .tar.gz} 文件，因此此处同时处理这两种格式。
+ * JDK 不支持 tar，所以此处手动实现了解析器，只覆盖 GNU tar 用于 JDK 镜像的功能子集：ustar 前缀名称、GNU 长名称（{@code L} 条目）、
+ * 目录、普通文件和符号链接。</p>
  *
- * <p>Every entry path is resolved through {@link #safeChild} and rejected if it would escape the
- * destination directory, so a hostile or corrupt archive cannot write outside the cache.</p>
+ * <p>每个条目路径都会通过 {@link #safeChild} 解析；如果路径会逃出目标目录，则拒绝该条目，避免恶意或损坏的归档写入缓存目录以外的位置。</p>
  */
 public final class Archives {
 
@@ -42,7 +40,7 @@ public final class Archives {
     private Archives() {
     }
 
-    /** Extracts {@code archive} into {@code destination}, choosing the format by file extension. */
+    /** 将 {@code archive} 解压到 {@code destination}，并根据文件扩展名选择格式。 */
     public static void extract(File archive, File destination) throws IOException {
         String name = archive.getName().toLowerCase(Locale.ROOT);
         if (name.endsWith(".zip")) {
@@ -55,7 +53,7 @@ public final class Archives {
     }
 
     // ------------------------------------------------------------------
-    // zip
+    // ZIP 归档
     // ------------------------------------------------------------------
 
     private static void extractZip(File archive, File destination) throws IOException {
@@ -82,7 +80,7 @@ public final class Archives {
     }
 
     // ------------------------------------------------------------------
-    // tar.gz
+    // TAR.GZ 归档
     // ------------------------------------------------------------------
 
     private static void extractTarGz(File archive, File destination) throws IOException {
@@ -95,10 +93,10 @@ public final class Archives {
 
             while (true) {
                 if (!readBlock(gz, header)) {
-                    break; // Clean end of stream.
+                    break; // 流的正常结束标记。
                 }
                 if (isZeroBlock(header)) {
-                    break; // End-of-archive marker.
+                    break; // 归档结束标记。
                 }
 
                 String name = stringField(header, 0, 100);
@@ -108,7 +106,7 @@ public final class Archives {
                 String linkName = stringField(header, 157, 100);
                 long padded = paddedSize(size);
 
-                // GNU long name: the payload is the real name of the *next* entry.
+                // GNU 长名称：负载是*下一个*条目的真实名称。
                 if (type == 'L') {
                     if (size < 0 || size > 64 * 1024) {
                         throw new IOException("Unreasonable tar long-name length: " + size);
@@ -119,7 +117,7 @@ public final class Archives {
                     longName = nulTerminated(data, 0, data.length);
                     continue;
                 }
-                // pax global/extended headers and GNU long link names carry no files we need.
+                // pax 全局/扩展头及 GNU 长链接名称不包含我们需要的文件。
                 if (type == 'x' || type == 'g' || type == 'K') {
                     skipExact(gz, padded);
                     continue;
@@ -140,14 +138,14 @@ public final class Archives {
                             copy(in, os);
                         }
                         break;
-                    case '2': // symbolic link
+                    case '2': // 符号链接
                         createSymlink(out, linkName);
                         break;
-                    case '5': // directory
+                    case '5': // 目录
                         mkdirs(out);
                         break;
                     default:
-                        // Hard links ('1') and device nodes are not used by a JDK image.
+                        // JDK 镜像不会使用硬链接（'1'）或设备节点。
                         break;
                 }
                 if (padded > size) {
@@ -172,7 +170,7 @@ public final class Archives {
         return true;
     }
 
-    /** Tries to create a symlink; a platform that refuses falls back to a copy of the target. */
+    /** 尝试创建符号链接；平台不支持时改为复制目标内容。 */
     private static void createSymlink(File link, String target) {
         if (target.isEmpty()) {
             return;
@@ -181,9 +179,8 @@ public final class Archives {
             mkdirs(link.getParentFile());
             Files.createSymbolicLink(link.toPath(), new File(target).toPath());
         } catch (Throwable t) {
-            // Windows without the right privileges, or a target that does not exist yet. The JDK is
-            // validated by running it afterwards, so a missing link surfaces as a clear failure
-            // rather than a silent corruption.
+            // 可能是 Windows 权限不足，也可能是目标尚不存在。之后会通过运行 JDK 来验证安装结果，因此缺少链接时会明确报错，
+            // 而不是造成无法察觉的损坏。
             BootstrapLog.debug("Could not create symlink " + link + " -> " + target + " ("
                 + BootstrapLog.describe(t) + ")");
         }
@@ -211,7 +208,7 @@ public final class Archives {
         return new String(bytes, offset, end - offset, StandardCharsets.UTF_8).trim();
     }
 
-    /** Reads a NUL/space terminated octal number, as used by the tar size field. */
+    /** 读取以 NUL 或空格结尾的八进制数，即 tar 大小字段使用的格式。 */
     private static long octalField(byte[] block, int offset, int length) {
         String text = nulTerminated(block, offset, length);
         if (text.isEmpty()) {
@@ -252,15 +249,14 @@ public final class Archives {
     }
 
     // ------------------------------------------------------------------
-    // Layout helpers
+    // 目录结构辅助方法
     // ------------------------------------------------------------------
 
     /**
-     * Locates the JDK home inside an extracted archive.
+     * 在解压后的归档中查找 JDK 主目录。
      *
-     * <p>Temurin archives wrap everything in a versioned directory ({@code jdk-25+1/}), and the macOS
-     * build nests it again under {@code Contents/Home}, so the search descends a few levels looking
-     * for the {@code bin/java} that identifies a JDK home.</p>
+     * <p>Temurin 归档会将文件放在带版本号的目录（{@code jdk-25+1/}）下，而 macOS 构建还会将其嵌套在
+     * {@code Contents/Home} 下。因此，搜索会向下遍历数层目录，查找用于识别 JDK 主目录的 {@code bin/java}。</p>
      */
     public static File findJavaHome(File root) {
         return findJavaHome(root, 0);
@@ -295,7 +291,7 @@ public final class Archives {
         return findJavaHome(macBundle, depth + 1);
     }
 
-    /** @return the {@code bin/java} launcher of a JDK home, or {@code null}. */
+    /** @return JDK 主目录中的 {@code bin/java} 启动程序；不存在时返回 {@code null} */
     public static File javaExecutable(File home) {
         if (home == null) {
             return null;
@@ -305,11 +301,10 @@ public final class Archives {
     }
 
     /**
-     * Restores the executable bit on the JDK launchers.
+     * 为 JDK 启动程序恢复可执行权限位。
      *
-     * <p>ZIP archives do not carry POSIX permissions, and tar extraction through the JDK's own
-     * streams does not apply them either, so on Unix the {@code bin/} directory has to be marked
-     * executable by hand or the freshly downloaded JDK cannot be started.</p>
+     * <p>ZIP 归档不包含 POSIX 权限；通过 JDK 自带流解压 tar 时也不会应用权限。因此在 Unix 上必须手动设置 {@code bin/} 目录中的
+     * 启动程序为可执行，否则刚下载的 JDK 无法启动。</p>
      */
     public static void makeExecutable(File home) {
         if (isWindows()) {
@@ -339,7 +334,7 @@ public final class Archives {
         }
     }
 
-    /** Moves a directory, falling back to a recursive copy when the target is on another device. */
+    /** 移动目录；目标位于其他设备时改为递归复制。 */
     public static void moveOrCopy(File source, File target) throws IOException {
         mkdirs(target.getParentFile());
         try {
@@ -397,7 +392,7 @@ public final class Archives {
         }
     }
 
-    /** Resolves an archive entry against the destination, refusing anything that escapes it. */
+    /** 将归档条目解析到目标目录，并拒绝任何越出目标目录的路径。 */
     private static File safeChild(File destination, String entryName) throws IOException {
         String normalized = entryName.replace('\\', '/');
         while (normalized.startsWith("/")) {
@@ -424,7 +419,7 @@ public final class Archives {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
 
-    /** An input stream that stops after a fixed number of bytes, used for tar entry payloads. */
+    /** 读取固定字节数后停止的输入流，用于读取 tar 条目数据。 */
     private static final class BoundedInputStream extends InputStream {
 
         private final InputStream delegate;

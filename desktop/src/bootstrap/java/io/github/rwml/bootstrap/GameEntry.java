@@ -11,46 +11,38 @@ import java.io.InputStream;
 import java.util.Properties;
 
 /**
- * The naming contract shared by RWML's build and its runtime entry point.
+ * RWML 构建流程与运行时入口共用的命名约定。
  *
- * <p>RWML ships as a drop-in replacement for the game's {@code game-lib.jar}: the game's classes are
- * merged into RWML's jar and the original file is overwritten. The game launcher starts the JVM on
- * the jar's {@code Main-Class}, and that value is fixed to {@code com.corrodinggames.rts.java.Main},
- * so the replacement jar has to provide a class of exactly that name. RWML writes it in
- * {@code src/bootstrap/java}.</p>
+ * <p>RWML 会作为游戏 {@code game-lib.jar} 的直接替代品发布：游戏类会合并到 RWML 的 JAR 中，并覆盖原文件。游戏启动器根据 JAR 的
+ * {@code Main-Class} 启动 JVM，而该值固定为 {@code com.corrodinggames.rts.java.Main}，因此替代 JAR 必须提供同名类。RWML 在
+ * {@code src/bootstrap/java} 中实现此类。</p>
  *
- * <p>The game's own entry point is renamed to {@code MainLauncher} by the Enigma mappings, a change
- * {@code remapFromEnigma} applies to the game jar before it is merged. Nothing rewrites bytecode at
- * package time, and this class is where the runtime learns which name to hand over to.</p>
+ * <p>Enigma 映射会将游戏自身的入口重命名为 {@code MainLauncher}；在合并游戏 JAR 前，{@code remapFromEnigma} 会应用此更改。
+ * 打包时不会再改写字节码，而运行时会在此处获取需要移交控制权的类名。</p>
  *
- * <p>This class is part of the <em>bootstrap</em> layer, which is compiled for Java 8 and must stay
- * free of any dependency on the RWML core. The target JVM version is therefore read from
- * {@value #BOOTSTRAP_RESOURCE}, a properties file that {@code packageGameJar} writes into the jar
- * from the single source of truth in {@code gradle.properties}; the constant below is the fallback
- * used when RWML runs unpackaged (tests, IDE, the demo harness).</p>
+ * <p>此类属于 <em>启动层</em>，按 Java 8 编译，且不能依赖 RWML 核心。因此，目标 JVM 版本从 {@value #BOOTSTRAP_RESOURCE} 中读取：
+ * {@code packageGameJar} 会将属性文件写入 JAR，其唯一数据源是 {@code gradle.properties}。当 RWML 未打包运行时（例如测试、IDE 或演示程序），
+ * 则使用下方常量作为回退值。</p>
  *
- * <p>{@link #GAME_MAIN} deliberately stays in {@code com.corrodinggames.rts.java}: the game's entry
- * point is referenced by {@code e}, {@code i}, {@code j}, {@code u} and {@code b.a} in that same
- * package, including through package-private members. Moving it anywhere else would break those
- * accesses at link time.</p>
+ * <p>{@link #GAME_MAIN} 有意保留在 {@code com.corrodinggames.rts.java} 包中：同一包中的 {@code e}、{@code i}、{@code j}、{@code u} 和
+ * {@code b.a} 都会引用游戏入口，包括通过包级私有成员进行访问。将其移动到其他位置会导致链接阶段访问失败。</p>
  */
 public final class GameEntry {
 
-    /** The class the game launcher starts from, and therefore the class RWML has to own. */
+    /** 游戏启动器的启动类，因此该类必须由 RWML 接管。 */
     public static final String MAIN = "com.corrodinggames.rts.java.Main";
 
     /**
-     * The game's own entry point, as named by the Enigma mappings.
+     * Enigma 映射中的游戏自身入口名称。
      *
-     * <p>Kept as a constant rather than a setting: the name comes from the mappings, which are part
-     * of the build, so there is nothing to configure at runtime.</p>
+     * <p>此值定义为常量，而非设置项：名称来自构建使用的映射，运行时无需再配置。</p>
      */
     public static final String GAME_MAIN = "com.corrodinggames.rts.java.MainLauncher";
 
-    /** The JVM feature version RWML wants to run on. Mirrors {@code rwmlTargetJavaVersion}. */
+    /** RWML 目标 JVM 功能版本，与 {@code rwmlTargetJavaVersion} 一致。 */
     public static final int DEFAULT_TARGET_JAVA_VERSION = 25;
 
-    /** The file {@code packageGameJar} writes into the packaged jar. */
+    /** {@code packageGameJar} 写入打包后 JAR 的文件。 */
     public static final String BOOTSTRAP_RESOURCE = "META-INF/rwml-bootstrap.properties";
 
     private static final String KEY_TARGET_JAVA_VERSION = "targetJavaVersion";
@@ -61,8 +53,7 @@ public final class GameEntry {
     }
 
     /**
-     * @return the JVM feature version RWML should run on: the value the packaged jar was built with,
-     *         or {@link #DEFAULT_TARGET_JAVA_VERSION} when running unpackaged.
+     * @return RWML 应使用的 JVM 主版本：已打包时返回 JAR 构建时使用的值，未打包运行时返回 {@link #DEFAULT_TARGET_JAVA_VERSION}
      */
     public static int targetJavaVersion() {
         String packaged = PACKAGE_PROPERTIES.getProperty(KEY_TARGET_JAVA_VERSION);
@@ -70,7 +61,7 @@ public final class GameEntry {
             try {
                 return Integer.parseInt(packaged.trim());
             } catch (NumberFormatException ignored) {
-                // Fall through to the compiled default.
+                // 回退到编译时默认值。
             }
         }
         return DEFAULT_TARGET_JAVA_VERSION;
@@ -88,13 +79,13 @@ public final class GameEntry {
                 properties.load(stream);
             }
         } catch (Throwable ignored) {
-            // Running unpackaged (or the resource is unreadable): the compiled defaults apply.
+            // 当前未打包运行，或资源无法读取：使用编译时默认值。
         } finally {
             if (stream != null) {
                 try {
                     stream.close();
                 } catch (Throwable ignored) {
-                    // Nothing useful to do.
+                    // 没有可执行的处理方式。
                 }
             }
         }

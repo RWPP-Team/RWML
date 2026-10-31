@@ -24,24 +24,19 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 /**
- * A class loader that serves {@code .class} resources out of jar files, and a stand-in for the ones
- * that cannot be read.
+ * 从 JAR 文件中提供 {@code .class} 资源，并为无法读取的类提供替身的类加载器。
  *
- * <p>The rewriter needs the superclass hierarchy of the class it is writing and asks for it through
- * {@code getResourceAsStream}, giving up the moment one link cannot be read. On Android that link is
- * missing for every type the app does not carry, so the bytes from the jars cover the game and the
- * extensions and a stand-in covers the rest.</p>
+ * <p>改写器需要获取正在处理的类的父类层级，并通过 {@code getResourceAsStream} 查询；其中任一环节无法
+ * 读取时就会放弃。在 Android 上，应用未携带的类型都会缺少对应资源，因此由 JAR 中的字节提供游戏和扩展
+ * 类，其余类型则由替身提供。</p>
  *
- * <p>It is also the loader the mixins are registered through, which is what ties the two halves of
- * the registration together. A {@code loadClass} reaches the dex loader as its parent and finds the
- * extension and the stand-in types there, while a {@code getResourceAsStream} is answered here first
- * and reads the real bytes out of the jars. Without the first a mixin whose signature names a game
- * type cannot be defined at all; without the second every inherited field an {@code @Accessor} names
- * would be invisible, because the framework reads a hierarchy through this same lookup.</p>
+ * <p>mixin 也通过此加载器注册，从而连接注册流程的两部分。{@code loadClass} 会访问其父级 dex 加载器，
+ * 并在那里找到扩展和替身类型；{@code getResourceAsStream} 则优先由此处响应，从 JAR 中读取真实字节码。
+ * 如果缺少前者，签名引用游戏类型的 mixin 根本无法定义；如果缺少后者，{@code @Accessor} 指定的继承字段
+ * 都无法发现，因为框架通过同一查询读取类型层级。</p>
  *
- * <p>It never defines the classes it describes: it answers lookups and is dropped with the rewriter.
- * Defining one is not something this loader could do anyway, because the runtime only defines
- * classes out of dex and these archives carry class files.</p>
+ * <p>此加载器不会定义它描述的类，只响应查询，并在改写器结束后丢弃。它本来也无法定义这些类，因为运行时
+ * 只能从 dex 定义类，而这些归档携带的是类文件。</p>
  */
 final class JarResources extends ClassLoader implements Closeable {
 
@@ -57,7 +52,7 @@ final class JarResources extends ClassLoader implements Closeable {
             try {
                 this.jars.add(new JarFile(jar.toFile()));
             } catch (IOException ignored) {
-                // A jar that cannot be opened simply contributes nothing.
+                 // 无法打开的 JAR 不提供任何内容。
             }
         }
     }
@@ -92,7 +87,7 @@ final class JarResources extends ClassLoader implements Closeable {
             try {
                 jar.close();
             } catch (IOException ignored) {
-                // Nothing is left to report a failed close to.
+                 // 没有可用于报告关闭失败的对象。
             }
         }
         jars.clear();
@@ -100,11 +95,11 @@ final class JarResources extends ClassLoader implements Closeable {
 
     private InputStream openFromJars(String name) {
         byte[] bytes = classBytes(name);
-        // The stream outlives the entry, so the bytes are read out in full and handed over as a copy.
+         // 流的生命周期长于条目，因此会先完整读取字节，再将副本交给调用方。
         return bytes == null ? null : new ByteArrayInputStream(bytes);
     }
 
-    /** @return the bytes of one entry of the archives, or null when none of them carries it */
+    /** @return 任一归档中该条目的字节内容；所有归档都不包含该条目时返回 null */
     private byte[] classBytes(String name) {
         for (JarFile jar : jars) {
             JarEntry entry = jar.getJarEntry(name);
@@ -114,16 +109,16 @@ final class JarResources extends ClassLoader implements Closeable {
             try (InputStream in = jar.getInputStream(entry)) {
                 return readFully(in);
             } catch (IOException ignored) {
-                // Try the next jar.
+                 // 尝试下一个 JAR。
             }
         }
         return null;
     }
 
     /**
-     * A class file that stands in for a type nothing can read: the type itself, extending Object.
+     * 无法读取类型时使用的类文件替身：只包含该类型本身，并继承 Object。
      *
-     * <p>Refusing is not an option, because the framework treats an unreadable type as fatal.</p>
+     * <p>不能直接拒绝处理，因为框架会将无法读取类型视为致命错误。</p>
      */
     private static byte[] standIn(String internalName) {
         ClassWriter writer = new ClassWriter(0);
@@ -133,10 +128,9 @@ final class JarResources extends ClassLoader implements Closeable {
         return writer.toByteArray();
     }
 
-    /** @return whether {@code name} is a class name in internal form rather than some other resource */
+    /** @return {@code name} 是否为内部格式的类名，而非其他资源名称 */
     private static boolean isInternalName(String name) {
-        // A resource name is always path shaped. A dotted name is a lookup of a different kind, and
-        // an answer to it would be an answer to the wrong question.
+         // 资源名称始终采用路径形式。带点号的名称属于另一种查询；响应它就答非所问。
         return name.indexOf('/') > 0 && name.indexOf('.') < 0;
     }
 

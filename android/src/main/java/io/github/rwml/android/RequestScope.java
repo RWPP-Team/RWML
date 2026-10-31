@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -17,7 +18,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Owns both workers and sockets; closing a page cancels the actual network I/O. */
+/** 管理工作线程和套接字；关闭页面时会取消实际网络 I/O。 */
 public final class RequestScope implements AutoCloseable {
     private volatile boolean closed;
     private final Set<HttpURLConnection> connections = new HashSet<>();

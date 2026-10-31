@@ -15,30 +15,26 @@ import kim.der.asm.api.annotation.InjectionPoint;
 import kim.der.asm.api.annotation.ModifyArg;
 
 /**
- * Keeps the engine's queued minimap points inside the array they were queued in.
+ * 确保引擎排队等待绘制的小地图点位不超出其所在数组范围。
  *
- * <p>The command that draws the minimap's unit marks takes its points from a pooled array handed
- * out with a capacity of exactly the asked-for count when that is the best fit in the pool, and its
- * square-per-point half then reads one float past the last point of an array the points fill
- * exactly. With the engine's own line rendering that read never happens: the whole array is handed
- * to one draw call that is told where it ends. The square half steps through the array one float at
- * a time and always looks one float ahead, so a full array ends in an
- * {@code ArrayIndexOutOfBoundsException} on the game thread and the game reports it and dies.</p>
+ * <p>绘制小地图单位标记的命令从对象池中获取点位数组；如果该数组恰好适配请求数量，容量就等于点位数。随后逐点绘制方块的部分会
+ * 越界读取最后一个点之后的一个 float。引擎自身的线条绘制不会发生这种读取：它会一次性传入整个数组，并明确指定结束位置。
+ * 方块绘制则每次读取一个 float，而且总会向前多读一个；数组被完全填满时，就会在游戏线程中抛出
+ * {@code ArrayIndexOutOfBoundsException}，随后游戏报告错误并退出。</p>
  *
- * <p>Asking for one point more than the batch holds leaves one point of spare room at every
- * capacity the pool can hand out, and changes nothing else: the draw is told how many points the
- * command holds, never how many it has room for.</p>
+ * <p>请求数量比批次实际持有的点位多一个，就能使对象池返回的任何容量都留出一个点位的余量，且不会影响其他行为：绘制操作读取的是
+ * 命令实际持有的点位数，而不是数组可容纳的数量。</p>
  */
 @AsmMixin("com/corrodinggames/rts/gameFramework/gui/MinimapHandler")
 public final class MinimapHandlerMixin {
 
-    /** Whether this mixin has said that it is in: it runs for every batch of every frame. */
+    /** 标记该 Mixin 是否已执行；每帧的每个批次都会触发它。 */
     private static volatile boolean announced;
 
     private MinimapHandlerMixin() {
     }
 
-    /** The point count the engine asks its pool for, one point richer than it asked for. */
+    /** 引擎向对象池请求的点数，并额外增加一个点。 */
     @ModifyArg(
         method = "drawUnitDots(Lcom/corrodinggames/rts/gameFramework/render/GraphicsEngine;IIFF)V",
         index = 0,

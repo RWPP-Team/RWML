@@ -14,27 +14,22 @@ import java.io.InputStream;
 import java.util.Locale;
 
 /**
- * Makes sure a JVM of the required version is available on disk, downloading one if it is not.
+ * 确保磁盘上存在符合版本要求的 JVM；不存在时会下载一个。
  *
- * <p>The problem this solves: the game ships as Java 8 bytecode and the launcher may well start it on
- * a Java 8 runtime, but the RWML core needs a modern JVM. Rather than asking the player to install
- * one, the bootstrap fetches an official Temurin build once, caches it, and reuses it on every later
- * launch.</p>
+ * <p>此类解决的问题是：游戏以 Java 8 字节码发布，启动器可能会使用 Java 8 运行时启动游戏，但 RWML 核心需要较新的 JVM。
+ * 启动器无需要求玩家自行安装，而是下载一次官方 Temurin 构建，缓存起来供之后启动复用。</p>
  *
- * <p>Resolution order, first hit wins:</p>
+ * <p>按以下顺序查找，使用第一个符合条件的结果：</p>
  * <ol>
- *   <li>{@code JAVA_HOME}, when it names a JVM of the required version or newer - a JDK the player
- *       already has is used as it is, and nothing is downloaded;</li>
- *   <li>{@code <cache>/jdk/temurin-<version>} - a previously downloaded JDK, validated before use;</li>
- *   <li>a fresh download from the Adoptium API, checksum verified, extracted into the cache.</li>
+ *   <li>{@code JAVA_HOME} 指向符合或高于所需版本的 JVM 时，直接使用玩家已有的 JDK，不执行下载；</li>
+ *   <li>{@code <cache>/jdk/temurin-<version>} 中之前下载的 JDK，使用前会先验证；</li>
+ *   <li>从 Adoptium API 下载新版本，校验和验证通过后解压到缓存目录。</li>
  * </ol>
  *
- * <p>The lookup is the whole configuration: RWML takes no parameters, so there is nothing to pass
- * on the command line and nothing to keep in sync between the launcher and the game.</p>
+ * <p>查找规则就是全部配置：RWML 不接收参数，因此无需向命令行传递设置，也无需在启动器和游戏之间保持配置同步。</p>
  *
- * <p>Every candidate is validated the same way - by actually running its {@code java -version} and
- * checking the reported feature version. A partially extracted or wrong-architecture JDK is
- * therefore rejected here, with a clear message, instead of failing later with an obscure error.</p>
+ * <p>所有候选版本都使用相同方式验证：实际运行其 {@code java -version}，并检查报告的主版本。解压不完整或架构错误的 JDK 会在此处被拒绝并给出明确消息，
+ * 而不是留到之后以难以理解的错误失败。</p>
  */
 public final class JavaRuntime {
 
@@ -49,9 +44,9 @@ public final class JavaRuntime {
     }
 
     /**
-     * @param required the minimum JVM feature version
-     * @return the home directory of a JVM satisfying {@code required}
-     * @throws IOException when no JVM is available and none could be downloaded
+     * @param required 所需的最低 JVM 主版本
+     * @return 符合 {@code required} 要求的 JVM 主目录
+     * @throws IOException 没有可用 JVM 且无法下载时抛出
      */
     public static File provision(int required) throws IOException {
         File system = systemJavaHome();
@@ -82,8 +77,7 @@ public final class JavaRuntime {
     }
 
     /**
-     * @return the JDK named by the {@code JAVA_HOME} environment variable, or {@code null} when it
-     *         is unset or does not name an existing directory.
+     * @return {@code JAVA_HOME} 环境变量指定的 JDK；变量未设置或目录不存在时返回 {@code null}
      */
     private static File systemJavaHome() {
         String value = System.getenv("JAVA_HOME");
@@ -94,7 +88,7 @@ public final class JavaRuntime {
         return home.isDirectory() ? home : null;
     }
 
-    /** @return the directory a downloaded JDK of {@code required} is cached in. */
+    /** @return 缓存所需版本 {@code required} 的已下载 JDK 的目录 */
     public static File cachedHome(int required) {
         return new File(new File(cacheRoot(), "jdk"), "temurin-" + required);
     }
@@ -113,7 +107,7 @@ public final class JavaRuntime {
     }
 
     // ------------------------------------------------------------------
-    // Download
+    // 下载
     // ------------------------------------------------------------------
 
     private static File download(int required, File target) throws IOException {
@@ -125,8 +119,7 @@ public final class JavaRuntime {
         long size = -1;
         try {
             String json = Downloader.getText(String.format(ASSETS_API, required, os, arch));
-            // Anchor on the "package" object so the fields read below belong to the JDK archive
-            // rather than to an earlier "release_link" or a sibling installer entry.
+            // 以“package”对象为起点，确保下方读取的字段属于 JDK 归档，而不是前面的“release_link”或同级安装程序条目。
             int anchor = json.indexOf("\"package\"");
             String scope = anchor >= 0 ? json.substring(anchor) : json;
             checksum = firstQuoted(scope, "checksum");
@@ -192,17 +185,15 @@ public final class JavaRuntime {
     }
 
     // ------------------------------------------------------------------
-    // Validation
+    // 验证
     // ------------------------------------------------------------------
 
     /**
-     * Determines the feature version of a JVM home by running it.
+     * 通过运行 JVM 主目录下的程序来确定其主版本。
      *
-     * <p>Actually starting the JVM is the only check that proves the download is complete, matches
-     * the architecture and survives the extraction - a cheaper file-existence test would happily
-     * accept a half-written directory.</p>
+     * <p>实际启动 JVM 是唯一能验证下载完整、架构匹配且解压成功的方法；更简单的文件存在性检查会错误接受只写入一半的目录。</p>
      *
-     * @return the feature version, or {@code -1} when the home holds no runnable JVM
+     * @return JVM 主版本；主目录中没有可运行的 JVM 时返回 {@code -1}
      */
     static int versionOf(File home) {
         File java = Archives.javaExecutable(home);
@@ -227,7 +218,7 @@ public final class JavaRuntime {
         }
     }
 
-    /** Extracts the feature version from the first {@code version "..."} token of {@code java -version}. */
+    /** 从 {@code java -version} 输出中的第一个 {@code version "..."} 标记提取功能版本。 */
     static int parseJavaVersionOutput(String output) {
         if (output == null) {
             return -1;
@@ -245,7 +236,7 @@ public final class JavaRuntime {
     }
 
     // ------------------------------------------------------------------
-    // Platform detection
+    // 平台检测
     // ------------------------------------------------------------------
 
     static String osName() throws IOException {
@@ -269,7 +260,7 @@ public final class JavaRuntime {
             return "aarch64";
         }
         if (arch.contains("64")) {
-            // x86_64, amd64 and ppc64le all reach this branch on the JVMs worth supporting here.
+            // 对于此处支持的 JVM，x86_64、amd64 和 ppc64le 都会进入此分支。
             return arch.contains("ppc") || arch.contains("s390") || arch.contains("riscv")
                 ? arch
                 : "x64";
@@ -282,10 +273,10 @@ public final class JavaRuntime {
     }
 
     // ------------------------------------------------------------------
-    // Minimal JSON field readers
+    // 简易 JSON 字段读取器
     // ------------------------------------------------------------------
 
-    /** @return the value of the first {@code "key": "value"} in {@code json}, or {@code null}. */
+    /** @return {@code json} 中第一个 {@code "key": "value"} 对应的值；不存在时返回 {@code null} */
     static String firstQuoted(String json, String key) {
         String needle = "\"" + key + "\"";
         int at = json.indexOf(needle);
@@ -300,7 +291,7 @@ public final class JavaRuntime {
         return close < 0 ? null : json.substring(open + 1, close);
     }
 
-    /** @return the value of the first {@code "key": <number>} in {@code json}, or {@code -1}. */
+    /** @return {@code json} 中第一个 {@code "key": <number>} 对应的值；不存在时返回 {@code -1} */
     static long firstNumber(String json, String key) {
         String needle = "\"" + key + "\"";
         int at = json.indexOf(needle);

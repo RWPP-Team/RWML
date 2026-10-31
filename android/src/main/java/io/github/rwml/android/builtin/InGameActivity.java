@@ -7,15 +7,19 @@
 
 package io.github.rwml.android.builtin;
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Build;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
@@ -24,27 +28,22 @@ import com.corrodinggames.rts.appFramework.AppContext;
 import com.corrodinggames.rts.appFramework.GameActivity;
 import com.corrodinggames.rts.gameFramework.GameEngine;
 
+import io.github.rwml.android.AndroidGameSurface;
+import io.github.rwml.android.AndroidUiHost;
 import io.github.rwml.android.R;
 
 /**
- * The screen the game is played on: it owns the surface the game is drawn into and the event stream,
- * translated into the shapes the engine reads, a {@code TouchEvent} and integer key codes.
+ * 游戏运行界面：持有游戏的绘制表面和输入事件流，并将事件转换为引擎可读取的格式，即 {@code TouchEvent} 和整数键码。
  *
- * <p>Everything the game does from this screen is the game's own code. The engine fills its pause
- * menu itself and routes the chosen entry back through {@code GameActivity.selectMenuOption}, which
- * posts it to the activity's own handler and lands in {@code selectMenuOptionInternal}. Settings,
- * chat and the return to the battleroom use this host's screens and resource ids; the other entries
- * still use the game's handling.</p>
+ * <p>从此界面发起的游戏操作都由游戏自身代码处理。引擎会自行填充暂停菜单，并通过
+ * {@code GameActivity.selectMenuOption} 回传所选项；该方法将选择发送到 Activity 自身的处理器，最终由
+ * {@code selectMenuOptionInternal} 处理。设置、聊天和返回对战房间使用此宿主的界面和资源 ID；其他菜单项仍交由游戏处理。</p>
  *
- * <p>What the screen does add is the platform half the game's Android build carries and this archive
- * does not. {@code GameActivity} keeps the view it is drawn into in a field of its own, and the only
- * writer of that field is the game's own in-game screen, which belongs to the Android build. The
- * archive this app mounts therefore reads it and never writes it, so the field is null, and
- * {@code GameActivity.onWindowFocusChanged} - which reads it and then tells it about the focus change
- * - cannot be called. That method does two things; the other one is
- * {@code AppContext.setupActivity}, and this screen calls exactly that, so the game re-registers its
- * activity and re-reads the setting that decides the system bars on every focus gain as it always
- * did. The focus change is passed to the view directly, which is the half the field was carrying.</p>
+ * <p>此界面补充了游戏 Android 版本所包含、而当前归档缺少的平台侧逻辑。{@code GameActivity} 会在自己的字段中保存绘制所用视图，
+ * 但只有游戏 Android 版本中的游戏界面会为该字段赋值。当前应用挂载的归档只会读取它，不会写入，因此该字段为 null；读取该字段并
+ * 通知视图焦点变化的 {@code GameActivity.onWindowFocusChanged} 也不能调用。该方法会执行两项操作，其中一项是
+ * {@code AppContext.setupActivity}；此界面会直接调用它，从而在每次获得焦点时重新注册 Activity，并像原流程一样重新读取系统栏设置。
+ * 焦点变化则直接转发给视图，这对应于原字段负责的另一项操作。</p>
  */
 public final class InGameActivity extends GameActivity {
 
@@ -54,9 +53,15 @@ public final class InGameActivity extends GameActivity {
 
     private AndroidGameView gameView;
 
+    private AndroidGameSurface extensionSurface;
+    private FrameLayout gameRoot;
+
     private AlertDialog chatDialog;
 
-    /** Whether this screen has already resumed once, so a menu found later is one of its own. */
+    /** Kept as Object so Android versions before API 33 never resolve the newer callback type. */
+    private Object backInvokedCallback;
+
+    /** 此界面是否已恢复过；如果是，之后出现的菜单才属于当前界面。 */
     private boolean resumedOnce;
 
     @Override
@@ -64,18 +69,20 @@ public final class InGameActivity extends GameActivity {
         super.onCreate(state);
         AndroidApp.prepare(this, true);
 
-        // The game's own layout is an empty container: the view the game is drawn into is created
-        // in code on every platform, because which view it is depends on the render mode the
-        // settings choose.
+        // 游戏自身的布局是空容器：每个平台上的绘制视图都会由代码创建，因为具体使用哪个视图取决于设置中的渲染模式。
         restoreMinimapRendering();
-        setContentView(R.layout.main);
+        gameRoot = new FrameLayout(this);
+        setContentView(gameRoot);
         gameView = new AndroidGameView(this);
-        addContentView(gameView,
+        gameRoot.addView(gameView,
             new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        extensionSurface = AndroidUiHost.attachGameSurface(
+            getIntent().getStringExtra(AndroidUiHost.EXTRA_GAME_SURFACE), this, gameRoot, state);
+        registerSystemBackCallback();
     }
 
-    /** @return the surface the engine is asked to draw into */
+    /** @return 请求引擎用于绘制的表面 */
     public AndroidGameView gameView() {
         return gameView;
     }
@@ -88,6 +95,9 @@ public final class InGameActivity extends GameActivity {
         if (gameView != null) {
             gameView.setDrawingEnabled(true);
         }
+        if (extensionSurface != null) {
+            extensionSurface.onHostResume();
+        }
         if (!resumedOnce) {
             resumedOnce = true;
             clearLeftOverPauseMenu();
@@ -96,6 +106,9 @@ public final class InGameActivity extends GameActivity {
 
     @Override
     protected void onPause() {
+        if (extensionSurface != null) {
+            extensionSurface.onHostPause();
+        }
         if (gameView != null) {
             gameView.setDrawingEnabled(false);
         }
@@ -103,22 +116,39 @@ public final class InGameActivity extends GameActivity {
     }
 
     @Override
+    protected void onStop() {
+        if (extensionSurface != null) {
+            extensionSurface.onHostStop();
+        }
+        super.onStop();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        if (extensionSurface != null) {
+            extensionSurface.onHostSaveInstanceState(outState);
+        }
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
     protected void onDestroy() {
+        unregisterSystemBackCallback();
         if (chatDialog != null) {
             chatDialog.dismiss();
+        }
+        if (extensionSurface != null) {
+            extensionSurface.onHostDestroy(isChangingConfigurations());
         }
         super.onDestroy();
     }
 
     /**
-     * Takes the pause menu down when it was left up by the game that was played before this screen.
+     * 若上一个游戏留下了未关闭的暂停菜单，则关闭该菜单。
      *
-     * <p>The engine keeps the pause menu's state, not the screen, so leaving a game from its own
-     * pause menu leaves the flag up. The next game then comes up already paused, which reads as the
-     * game being stuck rather than as a menu that was never closed. On the first resume a menu can
-     * only be a leftover, because this screen has not been up long enough to open one; the engine's
-     * own reset puts the interface back to the state a game starts in, which is what the game's own
-     * screen calls when it comes up.</p>
+     * <p>引擎保存的是暂停菜单状态，而不是界面本身，因此从游戏自身的暂停菜单退出时会留下已设置的暂停标志。下一个游戏就会以暂停状态启动，
+     * 看起来像是游戏卡住，而不是菜单没有关闭。首次恢复时出现的菜单只能是上一次遗留的，因为当前界面还没有运行足够久来打开菜单；
+     * 引擎自身的重置会将界面恢复到游戏启动时的状态，这正是游戏原生界面初始化时所调用的操作。</p>
      */
     private void clearLeftOverPauseMenu() {
         GameEngine engine = GameEngine.getInstance();
@@ -134,8 +164,7 @@ public final class InGameActivity extends GameActivity {
 
     @Override
     public void onWindowFocusChanged(boolean focused) {
-        // The parent's handler reads the view field described above and cannot run; what it does
-        // with the focus change is done here instead.
+        // 父类处理器会读取上文所述的视图字段，因此无法调用；这里直接处理焦点变化。
         if (focused) {
             AppContext.setupActivity(this, false, true);
         }
@@ -145,8 +174,21 @@ public final class InGameActivity extends GameActivity {
     }
 
     // ------------------------------------------------------------------
-    // Input
+    // 输入
     // ------------------------------------------------------------------
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        // A focused SurfaceView or extension overlay is dispatched before Activity.onKeyUp. Intercept BACK
+        // at the Activity boundary so a child cannot consume it without reaching the surface lifecycle.
+        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+            if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
+                dispatchBackToSurface();
+            }
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -154,20 +196,66 @@ public final class InGameActivity extends GameActivity {
     }
 
     @Override
-    public boolean onKeyUp(int keyCode, KeyEvent event) {
-        return key(keyCode, false) || super.onKeyUp(keyCode, event);
+    public void onBackPressed() {
+        // 游戏原生版本在按下返回键时会退出游戏界面。引擎不会收到该按键：是否退出界面由平台决定，且引擎菜单已有自己的按钮。
+        dispatchBackToSurface();
     }
 
     @Override
-    public void onBackPressed() {
-        // The game's own build leaves the game on back. The engine never sees the key: leaving the
-        // screen is the platform's decision, and the engine's menus have their own buttons.
-        finish();
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        // Route physical/adb KEYCODE_BACK directly. Recent Android versions may use the predictive-back
+        // dispatcher without delivering a key event; registerSystemBackCallback covers that path.
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (!event.isCanceled()) {
+                dispatchBackToSurface();
+            }
+            return true;
+        }
+        return key(keyCode, false) || super.onKeyUp(keyCode, event);
+    }
+
+    private void dispatchBackToSurface() {
+        if (extensionSurface != null && !extensionSurface.isClosed()) {
+            extensionSurface.onHostBackPressed();
+        } else {
+            finish();
+        }
+    }
+
+    private void registerSystemBackCallback() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            backInvokedCallback = Api33.register(this);
+        }
+    }
+
+    private void unregisterSystemBackCallback() {
+        if (Build.VERSION.SDK_INT >= 33 && backInvokedCallback != null) {
+            Api33.unregister(this, backInvokedCallback);
+            backInvokedCallback = null;
+        }
+    }
+
+    /** API 33 types stay isolated from the class verifier on older Android versions. */
+    private static final class Api33 {
+        @SuppressLint("NewApi")
+        static Object register(InGameActivity activity) {
+            OnBackInvokedCallback callback = activity::dispatchBackToSurface;
+            activity.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                callback);
+            return callback;
+        }
+
+        @SuppressLint("NewApi")
+        static void unregister(InGameActivity activity, Object callback) {
+            activity.getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(
+                (OnBackInvokedCallback) callback);
+        }
     }
 
     /**
-     * Forwards one key transition to the engine, which keys its table by Android codes on every
-     * platform. The menu and volume keys are the platform's and the back key never arrives.
+     * 将一次按键状态变化转发给引擎；所有平台上，引擎都使用 Android 键码作为按键表索引。菜单键和音量键由平台处理，
+     * 返回键不会传到此处。
      */
     private boolean key(int keyCode, boolean down) {
         if (keyCode == KeyEvent.KEYCODE_MENU
@@ -185,15 +273,14 @@ public final class InGameActivity extends GameActivity {
     }
 
     // ------------------------------------------------------------------
-    // The platform's own menu
+    // 平台菜单
     // ------------------------------------------------------------------
 
     /**
-     * Routes the platform's options key into the game.
+     * 将平台菜单键操作转发给游戏。
      *
-     * <p>The ids are the ones {@code GameActivity.onPrepareOptionsMenu} puts on the entries, and the
-     * call is the game's own: it posts the choice to this activity's handler, which is what makes it
-     * safe to handle a dialog from a key event.</p>
+     * <p>这些 ID 来自 {@code GameActivity.onPrepareOptionsMenu} 创建的菜单项，调用的也是游戏自身方法：它会将选择发送到此 Activity
+     * 的处理器，因此可在按键事件中安全地处理对话框。</p>
      */
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
@@ -201,7 +288,7 @@ public final class InGameActivity extends GameActivity {
         return true;
     }
 
-    /** Handles the entries whose Android screens and resources belong to this app. */
+    /** 处理由当前应用提供 Android 界面和资源的菜单项。 */
     @Override
     public void selectMenuOptionInternal(int option) {
         switch (option) {
@@ -216,8 +303,7 @@ public final class InGameActivity extends GameActivity {
                 showHostChatDialog(true);
                 break;
             case 21:
-                // The engine has already broadcast the return and reset the match. The room was
-                // finished when the match began, so closing this screen alone returns to the lobby.
+                // 引擎已经广播返回操作并重置对局。比赛开始时房间界面已结束，因此只需关闭当前界面即可返回大厅。
                 closePauseMenu();
                 finishActivity(REQUEST_SETTINGS);
                 startActivity(new Intent(this, MultiplayerBattleroomActivity.class)
@@ -229,7 +315,7 @@ public final class InGameActivity extends GameActivity {
         }
     }
 
-    /** Uses the APK's chat layout and ids, with the game's public and team messaging paths. */
+    /** 使用 APK 中的聊天布局和 ID，并沿用游戏公开频道与队伍频道的消息处理流程。 */
     private void showHostChatDialog(boolean teamOnly) {
         GameEngine engine = GameEngine.getInstance();
         if (engine == null || engine.networkEngine == null || isFinishing()) {
@@ -287,10 +373,10 @@ public final class InGameActivity extends GameActivity {
     }
 
     // ------------------------------------------------------------------
-    // The engine
+    // 引擎
     // ------------------------------------------------------------------
 
-    /** Hands this screen and its surface to the engine, on every resume: it keeps the view it was given. */
+    /** 每次恢复时都将此界面及其表面交给引擎，因为引擎会继续使用已提供的视图。 */
     private void attachToEngine() {
         GameEngine engine = GameEngine.getInstance();
         if (engine == null || gameView == null) {
@@ -303,19 +389,15 @@ public final class InGameActivity extends GameActivity {
     }
 
     /**
-     * Restores the engine's own minimap rendering.
+     * 恢复引擎自身的小地图渲染设置。
      *
-     * <p>An earlier RWML build forced {@code renderWithLineWidth} to {@code false} here, reading the
-     * two halves of the engine's queued minimap draw as joined lines versus one square per unit, on
-     * the strength of one on-device look. The stock game runs with the field at its default of
-     * {@code true}, and that is the rendering it has always shown; forcing the other half on steered
-     * the draw into the square half, whose loop reads one float past a full points array and ends in
-     * an {@code ArrayIndexOutOfBoundsException} on the game thread.</p>
+     * <p>早期版本的 RWML 曾在此处将 {@code renderWithLineWidth} 强制设为 {@code false}，仅凭一次设备观察，就将引擎队列式小地图绘制的
+     * 两部分理解为“连接线”和“每个单位一个方块”。原版游戏使用该字段的默认值 {@code true}，并一直采用此渲染方式；强制启用另一分支会
+     * 进入方块绘制逻辑，而该循环在点位数组填满时会多读取一个 float，最终在游戏线程中抛出
+     * {@code ArrayIndexOutOfBoundsException}。</p>
      *
-     * <p>The field is saved with the rest of the settings and has no switch on this platform, so a
-     * device that ran the forced build keeps the forced value after it is gone. Writing the default
-     * back here, where a game screen comes up, lets the next settings save make the repair
-     * permanent.</p>
+     * <p>该字段会与其他设置一同保存，且此平台没有对应开关，因此运行过强制设置版本的设备在升级后仍会保留旧值。在游戏界面启动时将其
+     * 写回默认值，下一次保存设置时就能永久修复。</p>
      */
     private void restoreMinimapRendering() {
         GameEngine engine = GameEngine.getInstance();

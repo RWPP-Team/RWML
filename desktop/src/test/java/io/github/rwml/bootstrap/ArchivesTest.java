@@ -24,12 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * The archive layer unpacks the JDK that RWML downloads and then executes.
+ * 归档层负责解压 RWML 下载并随后运行的 JDK。
  *
- * <p>Adoptium publishes {@code .zip} for Windows and {@code .tar.gz} everywhere else, and the JDK has
- * no tar support, so the tar reader is hand written. These tests cover it against an archive laid out
- * the way a real JDK one is - wrapper directory, nested paths, both entry kinds - because the failure
- * mode of getting it wrong is an unusable Java runtime on Linux.</p>
+ * <p>Adoptium 在 Windows 上发布 {@code .zip}，在其他平台发布 {@code .tar.gz}；JDK 不支持 tar，因此此处手写了解析器。
+ * 这些测试使用真实 JDK 归档的目录结构验证解析器，包括外层目录、嵌套路径和两种条目类型，因为解析错误会导致 Linux 上的 Java 运行时无法使用。</p>
  */
 class ArchivesTest {
 
@@ -60,7 +58,7 @@ class ArchivesTest {
             tarEntry(gz, "jdk-25/bin/", new byte[0], '5');
             tarEntry(gz, "jdk-25/bin/java", JAVA, '0');
             tarEntry(gz, "jdk-25/lib/modules", "modules".getBytes(StandardCharsets.UTF_8), '0');
-            gz.write(new byte[1024]); // end-of-archive marker
+            gz.write(new byte[1024]); // 归档结束标记
         }
 
         Path target = temp.resolve("out");
@@ -72,8 +70,7 @@ class ArchivesTest {
 
     @Test
     void handlesATarEntryWhosePayloadIsNotABlockMultiple(@TempDir Path temp) throws IOException {
-        // 600 bytes: 512 bytes of payload plus 88 of padding, which has to be consumed exactly or the
-        // next header is read from the middle of the data.
+        // 600 字节：512 字节负载加上 88 字节填充。必须完整读取这些数据，否则下一个文件头会从负载中间开始解析。
         byte[] data = new byte[600];
         for (int i = 0; i < data.length; i++) {
             data[i] = (byte) ('a' + (i % 26));
@@ -158,18 +155,18 @@ class ArchivesTest {
         out.closeEntry();
     }
 
-    /** Writes one ustar header plus its payload, the way GNU tar lays out a JDK image. */
+    /** 按 GNU tar 打包 JDK 镜像的方式写入一个 ustar 头及其数据。 */
     private static void tarEntry(OutputStream out, String name, byte[] data, char type) throws IOException {
         byte[] header = new byte[512];
         byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
         System.arraycopy(nameBytes, 0, header, 0, nameBytes.length);
-        octal(header, 100, 8, type == '5' ? 0755 : 0644); // mode
-        octal(header, 108, 8, 0);                         // uid
-        octal(header, 116, 8, 0);                         // gid
-        octal(header, 124, 12, data.length);              // size
-        octal(header, 136, 12, 0);                        // mtime
+        octal(header, 100, 8, type == '5' ? 0755 : 0644); // 权限模式
+        octal(header, 108, 8, 0);                         // 用户 ID
+        octal(header, 116, 8, 0);                         // 组 ID
+        octal(header, 124, 12, data.length);              // 大小
+        octal(header, 136, 12, 0);                        // 修改时间
         header[156] = (byte) type;
-        // The reader does not verify the checksum, so the field is left as NULs.
+        // 读取器不校验校验和，因此该字段保持为 NUL。
         out.write(header);
         if (data.length > 0) {
             out.write(data);

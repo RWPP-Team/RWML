@@ -36,30 +36,26 @@ import java.util.List;
 import io.github.rwml.android.R;
 
 /**
- * The mods screen: every installed mod as a checkbox, in the game's own mods layout.
+ * 模组界面：沿用游戏自身的模组布局，以复选框列出所有已安装模组。
  *
- * <p>A tick means the mod is enabled. The list is the engine's own, read through
- * {@link ModManager}, and it is read the way the game's screen reads it: a refresh scans the mod
- * folders, which is also what the Reload button does. Saving writes each mod's ticked state back
- * through the manager, which records the selection in the engine's settings, and then saves them.</p>
+ * <p>勾选表示启用模组。列表由引擎通过 {@link ModManager} 提供，读取方式与游戏界面一致：刷新时扫描模组目录，
+ * “重新加载”按钮也会执行相同操作。保存时会通过管理器写回每个模组的勾选状态，由管理器将选择记录到引擎设置并保存。</p>
  *
- * <p>Importing a mod is the platform's file picker: the chosen archive is copied into the mods
- * folder and the list is refreshed. Creating the folder makes the folder a mod would be copied
- * into. Linking a folder through the storage-access framework belongs to the Android build's file
- * browser, which this host does not carry, so that button stays hidden.</p>
+ * <p>导入模组时会打开平台文件选择器，将选中的归档复制到模组目录并刷新列表。创建目录会新建用于复制模组的文件夹。
+ * 通过存储访问框架关联目录属于 Android 版本文件浏览器的功能，本宿主没有携带该浏览器，因此隐藏对应按钮。</p>
  */
 public final class ModsActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** The request code the platform's file picker answers with. */
+    /** 平台文件选择器返回结果所使用的请求码。 */
     private static final int REQUEST_IMPORT = 5;
 
     private SettingsEngine settings;
     private ModManager mods;
     private LinearLayout container;
 
-    /** One row of the list: the mod it stands for, and the box that shows its state. */
+    /** 列表中的一行：对应模组及显示其状态的复选框。 */
     private final List<Row> rows = new ArrayList<>();
 
     private static final class Row {
@@ -110,10 +106,10 @@ public final class ModsActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // The list
+    // 列表
     // ------------------------------------------------------------------
 
-    /** Rebuilds the list from the engine's own mod list. */
+    /** 根据引擎自身的模组列表重建界面列表。 */
     private void listMods() {
         if (container == null) {
             return;
@@ -144,7 +140,7 @@ public final class ModsActivity extends BuiltinActivity {
         }
     }
 
-    /** The storage note above the list, plus whatever the manager last reported as a load problem. */
+    /** 列表上方的存储提示，以及管理器最近报告的加载问题。 */
     private void fillInfo() {
         View view = findViewById(R.id.modExtraTextInfo);
         if (!(view instanceof TextView)) {
@@ -164,7 +160,7 @@ public final class ModsActivity extends BuiltinActivity {
         ((TextView) view).setText(text.toString());
     }
 
-    /** One mod: its title in a checkbox, and whatever the engine says about its state. */
+    /** 单个模组：复选框中显示标题，旁边显示引擎报告的状态。 */
     private View rowFor(Mod mod) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
@@ -217,10 +213,10 @@ public final class ModsActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // The buttons
+    // 按钮
     // ------------------------------------------------------------------
 
-    /** Writes each ticked state back through the manager, and saves the selection. */
+    /** 通过管理器写回每个复选框状态，并保存选择。 */
     private void save() {
         for (Row row : rows) {
             row.mod.disabled = !row.box.isChecked();
@@ -249,20 +245,20 @@ public final class ModsActivity extends BuiltinActivity {
         finish();
     }
 
-    /** Re-reads the mod folders, which is what the game's Reload button does. */
+    /** 重新读取模组目录，与游戏“重新加载”按钮的行为一致。 */
     private void reload() {
         listMods();
         LocalizedText.applyTo(findViewById(android.R.id.content));
         Toast.makeText(this, LocalizedText.ui("ui.modsReloaded"), Toast.LENGTH_SHORT).show();
     }
 
-    /** Creates the folder a mod is installed into, when it is not there yet. */
+    /** 模组安装目录不存在时创建该目录。 */
     private void createFolder() {
         String directory;
         boolean ready;
         try {
             directory = CustomUnitMetadataLoader.getModsUnitsDirectory();
-            // A folder that already exists is as good an outcome as one that was just made.
+            // 目录已经存在与刚刚创建成功的效果相同。
             ready = FileLoader.createDirectory(directory) || FileLoader.isDirectory(directory);
         } catch (Throwable t) {
             Log.w(TAG, "The mods folder could not be created.", t);
@@ -274,7 +270,7 @@ public final class ModsActivity extends BuiltinActivity {
             Toast.LENGTH_LONG).show();
     }
 
-    /** Asks the platform for an archive to install as a mod. */
+    /** 请求平台选择要安装为模组的归档。 */
     private void chooseArchive() {
         if (!FileImport.choose(this, REQUEST_IMPORT)) {
             Toast.makeText(this, LocalizedText.ui("ui.noPicker"), Toast.LENGTH_LONG).show();
@@ -293,7 +289,7 @@ public final class ModsActivity extends BuiltinActivity {
         importMod(data.getData());
     }
 
-    /** Copies the picked archive into the mods folder, then re-reads the list. */
+    /** 将选中的归档复制到模组目录，然后重新读取列表。 */
     private void importMod(Uri source) {
         String name = FileImport.nameOf(this, source);
         if (TextUtils.isEmpty(name)) {
@@ -333,7 +329,7 @@ public final class ModsActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // Helpers
+    // 辅助方法
     // ------------------------------------------------------------------
 
     private void onclick(int id, Runnable action) {

@@ -15,41 +15,33 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Restarts the game on a chosen JVM.
+ * 在指定 JVM 中重新启动游戏。
  *
- * <p>This exists because of a hard constraint: from Java 9 onwards, a JVM refuses to attach an agent
- * to itself ({@code Can not attach to current VM}) unless it was started with
- * {@code -Djdk.attach.allowAttachSelf=true}, and that property is read by the launcher before any
- * application code runs - setting it from {@code main} is too late (verified on JDK 25). The game's
- * launcher is not under RWML's control and passes no {@code -javaagent} flag, so the only way to get
- * the bytecode transformer installed before the game's classes load is to become the launcher:
- * re-exec the same command line on the chosen JVM and add the flags it needs.</p>
+ * <p>这是受平台限制所需的处理：从 Java 9 起，如果 JVM 启动时没有设置 {@code -Djdk.attach.allowAttachSelf=true}，就会拒绝向自身附加
+ * agent（错误为 {@code Can not attach to current VM}）。该属性会在应用代码运行前由启动器读取，因此在 {@code main} 中设置为时已晚
+ *（已在 JDK 25 上验证）。RWML 无法控制游戏启动器，且启动器未传入 {@code -javaagent} 标志，因此要在游戏类加载前安装字节码转换器，
+ * 唯一方法是接管启动流程：在指定 JVM 上以相同命令行重新启动，并添加所需标志。</p>
  *
- * <p>Two consequences make this worth the extra process:</p>
+ * <p>使用额外进程可以带来两项效果：</p>
  * <ul>
- *   <li>{@code -javaagent:<this jar>} makes {@code RwmlAgent.premain} run <em>before</em>
- *       {@code main}, so {@code Instrumentation} is available and mixins are applied to game classes
- *       as they load - no self-attach, no bootstrap-classpath tricks, no flags required from the
- *       game's own launcher;</li>
- *   <li>the JVM arguments the launcher did pass ({@code -Xmx}, {@code -D...}, and any third-party
- *       {@code -javaagent}) are forwarded, so the game keeps the configuration it expects.</li>
+ *   <li>{@code -javaagent:<this jar>} 会让 {@code RwmlAgent.premain} 在 {@code main} <em>之前</em>运行，使
+ *       {@code Instrumentation} 可用，并在游戏类加载时应用 mixin；无需向自身附加 agent、修改启动类路径，也无需游戏启动器提供任何标志；</li>
+ *   <li>启动器已传入的 JVM 参数（{@code -Xmx}、{@code -D...} 和第三方 {@code -javaagent}）会继续传递，游戏仍使用预期配置。</li>
  * </ul>
  */
 public final class Relauncher {
 
-    /** Set on the child JVM so a failed relaunch can never turn into an endless loop. */
+    /** 在子 JVM 中设置，防止重启失败后陷入无限循环。 */
     public static final String RELAUNCHED_PROPERTY = "rwml.relaunched";
 
-    /** Set by {@code RwmlAgent.premain} once the transformer is live. */
+    /** 转换器启动后由 {@code RwmlAgent.premain} 设置。 */
     public static final String AGENT_INSTALLED_PROPERTY = "rwml.agent.installed";
 
     private Relauncher() {
     }
 
     /**
-     * @return the jar the bootstrap is running from, or {@code null} when it is not running from a
-     *         jar (an IDE or test class path), in which case the agent cannot be installed by
-     *         relaunching.
+     * @return 启动器当前运行所在的 JAR；未通过 JAR 运行时（例如 IDE 或测试类路径）返回 {@code null}，此时无法通过重启安装 agent
      */
     public static File ownJar() {
         try {
@@ -68,12 +60,12 @@ public final class Relauncher {
     }
 
     /**
-     * Builds the command line for the child JVM.
+     * 为子 JVM 构建命令行。
      *
-     * @param javaHome the JVM to start
-     * @param ownJar   RWML's jar, added as a {@code -javaagent} when it is known
-     * @param addAgent whether to add the {@code -javaagent} flag
-     * @param args     the game's own arguments, forwarded verbatim
+     * @param javaHome 要启动的 JVM
+     * @param ownJar   RWML 的 JAR；已知时会添加为 {@code -javaagent}
+     * @param addAgent 是否添加 {@code -javaagent} 标志
+     * @param args     游戏自身参数，按原样转发
      */
     public static List<String> buildCommand(File javaHome, File ownJar, boolean addAgent, String[] args) {
         List<String> command = new ArrayList<>();
@@ -104,22 +96,21 @@ public final class Relauncher {
     }
 
     /**
-     * Starts the child JVM, wires the console straight through to it and waits for it to finish.
+     * 启动子 JVM，将控制台输出直接转发给它，并等待其退出。
      *
-     * @return the child's exit code, which the caller relays
+     * @return 子进程的退出码，由调用方转发
      */
     public static int run(List<String> command) throws Exception {
         BootstrapLog.info("Launching: " + quote(command));
         ProcessBuilder builder = new ProcessBuilder(command);
-        // The game owns the console: its output has to appear on the real stdout, not be piped
-        // through the bootstrap.
+        // 控制台由游戏使用：游戏输出必须直接写入真实标准输出，不能经过启动器转发。
         builder.inheritIO();
         String workingDirectory = System.getProperty("user.dir");
         if (workingDirectory != null) {
             builder.directory(new File(workingDirectory));
         }
         final Process process = builder.start();
-        // If this JVM is killed, take the child down with it instead of leaving it orphaned.
+        // 当前 JVM 被结束时，也要结束子进程，避免遗留孤儿进程。
         try {
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 if (process.isAlive()) {
@@ -127,7 +118,7 @@ public final class Relauncher {
                 }
             }, "rwml-relay-shutdown"));
         } catch (IllegalStateException ignored) {
-            // Already shutting down; nothing to relay.
+            // 进程已经在关闭，无需转发退出码。
         }
         return process.waitFor();
     }
@@ -136,24 +127,22 @@ public final class Relauncher {
         try {
             return ManagementFactory.getRuntimeMXBean().getInputArguments();
         } catch (Throwable t) {
-            // JMX is present on every supported JVM, but the bootstrap must never die over logging.
+            // 所有受支持的 JVM 都包含 JMX，但不能让启动器因日志记录失败而退出。
             BootstrapLog.debug("Could not read the JVM input arguments: " + BootstrapLog.describe(t));
             return new ArrayList<>();
         }
     }
 
     /**
-     * Decides whether a JVM argument from the current process should be replayed on the child.
+     * 判断当前进程的 JVM 参数是否应转发到子进程。
      *
-     * <p>The class path is supplied by RWML, and an {@code -Xbootclasspath/a} entry would silently
-     * move the game onto the boot loader, where it would be a different copy of the classes than the
-     * one the extension system hands out. Both are therefore dropped.</p>
+     * <p>类路径由 RWML 指定；{@code -Xbootclasspath/a} 参数会悄然将游戏移入启动类加载器，使其加载到的类与扩展系统提供的副本不同。
+     * 因此两者都会被移除。</p>
      *
-     * <p>Only RWML's <em>own</em> {@code -javaagent} entry is dropped (it is re-added explicitly):
-     * a third-party agent the launcher asked for is forwarded, since silently losing it would change
-     * how the game runs.</p>
+     * <p>只移除 RWML <em>自身</em>的 {@code -javaagent} 参数（之后会显式重新添加）。启动器请求的第三方 agent 会继续转发，
+     * 因为静默移除会改变游戏运行方式。</p>
      *
-     * @param ownJar RWML's jar, or {@code null} when it could not be determined
+     * @param ownJar RWML 的 JAR；无法确定时为 {@code null}
      */
     static boolean isForwardable(String argument, File ownJar) {
         if (argument == null || argument.isEmpty()) {
@@ -175,20 +164,20 @@ public final class Relauncher {
             return false;
         }
         if (lower.startsWith("-javaagent:")) {
-            // Re-added by buildCommand; replaying it would install the transformer twice.
+            // buildCommand 会重新添加该参数；再次转发会导致重复安装转换器。
             return !isOwnAgent(argument, ownJar);
         }
         return !lower.startsWith("-d" + RELAUNCHED_PROPERTY + "=")
             && !lower.startsWith("-d" + AGENT_INSTALLED_PROPERTY + "=");
     }
 
-    /** @return whether a {@code -javaagent:} argument points at RWML's own jar. */
+    /** @return {@code -javaagent:} 参数是否指向 RWML 自身的 JAR */
     private static boolean isOwnAgent(String argument, File ownJar) {
         if (ownJar == null) {
             return false;
         }
         String path = argument.substring("-javaagent:".length());
-        // -javaagent:<jar>=<options>
+        // 参数格式：-javaagent:<jar>=<options>
         int options = path.indexOf('=');
         if (options >= 0) {
             path = path.substring(0, options);
@@ -200,7 +189,7 @@ public final class Relauncher {
         }
     }
 
-    /** Renders a command line, quoting the parts that contain spaces. */
+    /** 生成命令行，并为包含空格的部分添加引号。 */
     private static String quote(List<String> command) {
         StringBuilder builder = new StringBuilder();
         for (String part : command) {

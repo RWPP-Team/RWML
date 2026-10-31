@@ -19,12 +19,11 @@ import io.github.rwml.android.builtin.AndroidApp;
 import io.github.rwml.api.ProgressListener;
 
 /**
- * The Android half of bringing the game up.
+ * 在 Android 上启动游戏的部分。
  *
- * <p>Android has no launcher to hand over to, so RWML does the work itself. Starting the game is one
- * call, {@code GameEngine.getOrCreate}, whose {@code init} loads the assets, the resources and the
- * mods; there are no steps of RWML's own around it, and what the splash shows while the call runs is
- * the engine's own account of its loading, which is what the game's own splash shows too.</p>
+ * <p>Android 没有可供接管的启动器，因此由 RWML 自行完成启动工作。启动游戏只需调用
+ * {@code GameEngine.getOrCreate}，其 {@code init} 会加载资源文件、游戏资源和模组；RWML 不会在
+ * 这次调用前后插入自己的步骤。调用期间启动画面显示的是引擎自身的加载进度，与游戏原生启动画面一致。</p>
  */
 public final class AndroidGame {
 
@@ -32,29 +31,28 @@ public final class AndroidGame {
     }
 
     /**
-     * Creates the process's game engine and initialises it.
+     * 创建并初始化进程的游戏引擎。
      *
-     * <p>The factory is set only when the engine has none, so the game's own default is kept.</p>
+     * <p>只有在引擎尚未设置工厂时才设置它，以保留游戏自身的默认值。</p>
      */
     public static GameEngine create(Context platform) {
         return create(platform, ProgressListener.NOOP);
     }
 
-    /** Creates the engine while reporting its loading messages to the caller's UI. */
+    /** 创建引擎，并将加载消息报告给调用方界面。 */
     public static GameEngine create(Context platform, ProgressListener progress) {
         if (GameEngine.gameEngineFactory == null) {
             GameEngine.gameEngineFactory = new GameEngineRWGameEngineFactory();
             HostLog.add("The engine had no factory; installed the game's own.");
         }
-        // The engine keeps the context it is given and builds its dialogs from it; an application
-        // context has no window, so those dialogs throw BadTokenException. The wrapper answers window
-        // and theme calls with the activity that is in front, which keeps the engine's popups valid
-        // across every screen without the engine knowing which activity that is.
+        // 引擎会保存传入的上下文，并据此创建对话框；应用上下文没有窗口，因此这些对话框会抛出
+        // BadTokenException。这个包装器使用当前前台 Activity 响应窗口和主题相关调用，使引擎在
+        // 各个界面中都能正常显示弹窗，同时无需知道当前是哪一个 Activity。
         EngineContext engineContext = EngineContext.obtain(platform);
         GameEngine engine = GameEngine.getOrCreate(engineContext, new EngineLoadListener(
             progress == null ? ProgressListener.NOOP : progress));
-        // getOrCreate bound the game's own application-context static to the wrapper; restore the real
-        // one, because the wrapper only exists to lend a window, not to stand in for the application.
+        // getOrCreate 将游戏的 application-context 静态字段绑定到了包装器；这里恢复真正的应用上下文，
+        // 因为包装器只负责提供窗口，不应替代应用本身。
         AndroidApp.setApplicationContext(platform);
         GameUiBridge.install(AndroidBootstrap.get(platform).ui());
         HostLog.add("The engine is up: " + engine.getClass().getName());
@@ -62,13 +60,13 @@ public final class AndroidGame {
     }
 
     /**
-     * Forwards the engine's own loading messages to the splash, as they come.
+     * 将引擎产生的加载消息实时转发到启动画面。
      *
-     * <p>The engine reports each step it takes while it loads, and those messages are the whole of
-     * the splash's account: there is nothing of RWML's own around the call worth announcing.</p>
+     * <p>引擎会报告加载过程中的每一步；启动画面只需显示这些消息，因为调用前后没有值得单独报告的
+     * RWML 步骤。</p>
      *
-     * <p>The class extends an abstract class of the game, so one method keeps the name the
-     * obfuscation gave it: {@code a(Throwable)} is the engine's failure notification.</p>
+     * <p>此类继承了游戏中的抽象类，因此有一个方法必须保留混淆后的名称：
+     * {@code a(Throwable)} 是引擎的失败通知方法。</p>
      */
     private static final class EngineLoadListener extends GameEngineLoadCallback {
 

@@ -17,18 +17,16 @@ import kim.der.asm.api.annotation.AsmMixin;
 import kim.der.asm.api.annotation.Redirect;
 
 /**
- * Loads the game's sounds out of this app instead of out of the APK the game archive was built in.
+ * 从当前应用而非游戏归档构建时所用的 APK 中加载游戏音效。
  *
- * <p>The archive carries the resource ids of the APK it shipped in and hands them straight to
- * {@code SoundPool.load}. Those ids resolve against this app's resource table, where they name
- * something else or nothing, and the platform's answer to an id it cannot open is a null path rather
- * than an error: the engine's sound load was what brought the whole boot down with it. Every id is
- * therefore translated first.</p>
+ * <p>归档携带的是发布时 APK 的资源 ID，并会直接交给 {@code SoundPool.load}。这些 ID 会在当前应用的资源表中解析，
+ * 但可能指向其他内容或不存在；对于无法打开的 ID，平台返回的是空路径而不是错误，随后引擎加载音效时就会导致整个启动失败。
+ * 因此，必须先转换每个资源 ID。</p>
  */
 @AsmMixin("com/corrodinggames/rts/gameFramework/sound/AndroidSoundFactory")
 public final class AndroidSoundFactoryMixin {
 
-    /** Whether this mixin has said that it is in: it runs for every sound the game loads. */
+    /** 标记该 Mixin 是否已执行；游戏每加载一个音效都会触发它。 */
     private static volatile boolean announced;
 
     private AndroidSoundFactoryMixin() {

@@ -14,6 +14,7 @@ import io.github.rwml.asm.MixinSupport;
 import io.github.rwml.builtin.BuiltinExtension;
 import io.github.rwml.core.ExtensionDescriptor;
 import io.github.rwml.host.HostPlatform;
+import io.github.rwml.host.ResourcePackEnvironment;
 
 import java.io.IOException;
 import java.net.URL;
@@ -23,47 +24,71 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The host platform of a JVM: a live transformer, a class loader per extension, and a Java version
- * that has to be checked before an extension is instantiated.
+ * JVM 宿主平台：提供运行时转换器、为每个扩展创建独立类加载器，并在实例化扩展前检查 Java 版本。
  */
 public final class DesktopHost implements HostPlatform {
+
+    private final ResourcePackEnvironment resourcePacks;
+
+    /** 没有游戏目录时无法物化资源包，适合不需要资源的测试宿主。 */
+    public DesktopHost() {
+        this(null);
+    }
+
+    /**
+     * @param gameDirectory 游戏所在目录，资源包从其中的 {@code assets} 与 {@code res} 复制基础资源
+     */
+    public DesktopHost(Path gameDirectory) {
+        this.resourcePacks = gameDirectory == null
+            ? ResourcePackEnvironment.unsupported()
+            : new DesktopResourcePacks(gameDirectory);
+    }
 
     @Override
     public MixinBridge mixins() {
         return MixinSupport.instance();
     }
 
-    /** Nothing is bundled: a desktop install reads the extension directory the user fills. */
     @Override
-    public List<String> stageArchives(Path extensionDirectory) {
+    public ResourcePackEnvironment resourcePacks() {
+        return resourcePacks;
+    }
+
+    @Override
+    public List<String> stageArchives(Path extensionDirectory) throws IOException {
         return Collections.emptyList();
     }
 
     /**
-     * The interface RWML ships for the desktop.
+     * RWML 为桌面端提供的界面。
      *
-     * <p>A desktop install is a player's, so it wants the game on screen; the built-in extension is
-     * what answers with it. Nothing else is bundled.</p>
+     * <p>桌面端供玩家使用，因此需要显示游戏；内置扩展负责提供该界面。除此之外不打包其他内容。</p>
      */
     @Override
     public List<ExtensionDescriptor> builtInExtensions() {
         return Collections.singletonList(BuiltinExtension.descriptor());
     }
 
-    /** Every extension gets its own loader, so two of them may use different library versions. */
+    /** 每个扩展使用独立的类加载器，因此不同扩展可以使用不同版本的库。 */
     @Override
     public ClassLoader createExtensionLoader(ExtensionDescriptor descriptor) throws IOException {
+        return createExtensionLoader(descriptor, DesktopHost.class.getClassLoader());
+    }
+
+    /** Each child sees only the dependencies named in its descriptor, through their owning loaders. */
+    @Override
+    public ClassLoader createExtensionLoader(ExtensionDescriptor descriptor, ClassLoader dependencyParent)
+        throws IOException {
         try {
             URL url = descriptor.source().toUri().toURL();
-            return new URLClassLoader(new URL[]{url}, DesktopHost.class.getClassLoader());
+            return new URLClassLoader(new URL[]{url}, dependencyParent);
         } catch (Exception e) {
             throw new IOException("Unable to open " + descriptor.source().getFileName(), e);
         }
     }
 
     /**
-     * Reconciles the Java requirement declared in the descriptor with the actual bytecode level of
-     * the archive and with the running JVM.
+     * 将描述符声明的 Java 要求与归档实际字节码版本、当前运行的 JVM 进行核对。
      */
     @Override
     public ExtensionDescriptor reconcileJavaRequirement(ExtensionDescriptor descriptor,

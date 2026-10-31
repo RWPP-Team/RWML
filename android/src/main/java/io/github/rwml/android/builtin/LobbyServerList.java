@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -26,7 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** The resumed lobby exclusively owns list requests. All commits happen on its UI thread. */
+/** 只有恢复中的大厅界面负责请求游戏列表，所有结果提交都在其 UI 线程中执行。 */
 public final class LobbyServerList {
     private static MultiplayerLobbyActivity owner;
     private static RequestScope scope;
@@ -40,7 +41,7 @@ public final class LobbyServerList {
     }
     public static void request(Runnable completion) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            // A request made off the lobby UI thread is never started after a later navigation.
+            // 从大厅界面线程之外发起的请求，不会在之后切换界面时才启动。
             return;
         }
         MultiplayerLobbyActivity activity = owner;

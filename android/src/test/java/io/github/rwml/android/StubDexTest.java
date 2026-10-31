@@ -31,10 +31,10 @@ class StubDexTest {
     @Test
     void standsInOnlyForWhatThePlatformDoesNotSupply() {
         assertTrue(StubDex.standsIn("com/corrodinggames/rts/gameFramework/GameEngine"));
-        // The archives carry the game and, for the desktop build, a copy of the Android API.
+        // 归档包含游戏类；桌面版本的归档还包含 Android API 的副本。
         assertFalse(StubDex.standsIn("android/graphics/PointF"));
         assertFalse(StubDex.standsIn("android/os/Parcelable"));
-        // android/support rides along in the game's own dex, so nothing else supplies it.
+        // android/support 随游戏自身的 dex 一同提供，因此其他位置不会再提供它。
         assertTrue(StubDex.standsIn("android/support/v4/app/Fragment"));
     }
 

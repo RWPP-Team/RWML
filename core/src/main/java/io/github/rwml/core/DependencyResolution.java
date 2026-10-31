@@ -14,18 +14,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Result of dependency ordering across a set of extensions.
+ * 对一组扩展进行依赖排序的结果。
  *
- * @param loadOrder extensions in the order they must be loaded, only contains
- *                  extensions that passed dependency validation
- * @param excluded  extensions dropped from the plan, keyed by extension id,
- *                  mapped to a short readable reason
+ * @param loadOrder 按加载顺序排列的扩展列表；只包含通过依赖验证的扩展
+ * @param excluded  从计划中移除的扩展，以扩展 ID 为键，并映射到简短易读的原因
  */
 public record DependencyResolution(List<ExtensionDescriptor> loadOrder, Map<String, String> excluded) {
 
     public DependencyResolution {
-        // Collections.unmodifiable* rather than List/Map.copyOf: this record is also built on Android,
-        // where the copyOf factories do not exist below API 30.
+        // 使用 Collections.unmodifiable*，而不使用 List/Map.copyOf：此记录也会在 Android 上构建，
+        // API 30 以下没有 copyOf 工厂方法。
         loadOrder = Collections.unmodifiableList(new ArrayList<>(loadOrder));
         excluded = Collections.unmodifiableMap(new LinkedHashMap<>(excluded));
     }

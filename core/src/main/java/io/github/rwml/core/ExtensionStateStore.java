@@ -22,33 +22,32 @@ import java.util.Properties;
 import java.util.Set;
 
 /**
- * Persists the enable/disable decision for every extension so the choice
- * survives a restart of the host.
+ * 持久化每个扩展的启用或禁用选择，使其在宿主重启后仍然有效。
  *
- * <p>Every extension defaults to <em>enabled</em>; only the ids recorded here
- * are skipped when the host starts up again. The store is the single source of
- * truth for the flag and rewrites its backing file atomically on every change,
- * so a crash in the middle of a write can never leave a half-written file
- * behind.</p>
+ * <p>默认启用所有扩展；宿主下次启动时只跳过此处记录的 ID。此存储是禁用标记的唯一可信来源，并在每次变更时原子地重写
+ * 后端文件，因此写入过程中发生崩溃也不会留下半写入的文件。</p>
  *
- * <p>A host that has to prepare something before the extensions are loaded reads the same store, so
- * the decision it makes matches the decision {@link ExtensionManager} makes.</p>
+ * <p>需要在加载扩展前准备内容的宿主也会读取同一存储，因此其选择与 {@link ExtensionManager} 的选择一致。</p>
  */
 public final class ExtensionStateStore {
 
     private static final String FILE_NAME = "extension-state.properties";
     private static final String DISABLED_KEY = "disabled";
+    private static final String RESOURCE_PACK_KEY = "resourcePack";
 
     private final Path file;
     private final Map<String, String> disabledArchives = new LinkedHashMap<>();
     private final Map<String, String> selectedVersions = new LinkedHashMap<>();
     private final Set<String> disabled = new LinkedHashSet<>();
 
+    /** 上次选择的资源包；null 表示由加载顺序决定。 */
+    private String resourcePack;
+
     private ExtensionStateStore(Path file) {
         this.file = file;
     }
 
-    /** Opens (creating if necessary) the store rooted at {@code dataDirectory}. */
+    /** 打开以 {@code dataDirectory} 为根目录的存储；目录不存在时会创建。 */
     public static ExtensionStateStore open(Path dataDirectory) throws IOException {
         Files.createDirectories(dataDirectory);
         ExtensionStateStore store = new ExtensionStateStore(dataDirectory.resolve(FILE_NAME));
@@ -56,17 +55,17 @@ public final class ExtensionStateStore {
         return store;
     }
 
-    /** @return whether {@code id} is persisted as disabled. */
+    /** @return {@code id} 是否已持久化为禁用状态。 */
     public synchronized boolean isDisabled(String id) {
         return disabled.contains(id);
     }
 
-    /** @return an immutable snapshot of every id persisted as disabled. */
+    /** @return 已持久化为禁用状态的所有 ID 的不可变快照。 */
     public synchronized Set<String> disabledIds() {
         return Collections.unmodifiableSet(new LinkedHashSet<>(disabled));
     }
 
-    /** Persists the disabled flag for {@code id}; no other behaviour is implied. */
+    /** 持久化 {@code id} 的禁用标记；此操作不会触发其他行为。 */
     public synchronized void setDisabled(String id, boolean disable) throws IOException {
         boolean changed = disable ? disabled.add(id) : disabled.remove(id);
         if (changed) {
@@ -80,9 +79,33 @@ public final class ExtensionStateStore {
         }
     }
 
-    /** Content identities survive Android staging and do not depend on an archive's filename. */
+    /** 内容标识在 Android 暂存过程中保持不变，且不依赖归档文件名。 */
     public synchronized Map<String, String> selectedVersions() {
         return Collections.unmodifiableMap(new LinkedHashMap<>(selectedVersions));
+    }
+
+    /** @return 上次选择的资源包 ID；未选择时返回 null，由加载顺序决定 */
+    public synchronized String selectedResourcePack() {
+        return resourcePack;
+    }
+
+    /**
+     * 持久化资源包选择。
+     *
+     * <p>资源包在启动时物化，因此选择在下次启动才生效，与禁用标记和版本选择相同。</p>
+     *
+     * @param id 资源包 ID；null 表示恢复为按加载顺序选择
+     */
+    public synchronized void setSelectedResourcePack(String id) throws IOException {
+        String previous = resourcePack;
+        if (Objects.equals(previous, id)) { return; }
+        resourcePack = id;
+        try {
+            write();
+        } catch (IOException failure) {
+            resourcePack = previous;
+            throw failure;
+        }
     }
 
     public synchronized void setSelectedVersion(String id, String identity) throws IOException {
@@ -99,7 +122,7 @@ public final class ExtensionStateStore {
         }
     }
 
-    /** An unreadable descriptor has no id; quarantine its bytes without renaming or deleting the file. */
+    /** 无法读取的描述信息没有 ID；根据归档内容将其隔离，但不重命名或删除文件。 */
     public synchronized boolean isArchiveDisabled(Path archive) throws IOException {
         return !disabledArchives.isEmpty() && disabledArchives.containsKey(archiveIdentity(archive));
     }
@@ -140,7 +163,7 @@ public final class ExtensionStateStore {
         try (InputStream stream = Files.newInputStream(file)) {
             properties.load(stream);
         } catch (IOException | IllegalArgumentException e) {
-            // A corrupt store must not stop the host from starting; begin clean.
+            // 存储损坏不应阻止宿主启动；从空状态开始。
             return;
         }
         for (String key : properties.stringPropertyNames()) {
@@ -158,11 +181,16 @@ public final class ExtensionStateStore {
                 disabled.add(id);
             }
         }
+        String pack = properties.getProperty(RESOURCE_PACK_KEY, "").trim();
+        resourcePack = pack.isEmpty() ? null : pack;
     }
 
     private void write() throws IOException {
         Properties properties = new Properties();
         properties.setProperty(DISABLED_KEY, String.join(",", disabled));
+        if (resourcePack != null && !resourcePack.trim().isEmpty()) {
+            properties.setProperty(RESOURCE_PACK_KEY, resourcePack);
+        }
         for (Map.Entry<String, String> entry : selectedVersions.entrySet()) {
             properties.setProperty("selected." + entry.getKey(), entry.getValue());
         }
@@ -173,7 +201,7 @@ public final class ExtensionStateStore {
         try (OutputStream stream = Files.newOutputStream(temp)) {
             properties.store(stream, "Persisted extension state and selected archive identities");
         }
-        // Safe same-filesystem replace; fall back to a plain move if needed.
+        // 安全地在同一文件系统中替换；失败时回退为普通移动。
         try {
             Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException atomicFailure) {

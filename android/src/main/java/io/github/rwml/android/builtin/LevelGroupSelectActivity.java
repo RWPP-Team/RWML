@@ -21,14 +21,12 @@ import android.widget.LinearLayout;
 import io.github.rwml.android.R;
 
 /**
- * The single-player mode chooser: the game's own mode layout, with one button per mode.
+ * 单人游戏模式选择界面：沿用游戏自身的模式布局，每种模式对应一个按钮。
  *
- * <p>A mode is a folder of maps. Choosing one hands that folder to {@link LevelSelectActivity}, and
- * the folder is the whole of what this screen decides; the map grid, the difficulty and the AI
- * count all belong to the next screen, exactly as they do in the game.</p>
+ * <p>每种模式对应一个地图目录。选择模式后，该目录会传给 {@link LevelSelectActivity}；此界面只负责选择目录，
+ * 地图网格、难度和 AI 数量都由下一个界面负责，与游戏原有流程相同。</p>
  *
- * <p>The custom folder is where maps copied in by hand live, and the save list is a separate
- * screen, so both are offered here the way the game offers them.</p>
+ * <p>自定义目录用于存放手动复制进来的地图，存档列表则由单独界面显示，因此这里也像游戏一样提供这两个入口。</p>
  */
 public final class LevelGroupSelectActivity extends BuiltinActivity {
 
@@ -36,10 +34,10 @@ public final class LevelGroupSelectActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** Where a map copied in by hand is looked for. */
+    /** 查找手动复制进来的地图的位置。 */
     private static final String CUSTOM_MAPS = "/SD/rusted_warfare_maps";
 
-    /** The extra a map grid reads the folder it should list from. */
+    /** 地图网格读取的目录参数，用于确定要列出的文件夹。 */
     static final String EXTRA_MODE = "mode";
 
     @Override protected void onResume() {
@@ -88,7 +86,7 @@ public final class LevelGroupSelectActivity extends BuiltinActivity {
         Log.i(TAG, "Single-player modes open.");
     }
 
-    /** Adds one mode, named in the game's words and opening the folder it stands for. */
+    /** 添加一个模式选项，使用游戏中的名称并打开对应文件夹。 */
     private void addMode(LinearLayout holder, String localeKey, String folder) {
         String label = LocalizedText.get(localeKey);
         addMode(holder, label == null ? folder : label,
@@ -96,7 +94,7 @@ public final class LevelGroupSelectActivity extends BuiltinActivity {
                 .putExtra(EXTRA_MODE, folder)));
     }
 
-    /** Adds one mode button, with the look the game's own mode buttons have. */
+    /** 添加一个模式按钮，外观与游戏自带的模式按钮一致。 */
     private void addMode(LinearLayout holder, String label, View.OnClickListener action) {
         Button button = new Button(this);
         button.setBackgroundResource(R.drawable.btn_dropdown);

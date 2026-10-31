@@ -16,68 +16,67 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Translates the resource ids the game archive was compiled with into the ids this app carries.
+ * 将游戏归档编译时使用的资源 ID 转换为当前应用中的资源 ID。
  *
- * <p>The archive carries the ids of the APK it was built in and hands them straight to the platform,
- * where they name something else or nothing at all. Every id has to be read out of the game's own
- * {@code R} and answered with the id this app gives the same name.</p>
+ * <p>归档携带的是构建它时 APK 中的资源 ID，并会直接传给平台；这些 ID 在当前应用中可能指向其他资源，
+ * 也可能没有对应内容。必须从游戏自身的 {@code R} 中读取每个 ID，再查找当前应用中同名资源的 ID 并返回。</p>
  *
- * <p>What cannot be translated is said once per id: silence here means a table that could not be read
- * answers zero for everything, the game loads without a sound or a texture, and nothing says why.</p>
+ * <p>每个无法转换的 ID 只报告一次：如果这里保持静默，可能会因资源表读取失败而对所有 ID 返回零，导致游戏
+ * 加载后没有音效或纹理，却没有任何原因说明。</p>
  */
 public final class GameResources {
 
-    /** The game's own raw-resource table, as the mounted game dex sees it. */
+    /** 已挂载游戏 dex 所看到的游戏原始资源表。 */
     private static final String GAME_RAW_CLASS = "com.corrodinggames.rts.R$raw";
 
-    /** The game's own drawable-resource table, as the mounted game dex sees it. */
+    /** 已挂载游戏 dex 所看到的游戏 drawable 资源表。 */
     private static final String GAME_DRAWABLE_CLASS = "com.corrodinggames.rts.R$drawable";
 
-    /** The loader that owns the mounted game dex; set by the bootstrapper, null before that. */
+    /** 拥有已挂载游戏 dex 的加载器；由启动器设置，设置前为 null。 */
     private static volatile ClassLoader gameLoader;
 
-    /** This app's context, the one a mixin reaches for when the call it patches carries no context. */
+    /** 当前应用上下文；被修补调用未传入上下文时，mixin 会从此处获取。 */
     private static volatile Context appContext;
 
-    /** The game's {@code R} ids by field name, built once. Null until the first translation. */
+    /** 按字段名称索引的游戏 {@code R} 资源 ID，仅构建一次。首次转换前为 null。 */
     private static volatile Map<Integer, String> namesById;
 
-    /** The ids already reported as untranslatable, so one load does not say the same thing twice. */
+    /** 已报告过无法转换的资源 ID，避免一次加载中重复报告。 */
     private static final Set<Integer> reported = new HashSet<>();
 
     private GameResources() {
     }
 
     /**
-     * Records the loader that owns the mounted game dex.
+     * 记录拥有已挂载游戏 dex 的类加载器。
      *
-     * @param loader the loader the bootstrapper mounted the game on
+     * @param loader 启动器挂载游戏 dex 所使用的加载器
      */
     public static void mounted(ClassLoader loader) {
         gameLoader = loader;
     }
 
     /**
-     * Records this app's context.
+     * 记录当前应用的上下文。
      *
-     * <p>A mixin whose handler receives no context of its own needs one: it runs on a mixin instance
-     * the framework constructs, so a shadowed context field of the target stays null.</p>
+     * <p>处理方法未接收上下文的 mixin 需要从此处获取上下文：框架会创建 mixin 实例，因此目标类中的隐藏
+     * 上下文字段会保持为 null。</p>
      *
-     * @param context this app's context
+     * @param context 当前应用的上下文
      */
     public static void attach(Context context) {
         appContext = context;
     }
 
-    /** @return the context recorded by {@link #attach}, null before that */
+    /** @return {@link #attach} 记录的上下文；调用前返回 null */
     public static Context context() {
         return appContext;
     }
 
     /**
-     * @param context  the context the load was handed
-     * @param gameResId the {@code R} id of the APK the game archive was built in
-     * @return this app's id for the same sound, or zero when either side lacks it
+     * @param context 加载流程收到的上下文
+     * @param gameResId 游戏归档构建时 APK 的 {@code R} 资源 ID
+     * @return 当前应用中同一音效的 ID；任一侧缺少对应资源时返回零
      */
     public static int ownResId(Context context, String type, int gameResId) {
         if (gameResId == 0 || context == null) {
@@ -96,10 +95,10 @@ public final class GameResources {
     }
 
     /**
-     * Reports one id that could not be translated, once.
+     * 对无法转换的资源 ID 只报告一次。
      *
-     * <p>The load asks for the whole set, so a missing id is asked for by every screen that draws it;
-     * one line per id is enough, one per call is a log nobody reads.</p>
+     * <p>加载过程会请求整组资源，因此每个绘制该资源的界面都会查询缺失的 ID；每个 ID 记录一行即可，若每次
+     * 调用都记录一行，日志将无法阅读。</p>
      */
     private static void miss(int gameResId, String reason) {
         synchronized (reported) {
@@ -110,7 +109,7 @@ public final class GameResources {
         HostLog.warn("no resource in this app for the game's id " + gameResId + ": " + reason);
     }
 
-    /** @return the game's {@code R.raw} fields as id-to-name, an empty map when they cannot be read. */
+    /** @return 游戏 {@code R.raw} 字段构成的 ID 到名称映射；无法读取时返回空映射。 */
     private static Map<Integer, String> gameNames() {
         Map<Integer, String> names = namesById;
         if (names == null) {
@@ -125,7 +124,7 @@ public final class GameResources {
         return names;
     }
 
-    /** Reads every {@code int} field of the game's {@code R$raw}; unreadable becomes empty. */
+    /** 读取游戏 {@code R$raw} 中所有 {@code int} 字段；无法读取时返回空映射。 */
     private static Map<Integer, String> readGameResTable() {
         Map<Integer, String> names = new HashMap<Integer, String>();
         ClassLoader loader = gameLoader;
@@ -137,7 +136,7 @@ public final class GameResources {
             putResNames(names, loader, GAME_RAW_CLASS);
             putResNames(names, loader, GAME_DRAWABLE_CLASS);
         } catch (Throwable t) {
-            // No game classes, or a table that cannot be read: every translation answers zero.
+            // 没有游戏类，或资源表无法读取：所有转换结果均为零。
             HostLog.warn("the game's resource table cannot be read", t);
             return names;
         }

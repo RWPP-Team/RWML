@@ -13,7 +13,7 @@ import io.github.rwml.api.ExtensionState;
 import java.io.Closeable;
 import java.io.IOException;
 
-/** Runtime wrapper pairing an instance with its descriptor and class loader. */
+/** 将扩展实例、描述符和类加载器组合在一起的运行时包装器。 */
 public final class ExtensionHandle implements AutoCloseable {
 
     private final ExtensionDescriptor descriptor;
@@ -61,18 +61,19 @@ public final class ExtensionHandle implements AutoCloseable {
         this.context = context;
     }
 
-    /** @return the loader that owns this extension's classes. */
+    /** @return 加载此扩展类的类加载器 */
     public ClassLoader classLoader() {
         return classLoader;
     }
 
     @Override
     public void close() {
+        if (context != null) { context.closeResources(); }
         if (classLoader instanceof Closeable) {
             try {
                 ((Closeable) classLoader).close();
             } catch (IOException ignored) {
-                // Nothing sensible to do while releasing the loader.
+                // 释放类加载器期间没有合适的处理方式。
             }
         }
     }

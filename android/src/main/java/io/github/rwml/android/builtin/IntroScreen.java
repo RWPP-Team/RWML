@@ -19,21 +19,17 @@ import io.github.rwml.android.R;
 import io.github.rwml.android.Watchdog;
 
 /**
- * The first screen of the game: it starts the engine and says so while it does.
+ * 游戏的首个界面：负责启动引擎并显示启动进度。
  *
- * <p>The screen goes up first and the loading starts after, because loading the game takes seconds
- * and a blank window for those seconds is indistinguishable from a failure. It draws itself, then
- * starts a worker that creates the engine, then opens the menu.</p>
+ * <p>先显示界面，再开始加载，因为游戏加载需要数秒；如果这段时间窗口保持空白，就无法区分加载缓慢和启动失败。界面
+ * 完成绘制后会启动工作线程创建引擎，随后打开菜单。</p>
  *
- * <p>While it loads, the screen shows the engine's own account of the load: the line the engine
- * printed last, which {@link BootConsole} tees onto the lower line, and the loading message the
- * engine set last, on the upper one. A load that fails is reported to logcat and the screen stays
- * where it is - the menu without a running engine behind it is a screen of crashes waiting to
- * happen.</p>
+ * <p>加载期间，界面会显示引擎自身报告的进度：{@link BootConsole} 分流的最新引擎输出显示在下方，最新加载消息显示在上方。
+ * 加载失败时会将错误报告到 logcat，界面则保持不变；没有运行中引擎的菜单随时可能发生崩溃。</p>
  */
 public final class IntroScreen extends Activity {
 
-    /** A cached boot finishes before the screen has been drawn once, and one frame reads as a glitch. */
+    /** 缓存启动可能在界面首次绘制前完成，导致首帧出现闪烁。 */
     private static final long MINIMUM_DISPLAY_MILLIS = 900L;
 
     private volatile boolean opening;
@@ -51,15 +47,13 @@ public final class IntroScreen extends Activity {
         worker.start();
     }
 
-    /** Creates the engine and opens the menu; a failed load leaves the screen here. */
+    /** 创建引擎并打开菜单；加载失败时停留在当前界面。 */
     private void runBoot() {
-        // The load is CPU-bound and the screen it feeds draws on the main thread, so the load runs
-        // at the priority the game's own game thread takes; without it the loading lines arrive in
-        // bursts instead of as they happen.
+        // 加载受 CPU 限制，而接收加载信息的界面在主线程绘制，因此加载线程使用与游戏线程相同的优先级；否则加载消息
+        // 会成批到达，而不是在产生时实时显示。
         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
         long startedAt = System.currentTimeMillis();
-        // Creating the engine loads the assets, the graphics and the audio, which takes long enough
-        // that a slow load cannot be told from a stopped one without looking at the stack.
+        // 创建引擎时会加载资源、图形和音频，耗时较长；若不查看堆栈，就无法区分加载缓慢和线程停止。
         Watchdog watchdog = Watchdog.start("boot");
         try {
             StageReport report = AndroidBootstrap.get(this).gameBoot().start(
@@ -82,9 +76,9 @@ public final class IntroScreen extends Activity {
     }
 
     /**
-     * Holds the splash up for its minimum, so that a cached boot does not flash.
+     * 保证启动画面至少显示指定时长，避免命中缓存时界面一闪而过。
      *
-     * @param minimum how much longer the screen owes the reader, in milliseconds
+     * @param minimum 界面还需显示的时长，单位为毫秒
      */
     private void hold(long startedAt, long minimum) {
         long remaining = minimum - (System.currentTimeMillis() - startedAt);
@@ -98,7 +92,7 @@ public final class IntroScreen extends Activity {
         }
     }
 
-    /** Opens the menu once, from the main thread. */
+    /** 从主线程打开一次菜单。 */
     private void openMenu() {
         synchronized (this) {
             if (opening) {

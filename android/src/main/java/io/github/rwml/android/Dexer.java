@@ -32,25 +32,24 @@ import java.util.stream.Stream;
 import java.util.zip.Adler32;
 
 /**
- * Compiles class files into dex on the device, with {@code dx} - the dexer of the Android Open Source
- * Project, which the APK carries as the {@code dalvik-dx} dependency.
+ * 在设备上使用 {@code dx} 将类文件编译为 dex。{@code dx} 是 Android 开源项目的 dex 编译器，APK 通过
+ * {@code dalvik-dx} 依赖携带它。
  *
- * <p>This is what replaces the JVM agent on Android: the classes are rewritten first and handed to
- * the runtime as dex. The result is cached, so a launch that finds a valid cache compiles nothing.</p>
+ * <p>这就是 Android 上替代 JVM agent 的流程：先改写类，再以 dex 形式交给运行时。结果会被缓存，因此启动时
+ * 如果找到有效缓存，就无需重新编译。</p>
  *
- * <p>{@code --multi-dex} is not optional: a dex file indexes at most 65 536 method references and the
- * game's classes exceed that on their own. Every dex written here is sealed read-only before it is
- * returned, because the platform refuses to open one it could still write.</p>
+ * <p>{@code --multi-dex} 是必需参数：单个 dex 文件最多可索引 65,536 个方法引用，而游戏类自身就已超过此上限。
+ * 此处生成的每个 dex 在返回前都会被设为只读，因为平台拒绝打开仍可写入的 dex。</p>
  */
 final class Dexer {
 
-    /** The newest class file version dx accepts; see {@link #lowerClassVersions}. */
+    /** dx 接受的最新类文件版本；详见 {@link #lowerClassVersions}。 */
     static final int MAX_CLASS_VERSION = 51;
 
-    /** Name of the copy handed to dx, inside the output directory and deleted again right after. */
+    /** 传给 dx 的副本名称；文件位于输出目录中，并会在之后立即删除。 */
     private static final String INPUT_FILE = "input.jar";
 
-    /** The static lists dx accumulates its output in and never clears; see {@link #clearDxState}. */
+    /** dx 用于累积输出且从不清空的静态列表；详见 {@link #clearDxState}。 */
     private static final String[] DX_ACCUMULATORS = {"dexOutputFutures", "dexOutputArrays"};
 
     private static final int CLASS_MAGIC = 0xCAFEBABE;
@@ -59,9 +58,9 @@ final class Dexer {
     }
 
     /**
-     * Compiles every class file of {@code jar} into dex files inside {@code outputDirectory}.
+     * 将 {@code jar} 中的所有类文件编译为 dex 文件，并放入 {@code outputDirectory}。
      *
-     * @return the dex files that were written, in load order
+     * @return 写入的 dex 文件，按加载顺序排列
      */
     static List<Path> toDex(Path jar, Path outputDirectory) throws IOException {
         Files.createDirectories(outputDirectory);
@@ -71,9 +70,8 @@ final class Dexer {
         lowerClassVersions(jar, input);
         try {
             clearDxState();
-            // dx is an old command line tool: its only supported entry point is a parsed argument
-            // list. It decides that the output is a directory by calling File.isDirectory on the
-            // name it was given, so the directory must already exist - which it does, above.
+            // dx 是较旧的命令行工具，只支持通过解析后的参数列表调用。它通过对接收的名称调用
+            // File.isDirectory 来判断输出位置是否为目录，因此该目录必须预先存在（上方已创建）。
             com.android.dx.command.dexer.Main.Arguments arguments =
                 new com.android.dx.command.dexer.Main.Arguments();
             arguments.parse(new String[]{
@@ -102,10 +100,9 @@ final class Dexer {
     }
 
     /**
-     * Puts the lists dx keeps its output in back to what they are in a fresh process.
-     * <p>dx holds its result in static fields, and the two multi-dex accumulators are never cleared. A
-     * second run in the same process writes out the first run's shards as well, and load order puts
-     * those first, so a class a rebuild meant to change is decided by the build before it.</p>
+     * 将 dx 保存输出结果的列表恢复为新进程中的初始状态。
+     * <p>dx 将结果保存在静态字段中，两个多 dex 累加器也从未清空。同一进程中再次运行时会一并写出第一次
+     * 运行生成的分片；这些分片又排在加载顺序前面，导致重建要修改的类仍由上一次构建决定。</p>
      */
     private static void clearDxState() {
         for (String name : DX_ACCUMULATORS) {
@@ -123,9 +120,8 @@ final class Dexer {
     }
 
     /**
-     * Copies {@code source} to {@code target}, stamping every class file with a version dx accepts: dx
-     * precedes Java 8 and refuses a file stamped 52 or higher. The stamp does not survive the
-     * compilation, so lowering it cannot change what the code does.
+     * 将 {@code source} 复制到 {@code target}，并为每个类文件标记 dx 可接受的版本：dx 早于 Java 8，
+     * 会拒绝版本标记为 52 或更高的文件。编译后不会保留该版本标记，因此降低标记不会改变代码行为。
      */
     private static void lowerClassVersions(Path source, Path target) throws IOException {
         try (JarFile in = new JarFile(source.toFile());
@@ -148,7 +144,7 @@ final class Dexer {
         }
     }
 
-    /** @return {@code classBytes} unchanged when dx accepts its version, lowered otherwise */
+    /** @return dx 接受当前版本时返回未修改的 {@code classBytes}，否则返回降低版本标记后的内容 */
     private static byte[] accepted(byte[] classBytes) {
         if (classBytes.length < 8 || magic(classBytes) != CLASS_MAGIC) {
             return classBytes;
@@ -157,7 +153,7 @@ final class Dexer {
             return classBytes;
         }
         byte[] lowered = classBytes.clone();
-        // Version 51 is only legal with a minor version of 0, and so is every version below it.
+        // 版本 51 及以下只允许次版本号为 0。
         lowered[4] = 0;
         lowered[5] = 0;
         lowered[6] = (byte) (MAX_CLASS_VERSION >>> 8);
@@ -174,7 +170,7 @@ final class Dexer {
         return ((classBytes[6] & 0xFF) << 8) | (classBytes[7] & 0xFF);
     }
 
-    /** @return the dex files of a directory, in the order {@code classes.dex}, {@code classes2.dex}… */
+    /** @return 目录中的 dex 文件，按 {@code classes.dex}、{@code classes2.dex}……的顺序排列 */
     static List<Path> dexFiles(Path directory) {
         if (!Files.isDirectory(directory)) {
             return Collections.emptyList();
@@ -192,12 +188,11 @@ final class Dexer {
     }
 
     /**
-     * Copies the dex an extension archive already carries into {@code outputDirectory}. Only the game
-     * is compiled on the device: the dexer belongs to the application, and compiling every extension
-     * at installation would put that cost on the launch.
+     * 将扩展归档中已有的 dex 复制到 {@code outputDirectory}。设备上只编译游戏：dexer 由应用持有，若在安装时
+     * 编译每个扩展，就会把相应开销转移到启动阶段。
      *
-     * @return the dex files that were written, in load order
-     * @throws IOException when the archive carries no dex at all
+     * @return 写入的 dex 文件，按加载顺序排列
+     * @throws IOException 归档中完全不含 dex 时抛出
      */
     static List<Path> carriedDex(Path archive, Path outputDirectory) throws IOException {
         Files.createDirectories(outputDirectory);
@@ -211,8 +206,7 @@ final class Dexer {
                 if (entry.isDirectory() || !isDexName(entry.getName())) {
                     continue;
                 }
-                // The archive names its dex the way the platform does, so a multi-dex extension
-                // needs no manifest of its own.
+                // 归档使用与平台相同的 dex 命名方式，因此多 dex 扩展无需单独的清单文件。
                 Path target = outputDirectory.resolve(entry.getName());
                 try (InputStream stream = in.getInputStream(entry);
                      OutputStream file = Files.newOutputStream(target)) {
@@ -230,7 +224,7 @@ final class Dexer {
         return produced;
     }
 
-    /** @return whether an archive carries dex of its own, and so can be mounted */
+    /** @return 归档是否自带 dex，因此可以挂载 */
     static boolean carriesDex(Path archive) {
         try (JarFile in = new JarFile(archive.toFile())) {
             Enumeration<JarEntry> entries = in.entries();
@@ -246,7 +240,7 @@ final class Dexer {
         return false;
     }
 
-    /** Checks carried dex before an import replaces an installed archive. No classes are mounted. */
+    /** 导入文件替换已安装归档前检查其中携带的 dex。此操作不会挂载任何类。 */
     static void validateCarriedDex(Path archive) throws IOException {
         try (JarFile jar = new JarFile(archive.toFile())) {
             if (jar.getJarEntry("classes.dex") == null) {
@@ -300,7 +294,7 @@ final class Dexer {
         }
     }
 
-    /** @return whether a jar entry name is a dex file the platform would load */
+    /** @return JAR 条目名称是否为平台会加载的 dex 文件 */
     private static boolean isDexName(String name) {
         if (name.indexOf('/') >= 0) {
             return false;
@@ -313,7 +307,7 @@ final class Dexer {
         return isDexName(path.getFileName().toString());
     }
 
-    /** Orders {@code classes.dex} before {@code classes2.dex}, and that before {@code classes10.dex}. */
+    /** 确保 {@code classes.dex} 排在 {@code classes2.dex} 之前，而 {@code classes2.dex} 又排在 {@code classes10.dex} 之前。 */
     private static int byDexIndex(Path left, Path right) {
         return index(left) - index(right);
     }
@@ -339,11 +333,10 @@ final class Dexer {
     }
 
     /**
-     * Clears every write bit of a dex file: from Android 14 the platform refuses to open one that can
-     * still be written, because a file the app could change would let verified bytes be replaced. The
-     * directory keeps its write bit, which is where the runtime puts the optimized copy.
+     * 清除 dex 文件的所有写入权限位：从 Android 14 起，平台会拒绝打开仍可写入的文件，因为应用可修改的文件
+     * 可能替换已校验的字节码。目录本身会保留写入权限，供运行时存放优化后的副本。
      *
-     * @throws IOException when the file is still writable afterwards
+     * @throws IOException 操作后文件仍可写入时抛出
      */
     static void makeReadOnly(Path dex) throws IOException {
         if (dex.toFile().setReadOnly() || !Files.isWritable(dex)) {
@@ -354,12 +347,10 @@ final class Dexer {
     }
 
     /**
-     * Puts back the write bit {@link #makeReadOnly} cleared.
+     * 恢复 {@link #makeReadOnly} 清除的写入权限位。
      *
-     * <p>Sealing is for the platform's benefit and is in the way of ordinary file handling: whether a
-     * read-only file can be removed is not the same on every host, so the bit is restored wherever a
-     * sealed file is about to be deleted. A file that cannot be removed cannot be rebuilt either,
-     * which would leave the cache with no way out.</p>
+     * <p>设为只读是为了满足平台要求，但会影响常规文件操作：不同系统对只读文件能否删除的处理不尽相同，
+     * 因此删除只读文件前会恢复写入权限。无法删除的文件也无法重新构建，会导致缓存无法更新。</p>
      */
     static void makeWritable(Path dex) {
         dex.toFile().setWritable(true, true);

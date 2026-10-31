@@ -15,33 +15,27 @@ import kim.der.asm.api.annotation.AsmInject;
 import kim.der.asm.api.annotation.AsmMixin;
 
 /**
- * Carries the engine's own "the games on the master server have changed" notice to the lobby.
+ * 将引擎发出的“主服务器上的游戏列表已更改”通知转发到游戏大厅。
  *
- * <p>The engine keeps the set of games it has discovered, and it announces a change to that set by
- * calling a static method on the class that used to be the game's server list screen. That class is
- * a shell in the archive this app runs: the screen itself belongs to the desktop build's own
- * interface, which this host does not carry, so the notice is thrown away and a list that is open
- * while the engine fills it in never redraws.</p>
+ * <p>引擎会保存已发现的游戏列表，并通过调用原游戏服务器列表界面类中的静态方法通知列表发生变化。当前应用运行的归档中该类只是空壳：
+ * 实际界面属于桌面版本，而本宿主未携带该界面。因此通知会被丢弃，若大厅在引擎填充列表时已经打开，也不会重新绘制。</p>
  *
- * <p>The notice is what the engine sends when it adds a game it has just been told about and when
- * it drops the games it has not seen for a while, so without it the lobby can list games that have
- * closed and miss the ones that have opened. The call is redirected to the lobby, which is the
- * screen the notice was for.</p>
+ * <p>引擎在添加刚收到通知的游戏，或移除一段时间未发现的游戏时都会发送该通知。如果丢弃通知，大厅就可能继续列出已关闭的游戏，
+ * 同时漏掉新开放的游戏。此调用会重定向到大厅，因为该通知原本就是发给大厅的。</p>
  */
 @AsmMixin("com/corrodinggames/rts/appFramework/ServerListActivity")
 public final class ServerListNotifyMixin {
 
-    /** Whether the notice has been carried once; it fires constantly, so it is said once. */
+    /** 标记通知是否已发送；该事件会频繁触发，因此只发送一次。 */
     private static volatile boolean announced;
 
     private ServerListNotifyMixin() {
     }
 
     /**
-     * Runs at the head of the engine's notice and hands it to the lobby.
+     * 在引擎通知逻辑开头运行，并将通知交给大厅。
      *
-     * <p>Nothing of the original method is skipped: it does nothing on this platform, and it is left
-     * alone so that a game change that gives it something to do still has its say.</p>
+     * <p>不会跳过原方法：它在当前平台上不执行任何操作，因此保留原方法，方便游戏后续版本在此加入行为。</p>
      */
     @AsmInject(method = "l")
     public static void whenTheGameListChanges() {

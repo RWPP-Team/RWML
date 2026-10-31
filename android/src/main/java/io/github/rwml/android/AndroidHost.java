@@ -15,6 +15,7 @@ import io.github.rwml.api.MixinBridge;
 import io.github.rwml.api.ProgressListener;
 import io.github.rwml.core.ExtensionDescriptor;
 import io.github.rwml.host.HostPlatform;
+import io.github.rwml.host.ResourcePackEnvironment;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -22,23 +23,25 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The host platform of an Android app.
+ * Android 应用的宿主平台。
  *
- * <p>Every answer follows from the one fact that separates Android from a JVM: classes are dex, they
- * are rewritten before they are loaded, and only the loader that owns a patched class can resolve the
- * mixin call inside it. The extension loader is therefore the one the bootstrapper mounted the patched
- * dex on, shared by every extension, so extensions cannot be isolated from each other here.</p>
+ * <p>所有行为都源于 Android 与 JVM 的一个关键区别：类以 dex 形式存在，在加载前会被改写，而且只有
+ * 拥有已修补类的类加载器才能解析其中的 mixin 调用。因此，扩展类加载器就是启动器挂载修补后 dex
+ * 的加载器，并由所有扩展共享；在这里无法隔离各个扩展。</p>
  */
 public final class AndroidHost implements HostPlatform {
 
     private final Context context;
     private final MixinBridge mixins;
+    private final ResourcePackEnvironment resourcePacks;
     private volatile ClassLoader extensionLoader;
 
-    AndroidHost(Context context, MixinBridge mixins, ClassLoader extensionLoader) {
+    AndroidHost(Context context, MixinBridge mixins, ClassLoader extensionLoader,
+                ResourcePackEnvironment resourcePacks) {
         this.context = context;
         this.mixins = mixins;
         this.extensionLoader = extensionLoader;
+        this.resourcePacks = resourcePacks;
     }
 
     void updateLoader(ClassLoader loader) { extensionLoader = loader; }
@@ -48,23 +51,27 @@ public final class AndroidHost implements HostPlatform {
         return mixins;
     }
 
-    /** The APK carries the assets, so a name is the only handle an extension can hold. */
+    /** 游戏资源由 APK 携带，因此扩展只能通过名称访问资源。 */
     @Override
     public GameAssets gameAssets() {
         return new AndroidGameAssets(context.getAssets());
     }
 
-    /** Unpacks the extensions the APK carries; see {@link AssetInstaller}. */
+    @Override
+    public ResourcePackEnvironment resourcePacks() {
+        return resourcePacks;
+    }
+
+    /** 解压 APK 中携带的扩展；详见 {@link AssetInstaller}。 */
     @Override
     public List<String> stageArchives(Path extensionDirectory) throws IOException {
         return AssetInstaller.install(context, "extensions", extensionDirectory);
     }
 
     /**
-     * The interface RWML ships inside the app, so that a fresh install - which has no extensions - can
-     * start a game. A user extension that declares its own {@code ui-framework} wins over it, and
-     * disabling it by id leaves the app headless. The platform-neutral built-in is not offered, because
-     * it hands over to a launcher Android does not have.
+     * RWML 随应用内置的界面，使没有安装任何扩展的新用户也能启动游戏。用户扩展若声明了自己的
+     * {@code ui-framework}，则优先使用该界面；按 ID 禁用内置扩展后，应用会以无界面模式运行。
+     * 此处不提供平台无关的内置界面，因为它会把控制权交给 Android 上不存在的启动器。
      */
     @Override
     public List<ExtensionDescriptor> builtInExtensions() {
@@ -77,9 +84,8 @@ public final class AndroidHost implements HostPlatform {
     }
 
     /**
-     * Android runs on the Java version the platform ships and offers no way to change it, so an
-     * extension that declares a requirement cannot be acted on. The requirement is reported by the
-     * descriptor and otherwise ignored.
+     * Android 使用平台提供的 Java 版本，且无法更换，因此无法满足扩展声明的版本要求。描述符仍会
+     * 报告此要求，但除此之外不会采取其他处理。
      */
     @Override
     public ExtensionDescriptor reconcileJavaRequirement(ExtensionDescriptor descriptor,

@@ -14,22 +14,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Outcome of a full load pass.
+ * 完整加载过程的执行结果。
  *
- * @param loaded  handles that were instantiated successfully, in load order
- * @param failed  extension ids (or archive paths for unreadable archives)
- *                mapped to a short failure reason
- * @param disabled ids that were intentionally skipped because they are
- *                persisted as disabled
- * @param staged  one line per archive the host supplied itself, describing what
- *                was done to it; empty on a host that supplies none
+ * @param loaded  成功实例化的扩展句柄，按加载顺序排列
+ * @param failed  扩展 ID（不可读归档则使用归档路径）及对应的简短失败原因
+ * @param disabled 已持久化为禁用状态、因此主动跳过的扩展；包含因已有资源包生效而被跳过的其他资源包
+ * @param staged  每个宿主自带归档对应一行，描述对其执行的操作；宿主未提供归档时为空
+ * @param resourcePack 本次生效的资源包 ID；没有资源包生效时为 null
  */
 public record LoadReport(List<ExtensionHandle> loaded, Map<String, String> failed, List<String> disabled,
-                         List<String> staged) {
+                         List<String> staged, String resourcePack) {
 
-    /** Report of a pass that had no host-supplied archives to stage. */
+    /** 此构造函数用于创建没有宿主自带归档需要暂存的报告。 */
     public LoadReport(List<ExtensionHandle> loaded, Map<String, String> failed, List<String> disabled) {
-        this(loaded, failed, disabled, Collections.emptyList());
+        this(loaded, failed, disabled, Collections.emptyList(), null);
+    }
+
+    /** 此构造函数用于创建没有资源包生效的报告。 */
+    public LoadReport(List<ExtensionHandle> loaded, Map<String, String> failed, List<String> disabled,
+                      List<String> staged) {
+        this(loaded, failed, disabled, staged, null);
     }
 
     public LoadReport {
@@ -37,6 +41,11 @@ public record LoadReport(List<ExtensionHandle> loaded, Map<String, String> faile
         failed = Collections.unmodifiableMap(new LinkedHashMap<>(failed));
         disabled = Collections.unmodifiableList(new ArrayList<>(disabled));
         staged = Collections.unmodifiableList(new ArrayList<>(staged));
+    }
+
+    /** @return 本次是否物化了资源包 */
+    public boolean hasResourcePack() {
+        return resourcePack != null && !resourcePack.trim().isEmpty();
     }
 
     public boolean isClean() {

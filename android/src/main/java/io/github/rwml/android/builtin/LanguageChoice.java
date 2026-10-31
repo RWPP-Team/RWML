@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -14,7 +15,7 @@ import io.github.rwml.api.i18n.Messages;
 import java.io.IOException;
 import java.util.Arrays;
 
-/** Language selection works before the game or its language file is loaded. */
+/** 即使游戏及其语言文件尚未加载，也可以选择界面语言。 */
 final class LanguageChoice {
     private LanguageChoice() { }
 

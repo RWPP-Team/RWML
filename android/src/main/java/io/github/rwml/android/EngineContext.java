@@ -14,24 +14,22 @@ import android.content.ContextWrapper;
 import android.os.Bundle;
 
 /**
- * The context the engine keeps for the rest of the process, made safe for dialogs.
+ * 引擎在进程剩余生命周期中持有的上下文，并确保可安全显示对话框。
  *
- * <p>The engine is given one context at start and reaches for it whenever it opens a window, a
- * dialog among them. An application context has no window of its own, so a dialog built from it
- * fails with {@code BadTokenException}: the window token is null. This wrapper answers window,
- * theme and resource questions with the activity that is currently on screen, and everything else
- * with the application context it was built on. The engine therefore shows its dialogs against a
- * real window without being told which activity that is.</p>
+ * <p>引擎启动时会收到一个上下文，并在打开窗口（包括对话框）时继续使用它。应用上下文本身没有窗口，
+ * 因此基于它创建的对话框会因窗口令牌为空而抛出 {@code BadTokenException}。此包装器通过当前显示的
+ * Activity 响应窗口、主题和资源相关请求，其余请求则交给创建包装器时使用的应用上下文。这样，引擎
+ * 无需知道当前 Activity，也能在真实窗口上显示对话框。</p>
  */
 public final class EngineContext extends ContextWrapper {
 
-    /** The activity the engine should treat as its window owner. Null until the first screen opens. */
+    /** 引擎应视为窗口所有者的 Activity。首个界面打开前为 null。 */
     private static volatile Activity foreground;
 
-    /** The one wrapper handed to the engine; it tracks the foreground activity on its own. */
+    /** 提供给引擎的唯一包装器；它会自行跟踪前台 Activity。 */
     private static volatile EngineContext instance;
 
-    /** Whether the lifecycle tracker that keeps {@link #foreground} current has been installed. */
+    /** 是否已安装生命周期跟踪器，以便持续更新 {@link #foreground}。 */
     private static volatile boolean installed;
 
     private final Context application;
@@ -42,8 +40,8 @@ public final class EngineContext extends ContextWrapper {
     }
 
     /**
-     * @param application the application context the engine falls back to for everything but windows
-     * @return the one wrapper the engine is handed, with the foreground tracker installed
+     * @param application 应用上下文；除窗口相关请求外，引擎都会回退到该上下文
+     * @return 提供给引擎的唯一包装器，并已安装前台 Activity 跟踪器
      */
     public static EngineContext obtain(Context application) {
         EngineContext current = instance;
@@ -59,7 +57,7 @@ public final class EngineContext extends ContextWrapper {
         return current;
     }
 
-    /** Installs the lifecycle tracker once, so {@link #foreground} follows the activity in front. */
+    /** 只安装一次生命周期跟踪器，使 {@link #foreground} 始终指向当前前台 Activity。 */
     private void install(Context application) {
         if (installed) {
             return;
@@ -76,7 +74,7 @@ public final class EngineContext extends ContextWrapper {
         }
     }
 
-    /** Records the activity that just came to the front and forgets it when it leaves. */
+    /** 记录刚进入前台的 Activity，并在其离开时清除记录。 */
     private static final class ForegroundTracker implements Application.ActivityLifecycleCallbacks {
 
         @Override
@@ -109,8 +107,7 @@ public final class EngineContext extends ContextWrapper {
     }
 
     /**
-     * The only call a dialog makes that needs a window: the window manager carries the activity's
-     * token. Every other service is answered by the application context.
+     * 对话框唯一需要窗口的调用：窗口管理器携带 Activity 的令牌。其他服务均由应用上下文提供。
      */
     @Override
     public Object getSystemService(String name) {
@@ -121,7 +118,7 @@ public final class EngineContext extends ContextWrapper {
         return super.getSystemService(name);
     }
 
-    /** Dialogs inflate and theme against the foreground activity's resources and theme. */
+    /** 对话框使用前台 Activity 的资源和主题进行填充与样式设置。 */
     @Override
     public android.content.res.Resources getResources() {
         Activity activity = activity();
@@ -144,7 +141,7 @@ public final class EngineContext extends ContextWrapper {
         super.setTheme(resid);
     }
 
-    /** Intents from the engine leave through the foreground activity, so they gain a task when needed. */
+    /** 引擎发出的 Intent 会经由前台 Activity 启动，必要时会为其添加任务标志。 */
     @Override
     public void startActivity(android.content.Intent intent) {
         Activity activity = activity();

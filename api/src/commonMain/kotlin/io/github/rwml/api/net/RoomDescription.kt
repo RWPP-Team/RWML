@@ -1,0 +1,75 @@
+/*
+ * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
+ * Licensed under the RWPP-Team Shield License 1.0.0.
+ * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
+ */
+
+package io.github.rwml.api.net
+
+import io.github.rwml.api.gameVersion
+
+data class RoomDescription(
+    val uuid: String,
+    val roomOwner: String = "Unnamed", // ? for official server and custom client is always 'Unnamed'
+    val gameVersion: Int = io.github.rwml.api.gameVersion,
+    val netWorkAddress: String = "unknown",
+    val localAddress: String = "127.0.0.1",
+    val port: Long = 5123,
+    val isOpen: Boolean = false,
+    val creator: String = "Unnamed",
+    val requiredPassword: Boolean = false,
+    val mapName: String = "Unknown",
+    val mapType: String = "Unknown",
+    val status: String = "battleroom",
+    val version: String = "Unknown",
+    val isLocal: Boolean = false,
+    val displayMapName: String = "Unknown", // not sure, source code doesn't use this
+    val playerCurrentCount: Int? = null, // may be blank
+    val playerMaxCount: Int? = null,
+    val isUpperCase: Boolean = false, // ???
+    val uuid2: String = "Unknown", // use to get real ip from list??
+    val unknown: Boolean = false, // it is unused in source code
+    val mods: String = "", // even though, this cannot be evidence that the mod has been enabled
+    val roomId: Int = 0,
+    val customIp: String? = null,
+) {
+    fun addressProvider(): String {
+        if (this.roomId == 0) {
+            return customIp ?: "$netWorkAddress:$port"
+        }
+        return "get|" + uuid2.replace("|", ".") + "|" + roomId + "|" + requiredPassword + "|" + port
+    }
+}
+
+val List<RoomDescription>.sorted
+    get() = this.sortedBy {
+        when {
+            it.isUpperCase && it.netWorkAddress.startsWith("uuid:") -> 0
+
+            // it.isUpperCase -> 1
+            it.isLocal -> 2
+
+            it.isUpperCase && it.creator.contains("RELAY") -> 4
+
+            it.status.contains("battleroom") -> {
+                if (it.playerCurrentCount != null && it.playerMaxCount != null &&
+                    it.playerCurrentCount < it.playerMaxCount &&
+                    it.gameVersion == gameVersion &&
+                    it.isOpen
+                ) {
+                    if (it.isUpperCase) 3 else 5
+                } else if (it.gameVersion == gameVersion) {
+                    6
+                } else if (it.isUpperCase) {
+                    7
+                } else if (it.isOpen) {
+                    9
+                } else {
+                    10
+                }
+            }
+
+            else -> 99
+        }
+    }

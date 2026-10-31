@@ -25,25 +25,21 @@ import io.github.rwml.api.ui.GameSettings;
 import io.github.rwml.android.R;
 
 /**
- * The help slides: four pictures that say how the game is played.
+ * 帮助幻灯片：用四张图片介绍游戏玩法。
  *
- * <p>This is the game's own quick help, kept as it shipped. The slides are the game's drawables,
- * the strip underneath picks one, and tapping the picture advances to the next - or leaves, after
- * the last. Opening the screen also marks the help as seen in the game's settings, which is what
- * stops the menu's first-run prompt from offering it again.</p>
+ * <p>此处保留游戏原有的快速帮助界面。幻灯片使用游戏自带的 drawable，底部缩略条用于选择图片，点击大图可前进到下一页，
+ * 最后一页之后则退出。打开此界面也会在游戏设置中标记帮助为已读，避免菜单首次运行提示再次显示。</p>
  *
- * <p>The gallery widget is the one the game used and the platform still carries it, deprecated or
- * not, so it stays: the layout names it.</p>
+ * <p>布局使用了游戏原先采用的 Gallery 控件，平台仍然保留该控件，因此即使它已弃用也继续使用。</p>
  */
 public final class QuickHelpActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
     /**
-     * How long the first tap is ignored after the screen opens.
+     * 界面打开后忽略首次点击的时长。
      *
-     * <p>The tap that opened the screen is often still landing when it does, and without the delay
-     * it advances the first slide the user never saw.</p>
+     * <p>界面打开时，触发打开操作的点击通常还未结束；若没有延迟，就会跳过用户尚未看到的第一页。</p>
      */
     private static final long TOUCH_GUARD_MILLIS = 500L;
 
@@ -93,7 +89,7 @@ public final class QuickHelpActivity extends BuiltinActivity {
 
     @Override
     protected void onStop() {
-        // The slides are a look, not a place: navigating away from them leaves the screen.
+        // 幻灯片只用于查看，导航到其他位置时应退出此界面。
         finish();
         super.onStop();
     }
@@ -107,7 +103,7 @@ public final class QuickHelpActivity extends BuiltinActivity {
         super.onWindowFocusChanged(focused);
     }
 
-    /** Advances to the next slide, or leaves when the last one was showing. */
+    /** 切换到下一页；已是最后一页时退出。 */
     private void advance() {
         if (System.currentTimeMillis() < touchGuardUntil) {
             return;
@@ -122,10 +118,9 @@ public final class QuickHelpActivity extends BuiltinActivity {
     }
 
     /**
-     * Shows one slide, sized to the room there is for it.
+     * 显示一张幻灯片，并按可用空间调整尺寸。
      *
-     * <p>The picture keeps its own proportions: it is scaled until one side meets the layout, and
-     * the other side is whatever the proportions make it.</p>
+     * <p>图片保持原有比例：缩放至一边适配布局，另一边的尺寸由图片比例决定。</p>
      */
     private void showSlide(int position) {
         current = position;
@@ -147,7 +142,7 @@ public final class QuickHelpActivity extends BuiltinActivity {
         image.setLayoutParams(size);
     }
 
-    /** The strip of slide thumbnails under the picture. */
+    /** 图片下方的幻灯片缩略图栏。 */
     private final class SlideStrip extends BaseAdapter {
 
         @Override

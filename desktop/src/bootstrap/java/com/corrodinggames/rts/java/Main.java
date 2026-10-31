@@ -10,28 +10,21 @@ package com.corrodinggames.rts.java;
 import io.github.rwml.bootstrap.Bootstrap;
 
 /**
- * The game's entry point, taken over by RWML.
+ * 由 RWML 接管的游戏入口。
  *
- * <p>The game launcher starts this jar through its {@code Main-Class} manifest attribute, which is
- * fixed to this exact class name, so RWML has to provide it and move the game's own entry point
- * aside (see {@code io.github.rwml.bootstrap.GameEntry}).</p>
+ * <p>游戏启动器通过清单中的 {@code Main-Class} 属性启动此 JAR，该属性固定为此类名，因此 RWML 必须提供此类，
+ * 并将游戏自身的入口移到其他位置（参见 {@code io.github.rwml.bootstrap.GameEntry}）。</p>
  *
- * <p>This class is intentionally tiny and deliberately compiled for <b>Java 8</b>, because it is the
- * one class that must load on whatever JVM the game's launcher happens to use. It contains no logic
- * of its own:</p>
+ * <p>此类有意保持精简，并专门按 <b>Java 8</b> 编译，因为无论游戏启动器使用哪个 JVM，此类都必须能够加载。它本身不包含业务逻辑：</p>
  *
  * <ol>
- *   <li>{@link Bootstrap#ensureRuntime} makes sure the JVM is one RWML can run on - restarting the
- *       game on a downloaded Java 25 with the RWML agent installed when it is not - and returns the
- *       child's exit code when it did. RWML needs Java 25 for its own bytecode and the agent flag for
- *       its bytecode transformer, and neither can be arranged from inside a JVM that has already
- *       started.</li>
- *   <li>{@link Bootstrap#startGame} then loads the extensions and invokes the game's relocated
- *       entry point.</li>
+ *   <li>{@link Bootstrap#ensureRuntime} 确保当前 JVM 满足 RWML 的运行要求；不满足时，会下载 Java 25、安装 RWML agent，
+ *       然后重启游戏；如果已在子进程中运行，则返回子进程的退出码。RWML 自身字节码需要 Java 25，字节码转换器也需要 agent 标志，
+ *       这些都无法在已启动的 JVM 内配置。</li>
+ *   <li>随后 {@link Bootstrap#startGame} 加载扩展，并调用迁移后的游戏入口。</li>
  * </ol>
  *
- * <p>Everything here degrades gracefully: if no suitable JVM can be obtained, or the extension
- * system fails, the game is still started, just without extensions.</p>
+ * <p>此处所有步骤都允许降级：如果无法获取合适的 JVM，或扩展系统启动失败，仍会启动游戏，只是不加载扩展。</p>
  */
 public class Main {
 
@@ -40,13 +33,13 @@ public class Main {
         try {
             exitCode = Bootstrap.ensureRuntime(args);
         } catch (Throwable t) {
-            // The bootstrap must never be the reason the game refuses to start.
+            // 不能让启动器本身成为游戏无法启动的原因。
             BootstrapLogHolder.error(t);
             exitCode = Bootstrap.CONTINUE_IN_PROCESS;
         }
 
         if (exitCode != Bootstrap.CONTINUE_IN_PROCESS) {
-            // The game already ran in the relaunched JVM; relay how it ended.
+            // 游戏已在重启后的 JVM 中运行；转发其退出码。
             if (exitCode != 0) {
                 System.exit(exitCode);
             }
@@ -60,10 +53,9 @@ public class Main {
     }
 
     /**
-     * Keeps the reference to the bootstrap logger out of {@link #main}.
+     * 将启动器日志记录器的引用移出 {@link #main}。
      *
-     * <p>Referenced through a tiny holder so that a failure inside the logger itself cannot mask the
-     * original problem.</p>
+     * <p>通过简单的持有类获取日志记录器，避免记录器自身失败时遮蔽原始问题。</p>
      */
     private static final class BootstrapLogHolder {
         private static void error(Throwable t) {

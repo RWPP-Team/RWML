@@ -8,57 +8,56 @@
 package io.github.rwml.android.builtin;
 
 /**
- * The line the game last printed, for the screen that shows it while the game loads.
+ * 游戏最近输出的一条日志，供加载期间显示该内容的界面使用。
  *
- * <p>The game runs on a worker and reports by printing to its console; the screen draws on the main
- * thread. It holds the last line rather than a queue, because a screen drawing at a fixed rate would
- * only ever show the newest one. {@link BootConsole} is what forwards them.</p>
+ * <p>游戏在工作线程中运行，并通过控制台输出进度；界面则在主线程绘制。此处只保留最新一行，而不使用队列，
+ * 因为界面按固定频率绘制时只会显示最新内容。{@link BootConsole} 负责转发日志行。</p>
  */
 public final class LoadingStatus {
 
-    /** The line the game last printed. */
+    /** 游戏最近输出的一行日志。 */
     private static volatile String message = "";
 
-    /** The boot's own account of where it is, for example {@code boot [  1%] engine: assets}. */
+    /** 引导流程报告的当前状态，例如 {@code boot [  1%] engine: assets}。 */
     private static volatile String progress = "";
 
-    /** Whether the boot has finished, successfully or not. */
+    /** 引导流程是否已经结束，无论成功与否。 */
     private static volatile boolean finished;
 
     private LoadingStatus() {
     }
 
-    /** Records one line the game printed on its console. */
+    /** 记录游戏控制台输出的一行日志。 */
     public static void line(String message) {
         LoadingStatus.message = message == null ? "" : message;
     }
 
-    /** Records the boot's own progress line. */
+    /** 记录引导流程自身的进度信息。 */
     public static void progress(String line) {
         progress = line == null ? "" : line;
     }
 
-    /** @return the boot's own progress line, empty before the boot reports one */
+    /** @return 引导流程自身的进度信息；首次报告前为空 */
     public static String progress() {
         return progress;
     }
 
-    /** Records that the boot is over. */
+    /** 记录引导流程已经结束。 */
     public static void complete() {
         finished = true;
     }
 
-    /** @return the line the game last printed, never null */
+    /** @return 游戏最近输出的一行日志，不会为 null */
     public static String message() {
         return message;
     }
 
-    /** @return whether the boot is over */
+    /** @return 引导流程是否已经结束 */
     public static boolean isFinished() {
         return finished;
     }
 
-    /** Forgets everything, so a second run does not show the first one's last line. */
+    /** 清除所有状态，避免第二次运行时显示上一次运行的最后一行日志。 */
     public static void reset() {
         message = "";
         progress = "";

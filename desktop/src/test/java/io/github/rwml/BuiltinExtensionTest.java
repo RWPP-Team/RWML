@@ -26,10 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The bundled extension is what makes a fresh install able to start a game, and it is the one
- * extension that has no archive. Both facts are worth pinning down: the host decides headless or not
- * by reading the declaration, and a built-in with a source path would send the loader looking for an
- * archive that does not exist.
+ * 随包提供的扩展使全新安装也能启动游戏，并且它是唯一没有归档的扩展。这两点都需要通过测试固定下来：宿主根据声明决定是否以无界面模式运行；
+ * 如果内置扩展带有源路径，加载器就会尝试查找并不存在的归档。
  */
 class BuiltinExtensionTest {
 

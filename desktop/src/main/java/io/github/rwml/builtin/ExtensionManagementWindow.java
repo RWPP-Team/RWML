@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -7,6 +8,7 @@
 package io.github.rwml.builtin;
 
 import io.github.rwml.api.extensions.ExtensionEntry;
+import io.github.rwml.api.extensions.ExtensionPackReport;
 import io.github.rwml.api.i18n.Messages;
 import io.github.rwml.api.ui.UiHooks;
 import io.github.rwml.api.ui.UiHost;
@@ -45,7 +47,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-/** The desktop renderer of the shared extension catalog. All filesystem work stays off the EDT. */
+/** 共享扩展目录的桌面渲染器；所有文件操作均在 EDT 之外执行。 */
 public final class ExtensionManagementWindow extends JDialog {
 
     private final UiServices services;
@@ -229,47 +231,70 @@ public final class ExtensionManagementWindow extends JDialog {
     private void chooseArchive() {
         JFileChooser picker = new JFileChooser();
         picker.setDialogTitle(messages.text("extensions.import"));
-        picker.setFileFilter(new FileNameExtensionFilter(messages.text("extensions.jarFilter"), "jar"));
-        if (picker.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-            importArchive(picker.getSelectedFile().toPath(), false);
+        picker.setFileFilter(new FileNameExtensionFilter(messages.text("extensions.archiveFilter"), "jar", "zip"));
+        if (picker.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) { return; }
+        Path archive = picker.getSelectedFile().toPath();
+        if (archive.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            importPack(archive, false);
+        } else {
+            importArchive(archive, false);
         }
     }
 
     private void importArchive(Path archive, boolean replace) {
-        ExtensionEntry[] imported = new ExtensionEntry[1];
         load(() -> {
             try (InputStream input = Files.newInputStream(archive)) {
-                imported[0] = services.extensions().importArchive(input, replace);
+                services.extensions().importArchive(input, replace);
             }
         }, failure -> {
             if (failure instanceof FileAlreadyExistsException) {
                 if (confirm(messages.text("extensions.replaceConfirm"))) { importArchive(archive, true); }
             } else { error(failure); }
-        }, () -> chooseVersion(imported[0].id()));
+        }, () -> { });
     }
 
-    private void chooseVersion(String id) {
-        List<ExtensionEntry> versions = new ArrayList<>();
-        for (ExtensionEntry entry : entries) {
-            if (id.equals(entry.id()) && entry.source() != null) { versions.add(entry); }
+    /** 整合包的成员逐个安装，因此结果以汇总形式呈现，而不是逐个弹窗。 */
+    private void importPack(Path archive, boolean replace) {
+        ExtensionPackReport[] report = new ExtensionPackReport[1];
+        load(() -> {
+            try (InputStream input = Files.newInputStream(archive)) {
+                report[0] = services.extensions().importPack(input, replace);
+            }
+        }, failure -> {
+            if (failure instanceof FileAlreadyExistsException) {
+                if (confirm(messages.text("extensions.replaceConfirm"))) { importPack(archive, true); }
+            } else { error(failure); }
+        }, () -> showReport(archive.getFileName().toString(), report[0]));
+    }
+
+    private void showReport(String file, ExtensionPackReport report) {
+        if (report == null) { return; }
+        List<String> lines = new ArrayList<>();
+        StringBuilder heading = new StringBuilder(file);
+        if (!report.name().isEmpty()) { heading.append(" · ").append(report.name()); }
+        if (!report.version().isEmpty()) { heading.append(' ').append(report.version()); }
+        lines.add(heading.toString());
+        lines.add("");
+        lines.add(messages.text("extensions.packSummary", report.installed(), report.skipped().size(),
+            report.failed().size()));
+        if (!report.skipped().isEmpty()) {
+            lines.add("");
+            lines.add(messages.text("extensions.packSkipped") + ":");
+            for (String skipped : report.skipped()) { lines.add("    " + skipped); }
         }
-        if (versions.size() < 2) { return; }
-        String[] choices = versions.stream().map(entry -> entry.version() + " · " + entry.source().getFileName())
-            .toArray(String[]::new);
-        int selected = 0;
-        for (int index = 0; index < versions.size(); index++) {
-            if (versions.get(index).versionSelected()) { selected = index; }
-        }
-        Object choice = JOptionPane.showInputDialog(this, messages.text("extensions.chooseVersionPrompt", id),
-            messages.text("extensions.chooseVersion"), JOptionPane.QUESTION_MESSAGE, null, choices, choices[selected]);
-        if (choice == null) { return; }
-        for (int index = 0; index < choices.length; index++) {
-            if (choices[index].equals(choice)) {
-                Path source = versions.get(index).source();
-                load(() -> services.extensions().selectVersion(source));
-                break;
+        if (!report.failed().isEmpty()) {
+            lines.add("");
+            lines.add(messages.text("extensions.packFailed") + ":");
+            for (java.util.Map.Entry<String, String> failure : report.failed().entrySet()) {
+                lines.add("    " + failure.getKey() + ": " + failure.getValue());
             }
         }
+        JTextArea area = new JTextArea(String.join("\n", lines), Math.min(16, lines.size()), 56);
+        area.setEditable(false);
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        JOptionPane.showMessageDialog(this, new JScrollPane(area),
+            messages.text("extensions.packTitle"), JOptionPane.INFORMATION_MESSAGE);
     }
 
     private boolean confirm(String text) {

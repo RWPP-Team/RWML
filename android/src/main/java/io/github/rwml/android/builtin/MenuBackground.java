@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -11,7 +12,7 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import com.corrodinggames.rts.gameFramework.GameEngine;
 
-/** Reuses the engine's menu map without replacing a suspended match. */
+/** 复用引擎的菜单地图，但不会替换已暂停的对局。 */
 final class MenuBackground {
     private final Activity activity;
     private final AndroidGameView view;

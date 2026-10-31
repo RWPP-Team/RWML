@@ -30,7 +30,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
 
-/** The builtin launcher remains usable while the engine is absent, loading or failed. */
+/** 引擎尚未启动、正在加载或加载失败时，内置启动器仍可使用。 */
 public final class LauncherActivity extends Activity {
     public static final String EXTRA_ERROR = "rwml.launchError";
 
@@ -104,9 +104,8 @@ public final class LauncherActivity extends Activity {
         failed = error != null;
         if (error != null) { log.append(error); }
         labels();
-        // A build replaced the launch that asked for it. The player already pressed the button that
-        // started it, so the second process presses it again on their behalf rather than stopping at
-        // a screen that reads as though nothing happened.
+        // 构建流程替换了发起构建的启动进程。玩家已经按下启动按钮，因此由第二个进程代为再次触发，而不是停留在
+        // 看起来毫无反应的界面上。
         if (AndroidBootstrap.consumeAutostart(this)) {
             new android.os.Handler(android.os.Looper.getMainLooper()).post(this::startGame);
         }

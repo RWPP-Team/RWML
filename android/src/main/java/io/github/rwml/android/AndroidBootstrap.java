@@ -17,6 +17,9 @@ import io.github.rwml.android.mixin.AndroidSoundFactoryMixin;
 import io.github.rwml.android.mixin.GraphicsEngineAndroidMixin;
 import io.github.rwml.android.mixin.MinimapHandlerMixin;
 import io.github.rwml.android.mixin.NetworkEngineNotificationMixin;
+import io.github.rwml.android.mixin.ResourcePackImageMixin;
+import io.github.rwml.android.mixin.ResourcePackMusicMixin;
+import io.github.rwml.android.mixin.ResourcePackSoundMixin;
 import io.github.rwml.android.mixin.ServerListNotifyMixin;
 import io.github.rwml.api.ExtensionException;
 import io.github.rwml.api.MixinBridge;
@@ -37,6 +40,7 @@ import io.github.rwml.core.ExtensionSelection;
 import io.github.rwml.core.ExtensionStateStore;
 import io.github.rwml.core.GameContextImpl;
 import io.github.rwml.core.LoadReport;
+import io.github.rwml.core.transform.ArchiveClassPatches;
 import io.github.rwml.game.LocaleUiMixin;
 
 import kim.der.asm.AsmRegistry;
@@ -64,53 +68,50 @@ import java.util.jar.JarOutputStream;
 import java.util.stream.Stream;
 
 /**
- * The Android bootstrapper: the counterpart of the desktop {@code Bootstrap}.
+ * Android 启动器，对应桌面端的 {@code Bootstrap}。
  *
- * <p>Android has no agent, so the archives are rewritten up front, compiled to dex and put on the
- * class path ahead of everything else; the dex is cached and keyed on what it was built from. The
- * extensions are mounted first, because a mixin has to be a resolvable class before the registry can
- * apply it.</p>
+ * <p>Android 没有 agent，因此归档会预先完成改写、编译为 dex，并放到类路径最前面；dex 会按其构建
+ * 来源生成缓存键并缓存。扩展必须先挂载，因为注册器应用 mixin 前，必须先能解析对应的类。</p>
  *
- * <p>A failure anywhere stops the run: a half-rewritten game fails later, and somewhere else.</p>
+ * <p>任何步骤失败都会中止启动：只完成一半改写的游戏会在之后的其他位置才报错。</p>
  */
 public final class AndroidBootstrap implements RwmlRuntime {
 
     /**
-     * Identifies the rewriting and the cache layout; bump it so an app update never reuses dex a
-     * different RWML produced.
+     * 标识改写规则和缓存布局；应用更新时递增此版本，避免复用由其他版本 RWML 生成的 dex。
      *
-     * <p>{@code rwml-2}: dex sealed read-only, dx state reset per run.
-     * {@code rwml-3}: the bundled {@code android/*} classes dropped, the platform supplies them.
-     * {@code rwml-4}: {@code android/support/*} kept, nothing else supplies it.
-     * {@code rwml-5}: the app's own mixins of the game, which no staged file can see.
-     * {@code rwml-6}: the build's report kept beside the dex it produced.
-     * {@code rwml-7}: one forced rebuild, so the new reporting runs on a device holding a cache.
-     * {@code rwml-8}: the image mixin's handler became static and takes its context from
-     * {@link GameResources} instead of a shadowed field that was always null.
-     * {@code rwml-9}: the app's own code is part of the key, so a new build of the app no longer
-     * needs a hand-written bump to replace the dex its mixins are compiled into.
-     * {@code rwml-11}: the stand-in dex moved off the game's loader, which a device holding dex from
-     * {@code rwml-10} has to see for itself.</p>
+     * <p>{@code rwml-2}：将 dex 设为只读，并在每次运行时重置 dx 状态。
+     * {@code rwml-3}：移除随包提供的 {@code android/*} 类，由平台提供这些类。
+     * {@code rwml-4}：保留 {@code android/support/*}，因为其他位置不会提供它。
+     * {@code rwml-5}：纳入应用自身对游戏类的 mixin，这些类无法通过暂存文件访问。
+     * {@code rwml-6}：将构建报告保存在对应 dex 旁边。
+     * {@code rwml-7}：强制重建一次，使新报告逻辑也能在已有缓存的设备上运行。
+     * {@code rwml-8}：将图像 mixin 的处理方法改为静态方法，并从 {@link GameResources} 获取上下文，
+     * 不再读取始终为空的隐藏字段。
+     * {@code rwml-9}：将应用自身代码纳入缓存键；应用更新后无需手动递增版本，也能替换编译了其 mixin 的 dex。
+     * {@code rwml-11}：将替身 dex 从游戏类加载器移出，以便持有 {@code rwml-10} 缓存的设备识别此次变更。
+     * {@code rwml-12}：将扩展的完整 JAR 加入类路径，使扩展资源能通过同一类加载器读取。
+     * {@code rwml-13}：加入资源包重定向，改写后的资源类必须重新生成。</p>
      */
-    private static final String CACHE_FORMAT = "rwml-11-own-loader";
+    private static final String CACHE_FORMAT = "rwml-13-resource-packs";
 
     private static final String GAME_GROUP = "game";
     private static final String EXTENSION_GROUP = "extensions";
     private static final String KEY_FILE = "key.txt";
 
     /**
-     * The file, beside the cache key, holding what the build that produced the cached dex reported.
-     * Its first line is {@link #PATCHED_PREFIX} and the number of classes that build changed.
+     * 与缓存键并列的文件，保存生成缓存 dex 的那次构建所报告的信息。第一行为 {@link #PATCHED_PREFIX}，
+     * 后面是该构建改动的类数量。
      */
     private static final String BUILD_LOG = "build.log";
 
-    /** The front of the first line of {@link #BUILD_LOG}, which carries the patched count. */
+    /** {@link #BUILD_LOG} 第一行的前缀，用于标记已修补类的数量。 */
     private static final String PATCHED_PREFIX = "patched ";
 
     private final Context context;
     private final List<String> log = new ArrayList<>();
 
-    /** The loader that owns the mounted game dex, or null before the preparation mounted one. */
+    /** 拥有已挂载游戏 dex 的加载器；准备流程挂载 dex 前为 null。 */
     private static volatile ClassLoader mountedLoader;
 
     private Path rootDirectory;
@@ -145,27 +146,25 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * @return the loader that owns the mounted game dex, or null before a preparation mounted one
+     * @return 拥有已挂载游戏 dex 的类加载器；准备流程挂载 dex 前返回 null
      *
-     * <p>The app's own classes cannot reach the game by name unless the platform let the dex onto
-     * their own path, so anything that looks the game up reflectively has to name this loader
-     * instead of assuming one.</p>
+     * <p>除非平台将 dex 放进应用自身的路径，否则应用中的类无法按名称访问游戏类。因此，任何通过反射
+     * 查找游戏类的代码都必须明确使用此加载器，不能假定游戏类就在应用类加载器中。</p>
      */
     public static ClassLoader gameLoader() {
         return mountedLoader;
     }
 
     /**
-     * The one runtime the process owns, set the first time anyone asks for it.
+     * 进程持有的唯一运行时，在首次请求时创建。
      *
-     * <p>Every game activity calls {@link #prepare(Context)} through {@code AndroidApp.prepare}, but
-     * Android may restart the process on the last activity it had open, which never ran the splash's
-     * boot. A single instance makes the preparation idempotent across entries, so the game dex is
-     * mounted and the game classes become nameable from wherever the process came up.</p>
+     * <p>每个游戏 Activity 都会通过 {@code AndroidApp.prepare} 调用 {@link #prepare(Context)}，但 Android
+     * 可能从上次打开的 Activity 重启进程，而该 Activity 并未执行启动画面的引导流程。使用单例可确保
+     * 从不同入口进入时准备过程都是幂等的，让游戏 dex 始终挂载完成，并能从进程启动位置访问游戏类。</p>
      */
     private static volatile AndroidBootstrap shared;
 
-    /** @return the loader that owns the game dex, after preparing the runtime once. */
+    /** @return 初始化运行时后，拥有游戏 dex 的加载器。 */
     public static ClassLoader prepare(Context context) {
         AndroidBootstrap bootstrap = get(context);
         if (!bootstrap.prepare()) {
@@ -174,7 +173,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
         return gameLoader();
     }
 
-    /** The process owns one runtime; activities must never construct another mounted session. */
+    /** 每个进程只拥有一个运行时；Activity 不能再创建另一个挂载会话。 */
     public static AndroidBootstrap get(Context context) {
         AndroidBootstrap bootstrap = shared;
         if (bootstrap == null) {
@@ -190,18 +189,17 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * Prepares the runtime, once. Everything after the first call is a no-op.
+     * 只准备一次运行时；首次调用后的所有调用均不执行操作。
      *
-     * <p>A failure stops game preparation; the interface remains available to show diagnostics.</p>
+     * <p>准备失败会中止游戏启动；界面仍可用于显示诊断信息。</p>
      *
-     * @return whether the runtime is ready
+     * @return 运行时是否已就绪
      */
     public synchronized boolean prepare() {
         if (prepared) {
             return true;
         }
-        // The first launch rewrites thousands of classes and compiles them to dex, which takes long
-        // enough that a reader cannot tell a slow run from a stopped one.
+        // 首次启动要改写数千个类并将其编译为 dex，耗时较长，用户可能无法判断程序是在缓慢运行还是已经停止。
         Watchdog watchdog = Watchdog.start("prepare");
         try {
             prepared = start();
@@ -215,13 +213,13 @@ public final class AndroidBootstrap implements RwmlRuntime {
         return prepared;
     }
 
-    /** Checks for updates only when entering the launcher, never during a running game. */
+    /** 仅在进入启动器时检查更新，游戏运行期间不会检查。 */
     public synchronized boolean prepareLauncher() throws IOException, ExtensionException {
         if (reloadRequested) { return false; }
         if (interfacePrepared && !sourceCatalog.equals(ExtensionCatalog.fingerprint(
                 sharedExtensionsDirectory(), extensionsDirectory,
                 dataDirectory.resolve("extension-state.properties")))) {
-            // A second launcher entry can reuse this process; changed ART classes need a fresh one.
+            // 再次进入启动器时可以复用此进程；ART 中已加载的类发生变化后，则必须启动新进程。
             reloadRequested = true;
             record("extensions changed at launcher entry; reloading in a fresh process");
             new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
@@ -234,7 +232,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
         return true;
     }
 
-    /** Mounts only the UI plugin and its dependencies. No game jar is staged or compiled here. */
+    /** 只挂载界面插件及其依赖。此处不会暂存或编译游戏 JAR。 */
     public synchronized void prepareInterface() throws IOException, ExtensionException {
         if (interfacePrepared) { return; }
         HostLog.install();
@@ -256,11 +254,13 @@ public final class AndroidBootstrap implements RwmlRuntime {
             descriptors.add(AndroidExtension.descriptor());
         }
         ExtensionStateStore states = ExtensionStateStore.open(dataDirectory);
-        selection = ExtensionSelection.resolve(descriptors, states.disabledIds(), states.selectedVersions());
+        selection = ExtensionSelection.resolve(descriptors, states.disabledIds(), states.selectedVersions(),
+            states.selectedResourcePack());
         AsmRegistry.clear();
         classLoader = AndroidBootstrap.class.getClassLoader();
         bridge = new OfflineMixinBridge(classLoader);
-        host = new AndroidHost(context, bridge, classLoader);
+        host = new AndroidHost(context, bridge, classLoader,
+            new AndroidResourcePacks(rootDirectory.resolve("resource-pack")));
         manager = new ExtensionManager(rootDirectory, host);
         UiHooks hooks = new UiHooks(
             failure -> HostLog.error("UI listener failed", failure));
@@ -287,7 +287,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
         });
         gameBoot.add(GameBoot.ENGINE, stage -> {
             requirePrepared();
-            // Resolve the game-facing helper only after game dex has joined the app class path.
+            // 只有在游戏 dex 加入应用类路径后，才能解析面向游戏的辅助类。
             Class<?> game = Class.forName("io.github.rwml.android.AndroidGame", true, classLoader);
             game.getMethod("create", Context.class, ProgressListener.class).invoke(null, context,
                 (ProgressListener) (percent, message) -> stage.subProgress(message));
@@ -298,7 +298,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
         List<Path> dex = new ArrayList<>();
         for (ExtensionDescriptor descriptor : selection.interfaceArchives()) {
             early.add(descriptor.source());
-            dex.addAll(ensureExtensionDex(descriptor));
+            dex.add(ensureExtensionArchive(descriptor));
         }
         classLoader = mount(classLoader, dex);
         bridge.updateLoader(classLoader);
@@ -321,26 +321,26 @@ public final class AndroidBootstrap implements RwmlRuntime {
         if (!prepared) { throw new IllegalStateException("Game dex preparation failed"); }
     }
 
-    /** @return the manager the extensions are loaded through, or {@code null} before {@link #prepare}. */
+    /** @return 用于加载扩展的管理器；调用 {@link #prepare} 前返回 {@code null}。 */
     @Override
     public ExtensionManager manager() {
         return manager;
     }
 
-    /** @return the outcome of the last {@link #load} pass, or {@code null} if none has run. */
+    /** @return 最近一次 {@link #load} 的结果；尚未执行过时返回 {@code null}。 */
     @Override
     public LoadReport report() {
         return lastReport;
     }
 
-    /** @return the platform this runtime runs on, which is Android. */
+    /** @return 当前运行时所处的平台，即 Android。 */
     @Override
     public Platform platform() {
         return Platform.ANDROID;
     }
 
     /**
-     * @return the platform's boot, available before early extension callbacks and game preparation
+     * @return 平台引导流程，可在早期扩展回调和游戏准备之前获取
      */
     @Override
     public GameBoot gameBoot() {
@@ -354,8 +354,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * @return the id of the extension that declared a user interface, or {@code null} for the headless
-     *     case
+     * @return 声明了用户界面的扩展 ID；无界面模式下返回 {@code null}
      */
     public String uiFrameworkExtensionId() {
         ExtensionManager current = manager;
@@ -363,8 +362,8 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * @return the interface to start, or {@code null} when nothing declared one
-     * @throws ExtensionException when it cannot be loaded or does not implement {@code UiFramework}
+     * @return 要启动的界面；没有扩展声明界面时返回 {@code null}
+     * @throws ExtensionException 无法加载该界面或其未实现 {@code UiFramework} 时抛出
      */
     public UiFramework uiFramework() throws ExtensionException {
         ExtensionManager current = manager;
@@ -372,9 +371,9 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * Loads every staged extension through the shared manager and records the outcome.
+     * 通过共享管理器加载所有已暂存的扩展，并记录加载结果。
      *
-     * @throws IllegalStateException when the runtime is not prepared yet
+     * @throws IllegalStateException 运行时尚未准备完成时抛出
      */
     public synchronized LoadReport load(ProgressListener progress) throws IOException {
         if (manager == null) {
@@ -385,36 +384,42 @@ public final class AndroidBootstrap implements RwmlRuntime {
         }
         LoadReport loaded = manager.loadRemaining(archives, progress);
         lastReport = loaded;
+        if (loaded.hasResourcePack()) {
+            record("resource   " + loaded.resourcePack() + " is active");
+        }
+        if (manager.resourcePackFailure() != null) {
+            record("resource   ! " + manager.resourcePackFailure());
+        }
         return loaded;
     }
 
-    /** @return every line the preparation produced, in order. */
+    /** @return 准备流程按顺序产生的所有日志行。 */
     public List<String> log() {
         return Collections.unmodifiableList(new ArrayList<>(log));
     }
 
-    /** @return the digest the dex cache is keyed on; empty before {@link #prepare}. */
+    /** @return dex 缓存使用的摘要；调用 {@link #prepare} 前为空。 */
     public String cacheKey() {
         return cacheKey;
     }
 
-    /** @return whether the preparation reused a cache instead of compiling. */
+    /** @return 准备流程是否复用了缓存，而未重新编译。 */
     public boolean usedCache() {
         return cacheHit;
     }
 
-    /** @return how many game classes the registered mixins changed on the last build. */
+    /** @return 最近一次构建中，已注册 mixin 修改的游戏类数量。 */
     public int patchedClasses() {
         return patchedClasses;
     }
 
-    /** Invalidates the dex cache for the next process; mounted classes cannot be unloaded in place. */
+    /** 使 dex 缓存对下一个进程失效；已挂载的类无法在当前进程中卸载。 */
     public synchronized void clear() throws IOException {
         deleteRecursively(dexDirectory);
     }
 
     // ------------------------------------------------------------------
-    // The pipeline
+    // 启动流程
     // ------------------------------------------------------------------
 
     private boolean start() throws IOException, ExtensionException {
@@ -439,13 +444,10 @@ public final class AndroidBootstrap implements RwmlRuntime {
             classLoader = build(enabled, gameArchives);
             writeBuildLog(log.subList(first, log.size()));
             writeKey();
-            // A build is not the state a launch runs in. Applying the mixins defines game classes
-            // while the archive is still a jar and the patched dex does not exist yet, and whatever
-            // that leaves behind in this process is decided for the rest of its life: a class a
-            // registration reached before the patch existed keeps the shape it had then, which is a
-            // class-not-found or a missing field at the first use. Every later launch starts from
-            // the cache instead, which is why a restart used to hide it. Doing that restart here
-            // makes the first launch the same thing as every other one.
+            // 构建过程与启动时的状态不同。应用 mixin 时，归档仍是 JAR，修补后的 dex 尚未生成；此时
+            // 在本进程中留下的类定义会持续到进程结束。若注册过程在补丁生效前访问了某个类，该类就会
+            // 保持当时的结构，首次使用时可能出现找不到类或缺少字段的问题。之后的启动都从缓存开始，
+            // 这也是重启曾经掩盖该问题的原因。在此处执行重启，可让首次启动与之后的启动保持一致。
             if (!restartIntoFreshProcess()) {
                 record("warning    the handover to a fresh process could not be requested; this one "
                     + "continues with the loader the build returned");
@@ -460,18 +462,16 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * Replaces this process with one that mounts the dex the build just wrote.
+     * 使用新进程替换当前进程，并挂载刚刚生成的 dex。
      *
-     * <p>The replacement runs in the {@code :restart} process, because a replacement screen in this
-     * one would inherit the very class definitions the build invalidated. It waits for this process
-     * to end before starting the launcher, so the platform cannot deliver the launch to a process
-     * that is still alive.</p>
+     * <p>替换流程运行在 {@code :restart} 进程中，因为如果在当前进程显示替换界面，就会继承刚被构建流程
+     * 判定为过期的类定义。它会等当前进程结束后再启动启动器，避免平台将启动请求交给仍在运行的旧进程。</p>
      *
-     * @return {@code false} when the handover could not be requested, so the caller keeps running
+     * @return 无法请求交接时返回 {@code false}，调用方据此继续运行
      */
     private boolean restartIntoFreshProcess() {
-        // A key this process already handed over once and still had to build means the handover did
-        // not take. Repeating it would be a restart loop, so this launch keeps the loader it built.
+        // 若当前进程已用同一个键发起过交接，但仍然需要构建，说明交接未生效。再次尝试会造成重启循环，
+        // 因此本次启动继续使用当前构建出的加载器。
         Path marker = dataDirectory.resolve(RESTART_KEY);
         String handedOver = readMarker(marker);
         if (cacheKey.equals(handedOver)) {
@@ -494,10 +494,9 @@ public final class AndroidBootstrap implements RwmlRuntime {
             return false;
         }
         android.os.Process.killProcess(pid);
-        // A device that refuses the kill leaves this process holding a class path the build already
-        // replaced, which is what the restart exists to avoid. Waiting here keeps it from starting
-        // the game in that state; the boot stage that called this never resumes. The main thread is
-        // left alone, because a screen that never draws is worse than one that boots as before.
+        // 如果设备拒绝结束进程，当前进程仍会持有已被构建结果替换的类路径，而重启正是为了避免这种情况。
+        // 在此等待可阻止游戏在该状态下启动；调用此方法的引导阶段不会恢复。主线程继续运行，因为显示一个
+        // 永远无法绘制的界面，比按原样继续启动更糟。
         if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
             try {
                 Thread.sleep(Long.MAX_VALUE);
@@ -508,10 +507,10 @@ public final class AndroidBootstrap implements RwmlRuntime {
         return false;
     }
 
-    /** The marker a rebuilt dex leaves behind so the next process carries on instead of waiting. */
+    /** 重建 dex 后写入的标记，使下一个进程继续启动，而不再等待。 */
     private static final String AUTOSTART = "autostart";
 
-    /** The cache key a handover was requested for, so a handover that did not take cannot repeat. */
+    /** 记录请求交接时使用的缓存键，避免交接未生效时重复尝试。 */
     private static final String RESTART_KEY = "restart-key";
 
     private void writeMarker(Path marker) {
@@ -540,16 +539,15 @@ public final class AndroidBootstrap implements RwmlRuntime {
         }
     }
 
-    /** Records that the launch this process replaced should be resumed by the next one. */
+    /** 记录当前进程替换的启动流程应由下一个进程继续执行。 */
     private void requestAutostart() {
         writeMarker(dataDirectory.resolve(AUTOSTART));
     }
 
     /**
-     * @return whether the launch this process replaced asked to be continued, which is consumed here
+     * @return 被当前进程替换的启动流程是否请求继续运行；此值会在这里读取并消费
      *
-     * <p>A rebuild ends the launch that asked for it, and the player asked to play: the press that
-     * started the build is remembered instead of being asked for a second time.</p>
+     * <p>重建会结束发起它的启动流程，但玩家仍然要进入游戏，因此会记住触发构建的按键，避免玩家再次操作。</p>
      */
     public static boolean consumeAutostart(Context context) {
         File marker = new File(new File(new File(context.getFilesDir(), "rwml"), "data"), AUTOSTART);
@@ -564,11 +562,11 @@ public final class AndroidBootstrap implements RwmlRuntime {
         }
     }
 
-    /** @return the dex of every extension and game archive that is already on disk, in load order. */
+    /** @return 磁盘上所有扩展和游戏归档对应的 dex，按加载顺序排列。 */
     private List<Path> collectDex(List<ExtensionDescriptor> enabled, List<Path> gameArchives) throws IOException {
         List<Path> dex = new ArrayList<>();
         for (ExtensionDescriptor descriptor : enabled) {
-            dex.addAll(ensureExtensionDex(descriptor));
+            dex.add(ensureExtensionArchive(descriptor));
         }
         for (Path archive : gameArchives) {
             dex.addAll(Dexer.dexFiles(gameDexDirectory(archive)));
@@ -577,9 +575,8 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * @param base the loader to extend: the app class loader first, then whatever the last call
-     *             returned
-     * @return the loader that owns the dex
+     * @param base 要扩展的类加载器：首次使用应用类加载器，之后使用上一次调用返回的加载器
+     * @return 拥有该 dex 的类加载器
      */
     private ClassLoader mount(ClassLoader base, List<Path> dex) throws IOException {
         if (dex.isEmpty()) {
@@ -603,12 +600,12 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * Compiles the extensions, mounts them, registers their mixins and rewrites the game against them.
+     * 编译并挂载扩展、注册其 mixin，然后据此改写游戏。
      *
-     * <p>A mixin that cannot be registered ends the build: rewriting the game without it would produce
-     * dex that behaves as though the patch were in, and the difference only shows up later.</p>
+     * <p>任何 mixin 注册失败都会终止构建：若忽略它继续改写游戏，生成的 dex 会缺少相应补丁，而问题要到
+     * 之后才会显现。</p>
      *
-     * @return the loader that owns the mounted dex
+     * @return 拥有已挂载 dex 的类加载器
      */
     private ClassLoader build(List<ExtensionDescriptor> enabled, List<Path> gameArchives)
         throws IOException, ExtensionException {
@@ -618,11 +615,11 @@ public final class AndroidBootstrap implements RwmlRuntime {
         List<Path> extensionDex = new ArrayList<>();
         List<ExtensionDescriptor> mounted = new ArrayList<>();
         for (ExtensionDescriptor descriptor : enabled) {
-            Path output = extensionDexDirectory(descriptor);
+            Path output = extensionArchiveDirectory(descriptor).resolve("extension.jar");
             try {
-                // An extension arrives compiled: the dexer belongs to the application, and compiling
-                // every extension at installation would put that cost on the launch.
-                extensionDex.addAll(ensureExtensionDex(descriptor));
+                // 扩展到达时已完成编译：dexer 由应用持有。如果在每次安装扩展时都编译，就会把这部分开销
+                // 转移到启动阶段。保留完整归档也让同一 DexClassLoader 能读取扩展中的 Compose 资源与本地库。
+                extensionDex.add(ensureExtensionArchive(descriptor));
                 mounted.add(descriptor);
                 record("dex        " + descriptor.id() + "  carried  -> " + relative(output));
             } catch (IOException e) {
@@ -632,35 +629,45 @@ public final class AndroidBootstrap implements RwmlRuntime {
         }
         ClassLoader loader = mount(classLoader, extensionDex);
 
-        // A mixin names the game types it patches in its own signatures, and the runtime resolves
-        // those signatures when the mixin class is defined, which is the registration below. The game
-        // is still a jar at that point and only becomes dex once the mixins have been applied, so no
-        // loader can answer for a single game type while they are being registered. The stand-in dex
-        // closes that gap: it carries a type of the right name, the right flags and the right place
-        // in the hierarchy, which is all the framework asks of a type it does not define.
+        // mixin 会在自身签名中引用它要修补的游戏类型，运行时在定义 mixin 类时（即下方注册阶段）解析这些
+        // 签名。此时游戏仍是 JAR，只有应用 mixin 后才会变成 dex，因此注册期间没有类加载器能提供游戏类型。
+        // 替身 dex 用于填补这一空档：它包含名称、标志和继承层级都正确的类型，这些信息足以满足框架对
+        // 非自身定义类型的要求。
         //
-        // It goes on a loader of its own, never on the one the game runs on. A class is defined once
-        // and stays defined, so a game type answered by a stand-in during registration would keep
-        // answering as that stand-in for the rest of the process: the patched dex mounted further
-        // down would be ignored for exactly the classes the mixins touch, which is every class that
-        // matters. The isolated loader is dropped with the registration, and the stand-in with it.
+        // 替身 dex 使用独立的类加载器，绝不能放在游戏运行所用的加载器上。类只会定义一次，并在进程结束前
+        // 一直保持已定义状态；如果注册期间由替身响应了某个游戏类型，那么整个进程都会继续将它视为替身。
+        // 后续挂载的修补 dex 就会忽略 mixin 涉及的类，也就是所有关键类。注册完成后会丢弃隔离的加载器，
+        // 替身类也随之释放。
         List<Path> stubDex = StubDex.build(gameArchives, rootDirectory.resolve("stub-dex"));
         Map<ExtensionDescriptor, List<String>> mixins = new LinkedHashMap<>();
+        List<Path> extensionArchives = new ArrayList<>();
+        List<String> mixinNames = new ArrayList<>();
+        List<String> patchClassNames = new ArrayList<>();
         for (ExtensionDescriptor descriptor : mounted) {
-            mixins.put(descriptor, OfflineMixinBridge.mixinClassNames(descriptor.source()));
+            List<String> names = OfflineMixinBridge.mixinClassNames(descriptor.source());
+            mixins.put(descriptor, names);
+            extensionArchives.add(descriptor.source());
+            mixinNames.addAll(names);
+            try {
+                patchClassNames.addAll(ArchiveClassPatches.readDeclarations(descriptor.source()).values());
+            } catch (IOException failure) {
+                recoverArchive(descriptor.source(), failure);
+                throw failure;
+            }
         }
         ClassLoader registration = loader;
         if (!stubDex.isEmpty()) {
             Set<String> standInNames = new LinkedHashSet<>(StubDex.classNames(gameArchives));
-            for (List<String> names : mixins.values()) {
-                standInNames.addAll(names);
-            }
+            List<String> registrationTypes = new ArrayList<>(mixinNames);
+            registrationTypes.addAll(patchClassNames);
+            standInNames.addAll(ExtensionClassClosure.localFirstClassNames(extensionArchives,
+                registrationTypes));
             List<Path> isolated = new ArrayList<>(stubDex);
             isolated.addAll(extensionDex);
             registration = DexClassPath.mountIsolated(isolated,
                 rootDirectory.resolve("optimized"), loader, standInNames);
-            record("registered against a stand-in dex on a loader of its own; the game's loader "
-                + "never carries one");
+            record("registered against a stand-in dex and extension type closure on a loader of "
+                + "its own; the game's loader never carries one");
         }
 
         List<Path> classpath = new ArrayList<>(gameArchives);
@@ -669,24 +676,39 @@ public final class AndroidBootstrap implements RwmlRuntime {
         }
         List<Path> gameDex = new ArrayList<>();
         try (JarResources resources = new JarResources(classpath, registration)) {
-            // Registering through the resource loader rather than the dex loader is the other half of
-            // the same fix. A loadClass reaches the dex loader as its parent and finds the extension
-            // and the stand-in there, while a getResourceAsStream is answered here first and reads
-            // the real bytes of the game out of the jars. That second path is where the framework
-            // reads a superclass hierarchy from, and without it every inherited field an @Accessor
-            // names would be invisible.
-            bridge.updateLoader(resources);
-            // The app carries mixins of the game's classes of its own, registered like an
-            // extension's. The class comes from the app's dex, which this loader already sees, so
-            // nothing has to be mounted for it.
+            // 通过资源加载器而不是 dex 加载器注册，是同一修复的另一部分。loadClass 会访问作为父加载器的
+            // dex 加载器，并在那里找到扩展和替身类；getResourceAsStream 则优先由此处响应，从 JAR 中读取
+            // 游戏的真实字节码。框架会通过后一条路径读取父类层级；如果缺少它，@Accessor 指定的继承字段
+            // 就无法被发现。
+            bridge.resetForOfflineRegistration(resources);
+            // 应用自身也包含针对游戏类的 mixin，注册方式与扩展中的 mixin 相同。该类来自此加载器已能访问的
+            // 应用 dex，因此无需为它额外挂载内容。
             List<Class<?>> carried = Arrays.<Class<?>>asList(
                 AndroidSoundFactoryMixin.class, GraphicsEngineAndroidMixin.class, LocaleUiMixin.class,
                 NetworkEngineNotificationMixin.class, ServerListNotifyMixin.class,
                 MinimapHandlerMixin.class, MinimapHandlerQueuedPointsDrawMixin.class,
                 io.github.rwml.android.mixin.MasterServerListLifecycleMixin.class);
+
+            // 资源包替换的是游戏自身的资源文件；这些处理方法的注入点固定，因此由宿主随应用一起注册，
+            // 不依赖任何扩展归档。它们在任何游戏类被改写之前登记。
+            List<Class<?>> resourcePackMixins = Arrays.<Class<?>>asList(
+                io.github.rwml.game.ResourcePackAssetMixin.class,
+                ResourcePackImageMixin.class, ResourcePackSoundMixin.class, ResourcePackMusicMixin.class);
+
             for (Class<?> mixin : carried) {
                 bridge.register(mixin);
                 record("mixin      " + mixin.getName() + "  [app]");
+            }
+
+            // 资源包重定向与界面 mixin 同时注册，但它们只影响资源读取：目标类不匹配时关闭资源包，而不是中止启动。
+            for (Class<?> mixin : resourcePackMixins) {
+                try {
+                    bridge.register(mixin);
+                    record("mixin      " + mixin.getName() + "  [resource pack]");
+                } catch (ExtensionException failure) {
+                    record("skipped    " + mixin.getName() + ": resource packs are unavailable: "
+                        + failure.getMessage());
+                }
             }
 
             for (ExtensionDescriptor descriptor : mounted) {
@@ -718,9 +740,8 @@ public final class AndroidBootstrap implements RwmlRuntime {
             }
         }
         if (patchedClasses == 0) {
-            // Silence here is the one outcome that reads like success: the dex is built, the game
-            // starts, and every mixin quietly did nothing because it named a class or a method the
-            // archive does not have under those names.
+            // 这里静默失败最容易被误认为成功：dex 已构建，游戏也启动了，但所有 mixin 都没有生效，因为它们
+            // 引用的类名或方法名与归档中的名称不匹配。
             record("warning    no game class was changed; the registered mixins name classes this "
                 + "archive does not carry, or none of their injections matched");
         }
@@ -728,11 +749,10 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * Rewrites every class of {@code source} into {@code target}, dropping the bundled copy of the
-     * Android API the desktop needs and a device does not. {@code android/support/*} is kept, because
-     * it is a library the game bundles and no other class path supplies it.
+     * 将 {@code source} 中的所有类改写到 {@code target}，并移除桌面端需要、设备上不需要的 Android API
+     * 捆绑副本。保留 {@code android/support/*}，因为这是游戏打包的库，其他类路径不会提供它。
      *
-     * @throws ExtensionException when the registry cannot be applied to one of the classes
+     * @throws ExtensionException 注册器无法应用于某个类时抛出
      */
     private int rewrite(Path source, Path target, MixinBridge bridge, ClassLoader resources)
         throws IOException, ExtensionException {
@@ -766,9 +786,8 @@ public final class AndroidBootstrap implements RwmlRuntime {
                             rewritten = result;
                         }
                     } catch (Throwable t) {
-                        // A class the registry cannot handle ends the build. Leaving it unchanged
-                        // would ship dex in which one mixin quietly did not apply, and the game would
-                        // then fail somewhere that says nothing about why.
+                        // 注册器无法处理某个类时应终止构建。若保留原样，生成的 dex 会有一个 mixin 未能生效，
+                        // 游戏随后会在其他位置失败，却无法说明原因。
                         Path failed = this.bridge.failedArchive(t);
                         if (failed != null) { recoverArchive(failed, t); }
                         throw new ExtensionException("The mixins could not be applied to "
@@ -792,10 +811,10 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     // ------------------------------------------------------------------
-    // Cache bookkeeping
+    // 缓存管理
     // ------------------------------------------------------------------
 
-    /** @return the archives whose extensions are not disabled, in file name order. */
+    /** @return 扩展未被禁用的归档，按文件名排序。 */
     private List<ExtensionDescriptor> enabledExtensions(List<Path> archives) {
         Set<String> disabled;
         try {
@@ -823,15 +842,12 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * The cache key covers the game classes, the identity and the content of every extension that
-     * will load, this app's own build, and the format of the cache itself.
+     * 缓存键涵盖游戏类、所有待加载扩展的标识和内容、应用自身的构建版本，以及缓存格式。
      *
-     * <p>The app's build belongs in the key because the app carries mixins of its own, and those are
-     * compiled into the dex this builds. Installing a new build over the previous one leaves the game
-     * archives untouched, so a key made of those alone would be unchanged and the previous dex would
-     * be reused - with the previous mixins in it, and every patch the new build added silently
-     * absent. Recording the key as a hand-written constant instead is what this replaces: it worked
-     * only for whoever remembered to bump it.</p>
+     * <p>应用自身的构建版本必须纳入缓存键，因为应用也带有 mixin，且这些 mixin 会被编译进此处生成的 dex。
+     * 在旧版本上安装新版本不会修改游戏归档，因此只依据归档生成的缓存键不会变化，旧 dex 就会被复用：
+     * 其中仍是旧版 mixin，新版本新增的补丁则会全部悄然缺失。此前使用手写常量记录版本；这种方式只有
+     * 记得递增常量的人才能确保缓存更新，现在由该机制取代。</p>
      */
     private String computeKey(List<Path> gameArchives, List<ExtensionDescriptor> enabled) {
         StringBuilder key = new StringBuilder(CACHE_FORMAT).append('\n');
@@ -845,7 +861,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
             entries.add("ext " + descriptor.id() + ' ' + descriptor.version() + ' '
                 + descriptor.sourceSha256() + '\n');
         }
-        // Registration/load order changes the resulting patches even when the same jars are present.
+        // 即使归档相同，注册或加载顺序变化也会改变最终补丁。
         for (String entry : entries) {
             key.append(entry);
         }
@@ -853,7 +869,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * @return what identifies this build of the app, which changes on every install of it
+     * @return 用于标识当前应用构建版本的值，每次安装都会变化
      */
     private String appIdentity() {
         try {
@@ -861,22 +877,22 @@ public final class AndroidBootstrap implements RwmlRuntime {
                 .getPackageInfo(context.getPackageName(), 0);
             return info.versionCode + ":" + info.lastUpdateTime;
         } catch (Throwable t) {
-            // No package record means nothing that could be cached was ever built, so any constant
-            // is as good as a real identity here.
+            // 没有包信息意味着从未构建过可缓存内容，此时使用任意常量都可以作为版本标识。
             return "unidentified";
         }
     }
 
     /**
-     * A cache is worth reusing when the key still describes what the dex was built from and every
-     * directory it names still holds dex. The key is checked last because it is the cheap part.
+     * 只有当缓存键仍然准确描述 dex 的构建来源，且键中引用的每个目录都仍包含 dex 时，缓存才可复用。
+     * 缓存键的检查成本最低，因此放在最后执行。
      */
     private boolean isCacheValid(List<ExtensionDescriptor> enabled, List<Path> gameArchives) {
         for (ExtensionDescriptor descriptor : enabled) {
-            // An extension that carries no dex is skipped at build time, so requiring dex of it here
-            // would invalidate the cache on every launch for a reason that never changes.
+            // 构建时会跳过不含 dex 的扩展，因此若在此处仍要求它提供 dex，每次启动都会因一个固定不变的原因
+            // 而使缓存失效。
             if (Dexer.carriesDex(descriptor.source())
-                && Dexer.dexFiles(extensionDexDirectory(descriptor)).isEmpty()) {
+                && !ExtensionArchiveCache.isValid(extensionArchiveDirectory(descriptor),
+                    descriptor.source(), descriptor.sourceSha256())) {
                 return false;
             }
         }
@@ -906,17 +922,17 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     // ------------------------------------------------------------------
-    // Reporting
+    // 报告
     // ------------------------------------------------------------------
 
-    /** Records one line, in the log this object hands out and in logcat. */
+    /** 将一行日志写入此对象提供的日志列表和 logcat。 */
     private void record(String line) {
         log.add(line);
         HostLog.add(line);
         preparationProgress.onProgress(0, line);
     }
 
-    /** Records every line of a list the same way {@link #record} records one. */
+    /** 按照 {@link #record} 的方式记录列表中的每一行。 */
     private void recordAll(List<String> lines) {
         for (String line : lines) {
             record(line);
@@ -924,8 +940,8 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     /**
-     * Keeps what a build reported beside the dex it produced: a launch that reuses the dex performs
-     * none of the work those lines describe, so they would otherwise be said once and never again.
+     * 将构建报告保存在生成的 dex 旁边：复用 dex 的启动流程不会执行报告中描述的工作，否则这些信息只会
+     * 显示一次，之后就再也不会出现。
      */
     private void writeBuildLog(List<String> build) throws IOException {
         Files.createDirectories(dexDirectory);
@@ -936,7 +952,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
         Files.write(dexDirectory.resolve(BUILD_LOG), text.toString().getBytes(StandardCharsets.UTF_8));
     }
 
-    /** Reads back what {@link #writeBuildLog} wrote, into this run's log. */
+    /** 将 {@link #writeBuildLog} 写入的内容读回当前运行日志。 */
     private void replayBuildLog() {
         Path file = dexDirectory.resolve(BUILD_LOG);
         if (!Files.isRegularFile(file)) {
@@ -950,8 +966,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
                         patchedClasses =
                             Integer.parseInt(line.substring(PATCHED_PREFIX.length()).trim());
                     } catch (NumberFormatException ignored) {
-                        // A count that will not parse leaves the number at zero, which is what a
-                        // launch that compiled nothing would have reported anyway.
+                        // 数量无法解析时保留为零，这与未编译任何内容的启动流程报告的数值相同。
                     }
                 } else if (!line.trim().isEmpty()) {
                     record(line);
@@ -964,28 +979,17 @@ public final class AndroidBootstrap implements RwmlRuntime {
     }
 
     // ------------------------------------------------------------------
-    // Paths and small helpers
+    // 路径和辅助方法
     // ------------------------------------------------------------------
 
-    private Path extensionDexDirectory(ExtensionDescriptor descriptor) {
+    private Path extensionArchiveDirectory(ExtensionDescriptor descriptor) {
         return rootDirectory.resolve("extension-dex").resolve(descriptor.sourceSha256());
     }
 
-    private List<Path> ensureExtensionDex(ExtensionDescriptor descriptor) throws IOException {
+    private Path ensureExtensionArchive(ExtensionDescriptor descriptor) throws IOException {
         try {
-            Path output = extensionDexDirectory(descriptor);
-            if (!descriptor.sourceSha256().equals(AssetInstaller.Digest.sha256(descriptor.source()))) {
-                throw new IOException("Extension changed during startup: " + descriptor.id());
-            }
-            List<Path> existing = Dexer.dexFiles(output);
-            Path complete = output.resolve("complete.txt");
-            if (!existing.isEmpty() && Files.isRegularFile(complete)) { return existing; }
-            List<Path> produced = Dexer.carriedDex(descriptor.source(), output);
-            if (!descriptor.sourceSha256().equals(AssetInstaller.Digest.sha256(descriptor.source()))) {
-                throw new IOException("Extension changed during mounting: " + descriptor.id());
-            }
-            Files.write(complete, descriptor.sourceSha256().getBytes(StandardCharsets.UTF_8));
-            return produced;
+            return ExtensionArchiveCache.install(extensionArchiveDirectory(descriptor),
+                descriptor.source(), descriptor.sourceSha256());
         } catch (IOException failure) {
             recoverArchive(descriptor.source(), failure);
             throw failure;
@@ -1036,8 +1040,8 @@ public final class AndroidBootstrap implements RwmlRuntime {
             Collections.reverse(paths);
             for (Path path : paths) {
                 if (Files.isRegularFile(path)) {
-                    // The dex here is sealed, and a sealed file is not removable on every host. This
-                    // is what "clear the cache" does, so it has to be able to remove one.
+                    // 此处的 dex 是只读的，并非所有系统都允许删除只读文件。清理缓存需要删除该文件，
+                    // 因此必须能处理这一情况。
                     Dexer.makeWritable(path);
                 }
                 Files.deleteIfExists(path);

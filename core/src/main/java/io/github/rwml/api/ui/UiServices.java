@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -14,7 +15,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-/** Shared UI data and capabilities, available before any game class is loaded. */
+/** 供界面共享的数据和功能，在加载任何游戏类之前即可使用。 */
 public final class UiServices {
 
     private final Messages messages;
@@ -33,7 +34,7 @@ public final class UiServices {
     public ExtensionLibrary extensions() { return extensions; }
     public UiHooks hooks() { return hooks; }
 
-    /** Hosts and extensions register typed services without adding platform types to core. */
+    /** 宿主和扩展可注册类型化服务，无需向 core 引入平台类型。 */
     public <T> AutoCloseable register(Class<T> type, T service) {
         type.cast(service);
         if (capabilities.putIfAbsent(type, service) != null) {
@@ -51,7 +52,7 @@ public final class UiServices {
         return game == null ? GameUi.Snapshot.UNAVAILABLE : game.snapshot();
     }
 
-    /** Adds a namespaced screen without teaching either platform host about an extension's classes. */
+    /** 添加带命名空间的界面，无需让平台宿主依赖扩展类。 */
     public AutoCloseable registerScreen(String name, Executor executor, Consumer<UiHost> screen) {
         if (name == null || name.trim().isEmpty()
             || java.util.Arrays.asList("game", "main-menu", "extensions", "launcher").contains(name)) {
@@ -67,7 +68,7 @@ public final class UiServices {
         return () -> { active.set(false); screens.remove(name, route); };
     }
 
-    /** Platform hosts check extension routes before mapping their own standard screen names. */
+    /** 平台宿主映射标准界面名称前，先检查扩展路由。 */
     public boolean openRegisteredScreen(String name, UiHost host) {
         Consumer<UiHost> screen = name == null ? null : screens.get(name);
         if (screen == null) { return false; }

@@ -40,16 +40,13 @@ import java.util.List;
 import io.github.rwml.android.R;
 
 /**
- * The map grid of one single-player mode: the game's own grid layout, one tile per map.
+ * 单人游戏模式的地图网格：沿用游戏自身的网格布局，每张地图对应一个图块。
  *
- * <p>The mode is the folder to list, handed over by {@link LevelGroupSelectActivity}. Each tile is
- * the map's thumbnail with its name under it, which is what the game's own screen shows; a map with
- * no thumbnail is still listed, since it is playable without one.</p>
+ * <p>要显示的模式就是 {@link LevelGroupSelectActivity} 传入的目录。每个图块都显示地图缩略图及其名称，与游戏原界面一致；
+ * 没有缩略图的地图仍会列出，因为它依然可以游玩。</p>
  *
- * <p>Skirmish maps let the difficulty, the number of opponents and the game mode be chosen. The
- * other modes carry no such choices, so their controls stay as the layout wrote them and the map
- * decides. Choosing a tile asks for confirmation and then hands the map to
- * {@link SinglePlayerGame}.</p>
+ * <p>遭遇战地图允许选择难度、对手数量和游戏模式。其他模式没有这些选项，因此保留布局中的控件设置，由地图自身决定。
+ * 选择图块后会请求确认，然后将地图交给 {@link SinglePlayerGame}。</p>
  */
 public final class LevelSelectActivity extends BuiltinActivity {
 
@@ -57,12 +54,12 @@ public final class LevelSelectActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** The request code the platform's file picker answers with when a map is imported. */
+    /** 导入地图时系统文件选择器返回的请求码。 */
     private static final int REQUEST_IMPORT = 5;
 
     private static final String SKIRMISH = "maps/skirmish";
 
-    /** One map: the path the engine loads, and the name the tile shows. */
+    /** 一张地图：引擎加载的路径和地图卡片显示的名称。 */
     private static final class MapEntry {
         final String path;
         final String name;
@@ -119,7 +116,7 @@ public final class LevelSelectActivity extends BuiltinActivity {
         Log.i(TAG, "Map grid open for " + mode + " (" + maps.size() + " maps).");
     }
 
-    /** Wires the choices a skirmish map offers, and the map import for the custom folder. */
+    /** 配置遭遇战地图选项，并处理向自定义目录导入地图。 */
     private void bindControls() {
         aiDifficulty = findViewById(R.id.aiDifficulty);
         aiCount = findViewById(R.id.aiCount);
@@ -158,10 +155,10 @@ public final class LevelSelectActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // The maps
+    // 地图
     // ------------------------------------------------------------------
 
-    /** Reads the mode's folder through the engine's file layer, the way the game's screen does. */
+    /** 通过引擎文件层读取模式目录，与游戏界面的读取方式一致。 */
     private void listMaps() {
         maps.clear();
         String[] listed = null;
@@ -176,8 +173,7 @@ public final class LevelSelectActivity extends BuiltinActivity {
             Log.w(TAG, "The maps in " + mode + " could not be listed.", t);
         }
         if (listed == null) {
-            // The file layer says what went wrong and the layout carries a line for it. An empty
-            // grid with nothing said about it reads as a folder that holds no maps.
+            // 文件层会提供错误原因，布局也有对应的提示行。若只显示空网格，用户会以为目录中没有地图。
             showListingFailure();
             return;
         }
@@ -186,13 +182,12 @@ public final class LevelSelectActivity extends BuiltinActivity {
             if (path == null) {
                 continue;
             }
-            // The engine's own reading of the file name, in this language: the language file is
-            // asked for a map name, never for the file's name, because that is not a locale key.
+            // 使用引擎自身的规则按当前语言读取地图名称：语言文件查询的是地图名称，而非文件名，因为文件名不是本地化键。
             maps.add(new MapEntry(path, MapNames.of(entry)));
         }
     }
 
-    /** Puts the file layer's own reason on screen when the mode's folder cannot be listed. */
+    /** 无法列出模式目录时，在界面显示文件层返回的原因。 */
     private void showListingFailure() {
         TextView message = findViewById(R.id.messageInfo);
         if (message == null) {
@@ -204,13 +199,12 @@ public final class LevelSelectActivity extends BuiltinActivity {
         message.setVisibility(View.VISIBLE);
     }
 
-    /** The path the engine is given for one listed entry, or {@code null} when it is not a map. */
+    /** 传给引擎的条目路径；条目不是地图时为 {@code null}。 */
     private String mapPathOf(String entry) {
         if (entry == null) {
             return null;
         }
-        // The engine's file layer understands these two tags and resolves them itself, so they are
-        // passed through untouched.
+        // 引擎文件层会识别并解析这两个标记，因此不做修改，直接传递。
         if (entry.startsWith("MOD|") || entry.startsWith("NEW_PATH|")) {
             return entry;
         }
@@ -220,7 +214,7 @@ public final class LevelSelectActivity extends BuiltinActivity {
         return mode.endsWith("/") ? mode + entry : mode + "/" + entry;
     }
 
-    /** The map's thumbnail, which the game stores beside it under a matching name. */
+    /** 地图缩略图，游戏会以匹配的名称将其保存在地图旁边。 */
     private Drawable thumbnailOf(MapEntry entry) {
         String base = entry.path.endsWith(".tmx")
             ? entry.path.substring(0, entry.path.length() - 4) : entry.path;
@@ -240,17 +234,17 @@ public final class LevelSelectActivity extends BuiltinActivity {
                 try {
                     stream.close();
                 } catch (Throwable ignored) {
-                    // A thumbnail that will not close is not worth failing the tile over.
+                    // 无法关闭缩略图不应导致整个地图图块加载失败。
                 }
             }
         }
     }
 
     // ------------------------------------------------------------------
-    // Starting
+    // 启动游戏
     // ------------------------------------------------------------------
 
-    /** Asks before a game is started, showing what is about to run. */
+    /** 开始游戏前显示确认提示，并说明即将启动的内容。 */
     private void confirmStart(MapEntry entry) {
         int opponents = opponents();
         int mode = modeIndex();
@@ -280,7 +274,7 @@ public final class LevelSelectActivity extends BuiltinActivity {
         SinglePlayerGame.start(this, entry.path, opponents, mode);
     }
 
-    /** How many opponents the chosen mode plays against. */
+    /** 所选模式中的对手数量。 */
     private int opponents() {
         if (!skirmish || aiCount == null) {
             return SinglePlayerGame.MAX_AI;
@@ -290,12 +284,10 @@ public final class LevelSelectActivity extends BuiltinActivity {
     }
 
     /**
-     * The chosen entry of the game-mode list.
+     * 已选择的游戏模式列表项。
      *
-     * <p>Its position is the whole of the choice. The game's own level-options screen reads the same
-     * list and keeps the entry's one-based number as the size of the player's side of the map,
-     * including the player's own team; the position is that number less one, so the two agree
-     * without this screen having to know what any entry means.</p>
+     * <p>选择结果由该项的位置决定。游戏的关卡选项界面也会读取同一列表，并将列表项的一基序号作为玩家一侧的队伍数，
+     * 其中包含玩家自己的队伍。此处的位置正好比该序号小一，因此两边保持一致，无需由当前界面解释各列表项的含义。</p>
      */
     private int modeIndex() {
         if (!skirmish || gameMode == null) {
@@ -304,7 +296,7 @@ public final class LevelSelectActivity extends BuiltinActivity {
         return Math.max(0, gameMode.getSelectedItemPosition());
     }
 
-    /** The chosen game mode, in the words the list shows. */
+    /** 所选游戏模式，即列表中显示的名称。 */
     private String modeName() {
         if (gameMode == null) {
             return "";
@@ -328,7 +320,7 @@ public final class LevelSelectActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // Importing a map
+    // 导入地图
     // ------------------------------------------------------------------
 
     private void chooseMap() {
@@ -349,7 +341,7 @@ public final class LevelSelectActivity extends BuiltinActivity {
         importMap(data.getData());
     }
 
-    /** Copies a picked map into the mode's folder. */
+    /** 将选中的地图复制到模式目录。 */
     private void importMap(Uri source) {
         String name = FileImport.nameOf(this, source);
         if (name == null || !name.endsWith(".tmx")) {
@@ -376,10 +368,10 @@ public final class LevelSelectActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // The tiles
+    // 地图图块
     // ------------------------------------------------------------------
 
-    /** One tile per map: the thumbnail over its name, with the name acting as the tile's button. */
+    /** 每张地图对应一个卡片：缩略图位于名称上方，名称同时作为卡片按钮。 */
     private final class MapAdapter extends BaseAdapter {
 
         @Override
@@ -440,7 +432,7 @@ public final class LevelSelectActivity extends BuiltinActivity {
     }
 
     // ------------------------------------------------------------------
-    // Helpers
+    // 辅助方法
     // ------------------------------------------------------------------
 
     private void show(View view, int visibility) {

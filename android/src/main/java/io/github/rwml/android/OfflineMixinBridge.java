@@ -9,6 +9,8 @@ package io.github.rwml.android;
 
 import io.github.rwml.api.ExtensionException;
 import io.github.rwml.api.MixinBridge;
+import io.github.rwml.core.transform.ArchiveClassPatches;
+import io.github.rwml.core.transform.ClassFilePatchException;
 
 import kim.der.asm.AsmRegistry;
 import kim.der.asm.transformer.AsmProcessor;
@@ -29,21 +31,21 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 /**
- * The Android {@link MixinBridge}: the same registry as the desktop, driven without an agent.
+ * Android 版 {@link MixinBridge}：使用与桌面端相同的注册表，但不依赖 agent。
  *
- * <p>There is nothing to install, because the classes are rewritten before the runtime loads them.
- * A mixin has to be a live {@code Class} before the game can be rewritten against it, and on Android
- * that only comes from dex a loader owns, which is why the bootstrapper mounts the extensions first.
+ * <p>无需安装任何组件，因为类会在运行时加载前完成改写。根据 mixin 改写游戏之前，必须先将其解析为有效的
+ * {@code Class}；在 Android 上，这只能通过加载器持有的 dex 实现，因此启动器会先挂载扩展。
  */
 public final class OfflineMixinBridge implements MixinBridge {
 
-    /** JVM descriptor of the framework's mixin marker annotation. */
+    /** 框架 mixin 标记注解的 JVM 描述符。 */
     private static final String ASM_MIXIN_DESCRIPTOR = "Lkim/der/asm/api/annotation/AsmMixin;";
 
     private volatile ClassLoader loader;
     private final java.util.Map<String, Path> owners = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Set<Path> registered = new java.util.HashSet<>();
     private final AsmProcessor processor = new AsmProcessor();
+    private final ArchiveClassPatches classPatches = new ArchiveClassPatches();
 
     OfflineMixinBridge(ClassLoader loader) {
         this.loader = loader;
@@ -51,9 +53,29 @@ public final class OfflineMixinBridge implements MixinBridge {
 
     void updateLoader(ClassLoader loader) { this.loader = loader; }
 
+    /**
+     * Starts a fresh registration pass against the temporary offline loader.
+     *
+     * <p>Extensions are loaded once before the game archives are staged so their lifecycle hooks
+     * can run. That pass can register mixins through this bridge using the normal extension
+     * loader. Offline transformation must register them again from the isolated loader, where
+     * game stand-ins are visible. Clearing both caches prevents a prior registration from
+     * retaining parent-loaded mixin classes.</p>
+     */
+    synchronized void resetForOfflineRegistration(ClassLoader registrationLoader) {
+        AsmRegistry.clear();
+        owners.clear();
+        registered.clear();
+        classPatches.reset();
+        loader = registrationLoader;
+    }
+
     Path failedArchive(Throwable failure) {
         Throwable current = failure;
         while (current != null) {
+            if (current instanceof ClassFilePatchException) {
+                return ((ClassFilePatchException) current).archive();
+            }
             if (current instanceof AsmTransformException) {
                 return owners.get(((AsmTransformException) current).getAsmClassName());
             }
@@ -64,23 +86,25 @@ public final class OfflineMixinBridge implements MixinBridge {
 
     @Override
     public void install() {
-        // Intentionally empty: the classes were rewritten before they were loaded.
+        // 此处有意留空：类已在加载前完成改写。
     }
 
     @Override
     public synchronized void registerArchive(Path archive) throws ExtensionException {
         Path key = archive.toAbsolutePath().normalize();
         if (registered.contains(key)) { return; }
-        for (String name : mixinClassNames(archive)) {
-            try {
+        try {
+            classPatches.registerArchive(key, loader);
+            for (String name : mixinClassNames(archive)) {
                 owners.put(name, key);
                 AsmRegistry.register(Class.forName(name, false, loader));
-            } catch (Throwable t) {
-                throw new ExtensionException("Mixin " + name + " of " + archive.getFileName()
-                    + " could not be registered", t);
             }
+            registered.add(key);
+        } catch (Throwable t) {
+            classPatches.unregisterArchive(key);
+            throw new ExtensionException("Mixins or class-file patches in " + archive.getFileName()
+                + " could not be registered", t);
         }
-        registered.add(key);
     }
 
     @Override
@@ -93,22 +117,27 @@ public final class OfflineMixinBridge implements MixinBridge {
     }
 
     /**
-     * Applies the registry to one class.
+     * 将注册表应用于单个类。
      *
-     * <p>The guard is what makes an offline pass affordable: only a class a registered mixin names is
-     * rewritten, and computing stack map frames for the other thousands would change nothing.</p>
+     * <p>此前置检查使离线处理的开销可控：只改写已注册 mixin 指定的类；为其他数千个类计算栈映射帧不会带来
+     * 任何改变。</p>
      */
     @Override
     public byte[] transform(String internalName, byte[] classfileBuffer, ClassLoader classLoader) {
-        if (!processor.shouldTransform(internalName)) {
+        boolean hasMixins = processor.shouldTransform(internalName);
+        boolean hasPatches = classPatches.has(internalName);
+        if (!hasMixins && !hasPatches) {
             return classfileBuffer;
         }
-        return processor.transform(internalName, classfileBuffer, classLoader);
+        byte[] transformed = hasMixins
+            ? processor.transform(internalName, classfileBuffer, classLoader)
+            : classfileBuffer;
+        return hasPatches ? classPatches.apply(internalName, transformed, classLoader) : transformed;
     }
 
     /**
-     * @return the {@code @AsmMixin} classes of {@code archive}, in binary form
-     * @throws ExtensionException when the archive cannot be read
+     * @return {@code archive} 中 {@code @AsmMixin} 类的二进制内容
+     * @throws ExtensionException 无法读取归档时抛出
      */
     static List<String> mixinClassNames(Path archive) throws ExtensionException {
         List<String> names = new ArrayList<>();
@@ -135,7 +164,7 @@ public final class OfflineMixinBridge implements MixinBridge {
         return names;
     }
 
-    /** Reads the class header and its annotations only; the bodies are never visited. */
+    /** 只读取类头及其注解；不会访问方法体。 */
     private static boolean carriesAsmMixin(byte[] classBytes) {
         final boolean[] found = {false};
         try {

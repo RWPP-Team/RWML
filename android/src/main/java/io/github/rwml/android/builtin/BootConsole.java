@@ -10,21 +10,19 @@ package io.github.rwml.android.builtin;
 import io.github.rwml.android.HostLog;
 
 /**
- * Puts the game's own console on the splash.
+ * 在启动画面上显示游戏自身的控制台。
  *
- * <p>The engine reports its progress by printing to {@code System.out}, and {@link HostLog} tees that
- * stream and offers every completed line to whichever screen asked for them. This class is the splash
- * asking, and it installs the tee as well, because a screen may be the first thing in the process to
- * want one.</p>
+ * <p>引擎通过向 {@code System.out} 输出内容来报告进度；{@link HostLog} 会分流该输出，并将每条完整日志行发送给
+ * 请求显示它们的界面。此类代表启动画面发起该请求，也会安装分流器，因为启动画面可能是进程中首个需要控制台输出的界面。</p>
  *
- * <p>Nothing of the host's own appears here: the lines offered are the ones the game printed.</p>
+ * <p>此处不会显示宿主自身的内容，只会显示游戏输出的日志行。</p>
  */
 final class BootConsole {
 
     private BootConsole() {
     }
 
-    /** Shows the game's console on the loading line. */
+    /** 在加载信息行中显示游戏控制台输出。 */
     static void install() {
         HostLog.install();
         HostLog.sink(LoadingStatus::line);

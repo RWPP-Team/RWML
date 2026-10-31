@@ -7,17 +7,17 @@
 
 package io.github.rwml.api;
 
-/** Receives coarse grained progress notifications during a load operation. */
+/** 接收加载过程中的粗略进度通知。 */
 @FunctionalInterface
 public interface ProgressListener {
 
-    /** Shared no-op instance used when the caller is not interested. */
+    /** 调用方不关心进度时使用的共享空操作实例。 */
     ProgressListener NOOP = (percent, message) -> {
     };
 
     /**
-     * @param percent completion ratio in the range {@code [0, 100]}
-     * @param message short human readable status line
+     * @param percent 完成百分比，范围为 {@code [0, 100]}
+     * @param message 简短易读的状态信息
      */
     void onProgress(int percent, String message);
 }

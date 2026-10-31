@@ -15,9 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The relaunch replays the launcher's JVM arguments on the child process, so what gets dropped is a
- * correctness question: a forwarded {@code -cp} would break the class path, and dropping a
- * third-party agent would quietly change how the game runs.
+ * 重启时会将启动器的 JVM 参数传递给子进程，因此需要确保被移除的参数正确：转发 {@code -cp} 会破坏类路径；移除第三方 agent 则会悄然改变游戏运行方式。
  */
 class RelauncherTest {
 

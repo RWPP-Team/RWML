@@ -29,14 +29,12 @@ import java.util.Comparator;
 import io.github.rwml.android.R;
 
 /**
- * The save list: the game's own mode layout, one button per saved game.
+ * 存档列表：沿用游戏自身的模式布局，每个存档对应一个按钮。
  *
- * <p>The engine loads a save by its file name, so this screen never has to know where the folder
- * really is, and the newest save is listed first. The button that imports files is left out: a save
- * is written by the engine, not copied in by hand, and the folder is the engine's own.</p>
+ * <p>引擎通过文件名加载存档，因此此界面无需知道存档目录的实际位置，列表按时间从新到旧排列。这里不提供文件导入按钮：
+ * 存档由引擎写入，而非手动复制，且存档目录由引擎管理。</p>
  *
- * <p>Choosing a save hands it to the engine's game saver and opens the game screen, which is where
- * a saved game is continued: a save restores the game it was taken from into that screen.</p>
+ * <p>选择存档后，会将其交给引擎的游戏存档处理器并打开游戏界面，以继续该存档中保存的游戏。</p>
  */
 public final class LoadLevelActivity extends BuiltinActivity {
 
@@ -44,7 +42,7 @@ public final class LoadLevelActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** Where the engine keeps saved games, as its own file layer names the folder. */
+    /** 引擎存放存档的位置，目录名称由引擎文件层定义。 */
     private static final String SAVES = "/SD/rustedWarfare/saves/";
 
     @Override protected void onResume() {
@@ -76,7 +74,7 @@ public final class LoadLevelActivity extends BuiltinActivity {
         Log.i(TAG, "Save list open.");
     }
 
-    /** Fills the list from the engine's save folder. */
+    /** 从引擎的存档目录填充列表。 */
     private void listSaves() {
         LinearLayout holder = findViewById(R.id.levelHolder);
         if (holder == null) {
@@ -143,7 +141,7 @@ public final class LoadLevelActivity extends BuiltinActivity {
         }
     }
 
-    /** One save, as a button named after the saved game. */
+    /** 一个存档按钮，名称取自存档。 */
     private View entry(final String name) {
         Button button = new Button(this);
         button.setBackgroundResource(R.drawable.btn_dropdown);
@@ -168,7 +166,7 @@ public final class LoadLevelActivity extends BuiltinActivity {
         return display;
     }
 
-    /** Hands the save to the engine and opens the screen a game is played on. */
+    /** 将存档交给引擎，并打开游戏运行界面。 */
     private void load(String name) {
         GameEngine engine = GameEngine.getInstance();
         if (engine == null) {

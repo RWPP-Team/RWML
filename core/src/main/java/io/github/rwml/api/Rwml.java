@@ -8,15 +8,13 @@
 package io.github.rwml.api;
 
 /**
- * The running {@link RwmlRuntime}, and the way extension code reaches it.
+ * 当前运行的 {@link RwmlRuntime}，以及扩展代码访问它的方式。
  *
- * <p>A host installs its runtime here when the extension system comes up. An extension reads it
- * through {@link #get()}, typically from a mixin: the call is platform neutral, and it is the only
- * sanctioned route from injected game code back into the host.</p>
+ * <p>宿主启动扩展系统时会在此安装运行时。扩展通常从 mixin 中通过 {@link #get()} 读取它：此调用与平台无关，
+ * 也是注入到游戏中的代码返回宿主的唯一受支持途径。</p>
  *
- * <p>The accessor is a static method of a plain class on purpose. An extension travels to Android as
- * class files and is dexed there by the dx the APK carries, and that dx predates Java 8's static
- * interface methods: a static method declared on an interface would make the extension undexable.</p>
+ * <p>访问器特意设计为普通类的静态方法。扩展会以 class 文件形式随应用进入 Android，再由 APK 携带的 dx 转为 dex；
+ * 该 dx 早于 Java 8 的接口静态方法特性，因此若在接口中声明静态方法，扩展将无法转换为 dex。</p>
  */
 public final class Rwml {
 
@@ -25,14 +23,14 @@ public final class Rwml {
     private Rwml() {
     }
 
-    /** @return the runtime the host installed, or {@code null} when no host has installed one */
+    /** @return 宿主安装的运行时；尚未安装时为 {@code null} */
     public static RwmlRuntime get() {
         return runtime;
     }
 
     /**
-     * Installs {@code runtime} as the one returned by {@link #get()}; {@code null} removes it.
-     * A host calls this; an extension only reads.
+     * 将 {@code runtime} 设为 {@link #get()} 返回的运行时；传入 {@code null} 会移除它。
+     * 此方法由宿主调用，扩展只能读取运行时。
      */
     public static void install(RwmlRuntime runtime) {
         Rwml.runtime = runtime;

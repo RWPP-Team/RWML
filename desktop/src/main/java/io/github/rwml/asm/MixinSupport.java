@@ -9,6 +9,8 @@ package io.github.rwml.asm;
 
 import io.github.rwml.api.ExtensionException;
 import io.github.rwml.api.MixinBridge;
+import io.github.rwml.core.transform.ArchiveClassPatches;
+import io.github.rwml.core.transform.ClassFilePatchException;
 
 import kim.der.asm.AsmRegistry;
 import kim.der.asm.transformer.AsmTransformException;
@@ -39,19 +41,16 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 /**
- * Bridge between the RWML extension system and the IronCore ASM-Framework.
+ * RWML 扩展系统与 IronCore ASM-Framework 之间的桥接层。
  *
- * <p>The framework rewrites the target classes an {@code @AsmMixin} names as they are loaded. Two
- * things have to happen for that: the framework's transformer has to be installed in the running JVM,
- * done once by self-attaching its agent jar, and every archive has to be scanned for mixins and
- * registered into the shared registry.</p>
+ * <p>框架会在加载过程中改写 {@code @AsmMixin} 指定的目标类。为此必须完成两项工作：通过自附加 agent JAR 的方式在当前 JVM 中安装
+ * 框架转换器（只需安装一次）；扫描每个归档中的 mixin，并注册到共享注册表。</p>
  *
- * <p>This is the desktop implementation of {@link MixinBridge}; the Android host implements the same
- * interface without an agent, applying the mixins ahead of time instead.</p>
+ * <p>这是 {@link MixinBridge} 的桌面端实现；Android 宿主也实现了相同接口，但不使用 agent，而是在加载前预先应用 mixin。</p>
  */
 public final class MixinSupport implements MixinBridge {
 
-    /** JVM internal descriptor of the framework's mixin marker annotation. */
+    /** 框架 Mixin 标记注解的 JVM 内部描述符。 */
     private static final String ASM_MIXIN_DESCRIPTOR = "Lkim/der/asm/api/annotation/AsmMixin;";
 
     private static final MixinSupport INSTANCE = new MixinSupport();
@@ -61,14 +60,19 @@ public final class MixinSupport implements MixinBridge {
     private final Map<String, Path> owners = new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<String, Set<Path>> targetOwners = new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<String> registeredTargets = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final ArchiveClassPatches classPatches = new ArchiveClassPatches();
     private final Map<Path, URLClassLoader> archiveLoaders = new LinkedHashMap<>();
 
     public void onFailure(BiConsumer<Path, Throwable> listener) { failureListener = listener; }
 
-    /** A transformer exception must be reported: the JVM otherwise ignores it and defines original bytes. */
+    /** 必须报告转换器异常；否则 JVM 会忽略异常并直接定义原始字节码。 */
     void failed(String target, Throwable failure) {
         Throwable current = failure;
         while (current != null) {
+            if (current instanceof ClassFilePatchException) {
+                failureListener.accept(((ClassFilePatchException) current).archive(), failure);
+                return;
+            }
             if (current instanceof AsmTransformException) {
                 Path owner = owners.get(((AsmTransformException) current).getAsmClassName());
                 if (owner != null) { failureListener.accept(owner, failure); }
@@ -82,7 +86,7 @@ public final class MixinSupport implements MixinBridge {
         }
     }
 
-    /** Validates raw targets without defining them or running game initialization. */
+    /** 验证原始目标类，不定义这些类，也不运行游戏初始化逻辑。 */
     public void validateRegistered() throws ExtensionException {
         for (String target : registeredTargets) {
             try (InputStream stream = getClass().getClassLoader().getResourceAsStream(target + ".class")) {
@@ -95,7 +99,7 @@ public final class MixinSupport implements MixinBridge {
         }
     }
 
-    /** Canonical paths of the archives already handed to the system class loader. */
+    /** 已交给系统类加载器的归档文件规范路径。 */
     private final Set<String> exposedArchives = new LinkedHashSet<>();
 
     private MixinSupport() {
@@ -110,7 +114,7 @@ public final class MixinSupport implements MixinBridge {
         installTransformer();
     }
 
-    /** Installs the ASM transformer; safe to call many times, attaches at most once. */
+    /** 安装 ASM 转换器；可安全重复调用，最多只附加一次。 */
     public synchronized void installTransformer() {
         if (transformerInstalled) {
             return;
@@ -134,14 +138,13 @@ public final class MixinSupport implements MixinBridge {
         }
     }
 
-    /** @return whether the ASM transformer is currently active in this JVM. */
+    /** @return ASM 转换器当前是否在此 JVM 中运行 */
     public boolean isInstalled() {
         return transformerInstalled || isAsmAgentInstalled();
     }
 
     /**
-     * Reads class headers first and loads only mixin classes. Ordinary extension classes and target
-     * classes are left alone; only targets that are already defined need retransformation.
+     * 首先读取类头信息，并且只加载 mixin 类。普通扩展类和目标类都会保持不变；只有已经定义的目标类需要重新转换。
      */
     @Override
     public synchronized void registerArchive(Path archive) throws ExtensionException {
@@ -163,11 +166,15 @@ public final class MixinSupport implements MixinBridge {
                     }
                 }
             }
-            if (!mixins.isEmpty() && !isInstalled()) {
+            Map<String, String> patchDeclarations = ArchiveClassPatches.readDeclarations(key);
+            boolean hasPatches = !patchDeclarations.isEmpty();
+            boolean needsTransformer = !mixins.isEmpty() || hasPatches;
+            if (needsTransformer && !isInstalled()) {
                 throw new ExtensionException("A JVM agent is required to apply mixins in " + archive.getFileName());
             }
-            if (!mixins.isEmpty()) { exposeToHostLoader(archive); }
+            if (needsTransformer) { exposeToHostLoader(archive); }
             loader = new URLClassLoader(new URL[]{archive.toUri().toURL()}, getClass().getClassLoader());
+            Set<String> patchTargets = classPatches.registerArchive(key, loader);
             for (Map.Entry<String, Set<String>> mixin : mixins.entrySet()) {
                 owners.put(mixin.getKey(), key);
                 AsmRegistry.register(Class.forName(mixin.getKey(), false, loader));
@@ -176,29 +183,33 @@ public final class MixinSupport implements MixinBridge {
                     targetOwners.computeIfAbsent(target, ignored -> java.util.concurrent.ConcurrentHashMap.newKeySet()).add(key);
                 }
             }
+            registeredTargets.addAll(patchTargets);
+            for (String target : patchTargets) {
+                targetOwners.computeIfAbsent(target, ignored -> java.util.concurrent.ConcurrentHashMap.newKeySet()).add(key);
+            }
             archiveLoaders.put(key, loader);
             retransformTargets(registeredTargets);
         } catch (Throwable failure) {
             if (loader != null && !archiveLoaders.containsKey(key)) {
+                classPatches.unregisterArchive(key);
                 try { loader.close(); } catch (IOException closeFailure) { failure.addSuppressed(closeFailure); }
             }
-            throw new ExtensionException("Mixins in " + archive.getFileName() + " could not be registered", failure);
+            throw new ExtensionException("Mixins or class-file patches in " + archive.getFileName()
+                + " could not be registered", failure);
         }
     }
 
     /**
-     * Makes an archive visible to the loader that runs the host's own classes.
+     * 让宿主自身类所使用的加载器可以访问指定归档。
      *
-     * <p>A mixin becomes a static call on the mixin class emitted inside the target method, resolved
-     * through the target's defining loader. For a game class that is the system class loader, which
-     * knows nothing about a jar in {@code extensions/}, so the injected call would fail with
-     * {@code NoClassDefFoundError}. The {@link JarFile} is never closed: the JVM reads out of it for
-     * the rest of the process.</p>
+     * <p>mixin 会变成写入目标方法中的静态调用，调用通过目标类的定义加载器解析。游戏类由系统类加载器定义，而系统类加载器无法访问
+     * {@code extensions/} 中的 JAR，因此注入的调用会因 {@code NoClassDefFoundError} 失败。{@link JarFile} 不会关闭：JVM 在进程剩余
+     * 生命周期中仍会从中读取内容。</p>
      */
     private void exposeToHostLoader(Path archive) throws IOException {
         Instrumentation instrumentation = RwmlAgent.instrumentation();
         if (instrumentation == null) {
-            // Without an agent there is no live rewriting either, so there is nothing to expose.
+            // 未安装 agent 就无法进行运行时改写，因此无需公开归档。
             return;
         }
         String key;
@@ -215,7 +226,7 @@ public final class MixinSupport implements MixinBridge {
         instrumentation.appendToSystemClassLoaderSearch(new JarFile(archive.toFile()));
     }
 
-    /** Extracts {@code value} / {@code targets} of a possible {@code @AsmMixin} on one class. */
+    /** 提取类上可能存在的 {@code @AsmMixin} 注解中的 {@code value} / {@code targets}。 */
     private static void readMixinTargets(byte[] classBytes, Set<String> targets) {
         try {
             new ClassReader(classBytes).accept(new ClassVisitor(Opcodes.ASM9) {
@@ -270,7 +281,7 @@ public final class MixinSupport implements MixinBridge {
         }
     }
 
-    /** Registers a single mixin class directly (e.g. generated at runtime). */
+    /** 直接注册单个 Mixin 类（例如运行时生成的类）。 */
     @Override
     public void register(Class<?> mixin) throws ExtensionException {
         try {
@@ -281,28 +292,36 @@ public final class MixinSupport implements MixinBridge {
     }
 
     /**
-     * Applies every registered mixin to a class buffer. Mostly useful for extensions that load or
-     * generate classes themselves; the installed transformer already covers classes loaded by the
-     * host.
+     * 将所有已注册的 mixin 应用于类缓冲区。此方法主要供自行加载或生成类的扩展使用；宿主加载的类已由安装的转换器负责处理。
      */
     @Override
     public byte[] transform(String internalName, byte[] classfileBuffer, ClassLoader loader) {
-        try { return new AsmProcessor().transform(internalName, classfileBuffer, loader); }
+        try {
+            byte[] transformed = new AsmProcessor().transform(internalName, classfileBuffer, loader);
+            return classPatches.apply(internalName, transformed, loader);
+        }
         catch (Throwable failure) {
             failed(internalName, failure);
             throw failure;
         }
     }
 
+    /** @return whether the RWML host has a registered class-file patch for this class */
+    boolean hasClassPatch(String internalName) {
+        return classPatches.has(internalName);
+    }
+
+    /** Applies the registered patch chain after the ASM-Framework mixins. */
+    byte[] applyClassPatches(String internalName, byte[] classfileBuffer, ClassLoader loader) {
+        return classPatches.apply(internalName, classfileBuffer, loader);
+    }
+
     // ------------------------------------------------------------------
-    // Agent detection / attach (reflective so the host compiles without the
-    // JDK attach module on the classpath)
+    // 检测和附加 Agent（使用反射，避免宿主编译时依赖类路径中的 JDK attach 模块）
     // ------------------------------------------------------------------
 
     /**
-     * The framework's agent stores its live instance in a private static field of {@code AsmCore}. We
-     * read it to avoid installing a second transformer when one is already present (which would
-     * double-apply mixins).
+     * 框架的 agent 会将当前实例保存在 {@code AsmCore} 的私有静态字段中。读取该字段可避免重复安装转换器，否则 mixin 会被应用两次。
      */
     private static boolean isAsmAgentInstalled() {
         if (RwmlAgent.instrumentation() != null) { return true; }
@@ -312,12 +331,12 @@ public final class MixinSupport implements MixinBridge {
             agentField.setAccessible(true);
             return agentField.get(null) != null;
         } catch (Throwable ignored) {
-            // If we cannot prove it is installed, assume not and let installTransformer try.
+            // 如果无法确认已安装，就视为尚未安装，并尝试调用 installTransformer。
             return false;
         }
     }
 
-    /** Resolves the on-disk path of the ASM-Framework jar from its agent class. */
+    /** 根据 ASM-Framework 的 Agent 类解析其 JAR 的磁盘路径。 */
     private static String findAsmFrameworkJar() {
         try {
             URL location = AsmBootstrap.class.getProtectionDomain().getCodeSource().getLocation();
@@ -333,15 +352,26 @@ public final class MixinSupport implements MixinBridge {
                 while (part.endsWith("!") || part.endsWith("/")) {
                     part = part.substring(0, part.length() - 1);
                 }
-                return part.isEmpty() ? null : part;
+                return part.isEmpty() ? null : absolutePath(part);
             }
-            return location.getPath();
+            // 使用 URI 而不是 URL.getPath()：后者在 Windows 上给出 /D:/... 形式，作为 agent 参数会被
+            // 当成根目录下的路径。
+            return Path.of(uri).toFile().getAbsolutePath();
         } catch (Throwable t) {
             return null;
         }
     }
 
-    /** Self-attaches the framework agent jar so its transformer is registered. */
+    /** 把 file URL 的文件部分还原为当前平台的绝对路径。 */
+    private static String absolutePath(String fileUrlPath) {
+        try {
+            return Path.of(URI.create("file:" + fileUrlPath)).toFile().getAbsolutePath();
+        } catch (RuntimeException notAFileUrl) {
+            return new java.io.File(fileUrlPath).getAbsolutePath();
+        }
+    }
+
+    /** 自行附加框架 Agent JAR，以注册其中的转换器。 */
     private static void attachAgent(String jarPath) throws Exception {
         Class<?> vmClass = Class.forName("com.sun.tools.attach.VirtualMachine");
         Method attach = vmClass.getMethod("attach", String.class);
@@ -355,14 +385,14 @@ public final class MixinSupport implements MixinBridge {
         }
     }
 
-    /** Current PID without relying on {@code ProcessHandle} (Java 9+). */
+    /** 获取当前进程 ID，不依赖 {@code ProcessHandle}（Java 9 及以上版本）。 */
     private static String currentProcessId() {
         String name = java.lang.management.ManagementFactory.getRuntimeMXBean().getName();
         int at = name.indexOf('@');
         return at > 0 ? name.substring(0, at) : name;
     }
 
-    /** Java 8 stand-in for {@code InputStream.readAllBytes} (missing on Android below API 33). */
+    /** Java 8 版 {@code InputStream.readAllBytes} 替代实现（Android API 33 以下不可用）。 */
     private static byte[] readFully(InputStream stream) throws java.io.IOException {
         java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
         byte[] chunk = new byte[8192];

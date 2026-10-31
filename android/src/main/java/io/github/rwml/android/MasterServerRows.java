@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -10,7 +11,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Wire parser independent of Android and the mounted game classes. */
+/** 独立于 Android 和已挂载游戏类的网络数据解析器。 */
 public final class MasterServerRows {
     public static List<String[]> parse(String response) throws IOException {
         String[] lines = response.split("\n");

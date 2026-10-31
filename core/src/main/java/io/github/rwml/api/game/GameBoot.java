@@ -20,53 +20,48 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The ordered sequence of steps that brings the game up on one platform.
+ * 在某个平台上启动游戏时按顺序执行的步骤。
  *
- * <p>The sequence is the abstraction; the steps are not. Starting the game means the same four
- * things on every platform - create the engine, load its assets, load its resources, load its mods -
- * and the game performs them in that order with a name set on each. What differs is who performs
- * them and how: on Android RWML calls the engine itself, on the desktop the game's own launcher owns
- * the window and does the work on its first frame. A platform therefore publishes one stage per
- * operation it performs separately, using the names below, and a platform whose engine performs them
- * in one call publishes one stage and forwards the engine's own messages as sub-progress.</p>
+ * <p>抽象对象是整个步骤序列，而非单个步骤。所有平台上的游戏启动都包含相同的四项操作：创建引擎、加载资源文件、
+ * 加载引擎资源、加载模组，并按此顺序执行且为每项指定名称。不同平台的执行者和方式有所不同：Android 上由 RWML
+ * 直接调用引擎；桌面端则由游戏启动器管理窗口，并在首帧执行启动工作。因此，平台应为每个单独执行的操作分别发布一个阶段，
+ * 并使用下方的名称。如果某个平台的引擎通过一次调用完成多个操作，则只发布一个阶段，并将引擎消息转发为子进度。</p>
  *
- * <p>An extension adds stages of its own, which is what the desktop-specific loading does: the
- * libRocket setup and the document fonts belong to the desktop, so a bundled extension contributes
- * them here rather than the core growing a platform-shaped hole.</p>
+ * <p>扩展也可以添加自己的阶段，例如桌面端专属的 libRocket 初始化和文档字体加载。由内置扩展在此提供这些步骤，
+ * 核心模块无需加入平台专属依赖。</p>
  *
- * <p>Two properties make the boot safe to run from extension code:</p>
+ * <p>以下两个特性使扩展代码可以安全地启动游戏：</p>
  * <ul>
- *   <li>it runs once. A second {@link #start()} returns the first report instead of booting
- *       twice, so an interface that is opened twice cannot create a second engine.</li>
- *   <li>a failing stage is recorded, not thrown. The caller decides what a partial boot is worth.</li>
+ *   <li>启动流程只运行一次。再次调用 {@link #start()} 会返回首次运行的报告，而不会重复启动，因此重复打开界面也不会
+ *       创建第二个引擎。</li>
+ *   <li>失败阶段会记录下来而不会抛出异常。调用方自行决定如何处理未完整启动的结果。</li>
  * </ul>
  */
 public final class GameBoot {
 
     /**
-     * The stage that creates the engine and makes it the process's one engine.
+     * 创建引擎并将其设为进程中唯一引擎的阶段。
      *
-     * <p>On the game's own terms this is the call that ends with an initialised engine, which is
-     * what the desktop launcher's "GameEngine" step and the Android path both do.</p>
+     * <p>根据游戏自身的启动流程，此调用会完成引擎初始化；桌面启动器的“GameEngine”步骤和 Android 启动流程都会执行此操作。</p>
      */
     public static final String ENGINE = "engine";
 
-    /** The stage that makes the game's assets readable: the asset index and the loader backends. */
+    /** 使游戏资源可读取的阶段：加载资源索引和加载器后端。 */
     public static final String ASSETS = "assets";
 
-    /** The stage that loads the engine's resource subsystems: settings, graphics, audio, units. */
+    /** 加载引擎资源子系统的阶段：设置、图形、音频和单位。 */
     public static final String RESOURCES = "resources";
 
-    /** The stage that loads the installed mods. */
+    /** 加载已安装模组的阶段。 */
     public static final String MODS = "mods";
 
-    /** The stage a platform may publish last, once the game is up. */
+    /** 游戏启动完成后，平台可选择发布的最后一个阶段。 */
     public static final String READY = "ready";
 
     private final GameContext context;
     private final List<GameStage> stages = new ArrayList<>();
 
-    /** Set before the first stage runs, so a re-entrant {@link #start()} cannot boot twice. */
+    /** 在首个阶段运行前设置，避免重入的 {@link #start()} 重复启动游戏。 */
     private boolean running;
     private GameStage preparation;
     private Thread contributionThread;
@@ -81,21 +76,20 @@ public final class GameBoot {
         this.context = context;
     }
 
-    /** Hosts recovering from partially initialized game classes stop before subsequent stages run. */
+    /** 若宿主需要从部分初始化的游戏类中恢复，可设置为在后续阶段运行前停止。 */
     public synchronized void stopOnFailure() {
         if (running || report != null) { throw new IllegalStateException("The boot has already run"); }
         stopOnFailure = true;
     }
 
-    /** @return what every stage is handed while it runs. */
+    /** @return 每个阶段运行时收到的上下文。 */
     public GameContext context() {
         return context;
     }
 
     /**
-     * Sets the host's preparation before the stage list is frozen. Deferred extension onLoad
-     * callbacks may add/remove ordinary stages on this calling thread during preparation.
-     * A preparation failure stops the boot before any engine stage executes.
+     * 在阶段列表冻结前设置宿主的准备步骤。延迟执行的扩展 onLoad 回调可在准备期间的当前线程中添加或移除普通阶段。
+     * 准备步骤失败时，会在任何引擎阶段运行前停止启动流程。
      */
     public synchronized void beforeStages(String name, GameAction action) {
         if (running || report != null) { throw new IllegalStateException("The boot has already run"); }
@@ -105,10 +99,9 @@ public final class GameBoot {
     }
 
     /**
-     * Appends a stage.
+     * 在列表末尾添加一个阶段。
      *
-     * @throws IllegalArgumentException when another stage already carries the same name, because a
-     *     report keyed by name would otherwise lose one of them
+     * @throws IllegalArgumentException 若其他阶段已使用相同名称；否则按名称生成报告时会丢失其中一个阶段
      */
     public synchronized void add(GameStage stage) {
         if (stage == null) {
@@ -127,17 +120,15 @@ public final class GameBoot {
         stages.add(stage);
     }
 
-    /** Appends a stage written as a lambda. */
+    /** 在列表末尾添加一个以 lambda 表达的阶段。 */
     public void add(String name, GameAction action) {
         add(new NamedStage(name, action));
     }
 
     /**
-     * Prepends a stage.
+     * 在列表开头添加一个阶段。
      *
-     * <p>Used for the steps that have to happen before the engine is created. The desktop launcher
-     * orders them that way itself: the graphics class, the sound factory and the interface are all
-     * chosen before the engine exists.</p>
+     * <p>用于添加必须在创建引擎前执行的步骤。桌面启动器也会按此顺序处理：在引擎创建前选定图形类、声音工厂和界面。</p>
      */
     public synchronized void addFirst(GameStage stage) {
         if (stage == null) {
@@ -156,15 +147,15 @@ public final class GameBoot {
         stages.add(0, stage);
     }
 
-    /** Prepends a stage written as a lambda. */
+    /** 在列表开头添加一个以 lambda 表达的阶段。 */
     public void addFirst(String name, GameAction action) {
         addFirst(new NamedStage(name, action));
     }
 
     /**
-     * Removes a stage, so a platform can be overridden.
+     * 移除一个阶段，以便覆盖平台默认行为。
      *
-     * @return whether a stage of that name was registered
+     * @return 是否已注册该名称的阶段
      */
     public synchronized boolean remove(String name) {
         if (booted()) {
@@ -183,7 +174,7 @@ public final class GameBoot {
         return false;
     }
 
-    /** @return whether a stage of that name is registered. */
+    /** @return 是否已注册指定名称的阶段。 */
     public synchronized boolean contains(String name) {
         if (preparation != null && preparation.name().equals(name)) { return true; }
         for (GameStage stage : stages) {
@@ -194,7 +185,7 @@ public final class GameBoot {
         return false;
     }
 
-    /** @return the names of the registered stages, in the order they will run. */
+    /** @return 已注册阶段的名称，顺序与运行顺序一致。 */
     public synchronized List<String> stageNames() {
         List<String> names = new ArrayList<>(stages.size());
         if (preparation != null) { names.add(preparation.name()); }
@@ -204,20 +195,18 @@ public final class GameBoot {
         return Collections.unmodifiableList(names);
     }
 
-    /** @return whether {@link #start()} has run. */
+    /** @return 是否已调用 {@link #start()}。 */
     public synchronized boolean isStarted() {
         return report != null;
     }
 
     /**
-     * Runs every stage in order.
+     * 按顺序运行所有阶段。
      *
-     * <p>Runs once. The second call returns the first report, which is what makes the boot safe to
-     * ask for from more than one place: an interface started twice must not create a second
-     * engine.</p>
+     * <p>此流程只运行一次。再次调用会返回首次运行的报告，因此多个位置都可以安全地请求启动：重复打开界面不会创建第二个引擎。</p>
      *
-     * @param listener receives one report per stage; may be {@code null}
-     * @return what ran and what failed
+     * @param listener 接收各阶段的进度报告；可以为 {@code null}
+     * @return 已运行阶段和失败阶段的报告
      */
     public StageReport start(ProgressListener listener) {
         ProgressListener progress = listener == null ? ProgressListener.NOOP : listener;
@@ -282,12 +271,12 @@ public final class GameBoot {
         return result;
     }
 
-    /** Runs every stage with no progress reporting. */
+    /** 运行所有阶段，但不报告进度。 */
     public StageReport start() {
         return start(ProgressListener.NOOP);
     }
 
-    /** @return whether the stage list is closed, which a running boot has already made it. */
+    /** @return 阶段列表是否已关闭；启动流程运行后列表即会关闭。 */
     private boolean booted() {
         return report != null || (running && Thread.currentThread() != contributionThread);
     }
@@ -303,7 +292,7 @@ public final class GameBoot {
         return current.getClass().getSimpleName() + stringWriter;
     }
 
-    /** The adapter that lets a lambda carry a stage name. */
+    /** 使 lambda 可以携带阶段名称的适配器。 */
     private static final class NamedStage implements GameStage {
 
         private final String name;
@@ -332,11 +321,10 @@ public final class GameBoot {
     }
 
     /**
-     * The context a running stage is handed, which routes sub-progress to the boot's listener.
+     * 提供给运行中阶段的上下文，会将子进度转发给启动流程的监听器。
      *
-     * <p>Everything but {@link GameContext#subProgress(String)} is the host's context as it was;
-     * the one addition is the channel the stage reports finer lines through, and it only exists
-     * while the boot is running, because that is the only time there is a listener to hear it.</p>
+     * <p>除 {@link GameContext#subProgress(String)} 外，其余内容均与宿主原有上下文相同。新增的部分是阶段报告细化进度的
+     * 通道；它只在启动流程运行期间存在，因为只有此时才有监听器接收消息。</p>
      */
     private static final class ReportingContext implements GameContext {
 
@@ -350,7 +338,7 @@ public final class GameBoot {
             this.progress = progress;
         }
 
-        /** Notes which stage is about to run and at what percent it was announced. */
+        /** 记录即将运行的阶段及其已报告的进度百分比。 */
         void beginStage(int percent, String name) {
             this.percent = percent;
             this.stage = name;

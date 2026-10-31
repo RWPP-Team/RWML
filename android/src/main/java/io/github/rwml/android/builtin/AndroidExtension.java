@@ -13,33 +13,29 @@ import io.github.rwml.core.ExtensionDescriptor;
 import io.github.rwml.core.ExtensionDescriptorReader;
 
 /**
- * The extension RWML carries inside an Android app: the counterpart of
- * {@code io.github.rwml.builtin.BuiltinExtension}, so that a fresh install can show the game with
- * nothing else installed. The host offers it through {@code HostPlatform.builtInExtensions()}, which
- * makes it an ordinary extension - ordered against the installed ones, disableable by id, and beaten
- * by a user extension that declares its own {@code ui-framework}.
+ * RWML 随 Android 应用提供的扩展，对应于 {@code io.github.rwml.builtin.BuiltinExtension}，使全新安装的应用
+ * 无需额外安装内容也能显示游戏。宿主通过 {@code HostPlatform.builtInExtensions()} 提供它，因此它与普通扩展
+ * 一样参与排序、可按 ID 禁用，并且会让位于声明了自有 {@code ui-framework} 的用户扩展。
  *
- * <p>Android needs its own because there is no launcher to hand over to: the game's activities are not
- * in the archive the app mounts, which is the platform-independent half, so the screens the game is
- * played through are written here. {@link AndroidInterface} is what the host starts; this class exists
- * so the interface has an extension to belong to.</p>
+ * <p>Android 需要提供自己的实现，因为这里没有可供接管的启动器：游戏 Activity 不在应用挂载的平台无关归档中，
+ * 因此游戏使用的界面需要在此实现。宿主启动的是 {@link AndroidInterface}；此类则用于为该界面提供所属扩展。</p>
  */
 public final class AndroidExtension implements Extension {
 
     private static final ExtensionDescriptor DESCRIPTOR = ExtensionDescriptorReader.readBuiltIn(
         AndroidExtension.class, "/META-INF/rwml/builtin-android.properties");
 
-    /** The extension id, read from the bundled properties. */
+    /** 从随包属性文件中读取的扩展 ID。 */
     public static final String ID = DESCRIPTOR.id();
 
-    /** Public because the manager instantiates the class reflectively, as it does any extension. */
+    /** 此类由管理器通过反射实例化，与其他扩展相同，因此构造函数必须公开。 */
     public AndroidExtension() {
     }
 
     /**
-     * The descriptor the Android host offers for this extension.
+     * Android 宿主为此扩展提供的描述符。
      *
-     * @return the descriptor, with the interface declared
+     * @return 已声明界面的描述符
      */
     public static ExtensionDescriptor descriptor() {
         return DESCRIPTOR;

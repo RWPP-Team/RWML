@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2026 RWPP-Team. All rights reserved.
+ *
  * Licensed under the RWPP-Team Shield License 1.0.0.
  * Full license text: https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md
  */
@@ -20,7 +21,7 @@ import java.util.Locale;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Java 8 loading UI for provisioning Java itself; it cannot reference core classes. */
+/** 用于安装 Java 运行环境的 Java 8 加载界面；不能引用 core 类。 */
 final class BootstrapWindow implements AutoCloseable {
 
     private final JFrame window;

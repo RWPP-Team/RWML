@@ -21,22 +21,20 @@ import android.view.View;
 import io.github.rwml.android.R;
 
 /**
- * The splash: the game's logo, a line that says the game is loading, and the line the boot last
- * reported.
+ * 启动画面：显示游戏徽标、游戏正在加载的提示，以及引导流程最近报告的一条信息。
  *
- * <p>It is written the way the game's own splash is written, because it takes its place: the same
- * dark background and the same logo scaled to the width of the screen. What it shows is
- * {@link LoadingStatus}: the loading message the engine set last, and the line the engine last
- * printed, so a load that reads maps, mods and assets is told apart from one that has stopped.</p>
+ * <p>该界面沿用游戏原生启动画面的设计，并替代原界面：使用相同的深色背景，以及按屏幕宽度缩放的徽标。它显示
+ * {@link LoadingStatus} 中的内容：引擎最近设置的加载消息和最近输出的一条日志，以便区分正在读取地图、模组和资源的
+ * 加载流程与已经停止的流程。</p>
  *
- * <p>It drives itself. The view redraws on a delay rather than on a timer the activity owns, so a
- * screen that is paused stops asking for frames, and a screen that is resumed starts again.</p>
+ * <p>界面会自行驱动重绘。视图通过延迟请求下一帧，而不依赖 Activity 持有的计时器，因此界面暂停时会停止请求帧，
+ * 恢复后则会重新开始。</p>
  */
 public final class IntroScreenView extends View {
 
     private static final String TAG = "RWML";
 
-    /** Milliseconds between two looks at the loading lines. */
+    /** 两次检查加载文本之间的毫秒数。 */
     private static final long FRAME_DELAY = 100L;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -59,8 +57,7 @@ public final class IntroScreenView extends View {
         paint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL));
         paint.setColor(Color.WHITE);
 
-        // The game sizes its own loading text from the screen, so that one line reads the same on a
-        // phone and on a tablet. The shorter side is what a line of text has to fit across.
+        // 游戏会根据屏幕尺寸调整加载文本，使同一行文字在手机和平板上都能正常显示。文本宽度按较短的一边计算。
         float shortest = Math.min(
             getResources().getDisplayMetrics().widthPixels,
             getResources().getDisplayMetrics().heightPixels);
@@ -82,12 +79,11 @@ public final class IntroScreenView extends View {
         drawProgressText(canvas, width, height);
         drawStatusText(canvas, width, height);
 
-        // The text changes without anyone telling this view, so the next frame is asked for rather
-        // than waited for.
+        // 文本变化时不会主动通知此视图，因此应请求绘制下一帧，而不是等待通知。
         postInvalidateDelayed(FRAME_DELAY);
     }
 
-    /** The logo, centred and scaled to leave a margin on the narrower side. */
+    /** 居中并缩放 Logo，在较窄的一侧留出边距。 */
     private void drawLogo(Canvas canvas, int width, int height) {
         if (logo == null || logo.getWidth() <= 0 || logo.getHeight() <= 0) {
             return;
@@ -107,7 +103,7 @@ public final class IntroScreenView extends View {
         canvas.restore();
     }
 
-    /** The boot's own progress, which names the stage that is running. */
+    /** 启动流程自身的进度，用于显示当前阶段。 */
     private void drawProgressText(Canvas canvas, int width, int height) {
         String progress = LoadingStatus.progress();
         if (progress == null || progress.length() == 0) {
@@ -116,7 +112,7 @@ public final class IntroScreenView extends View {
         canvas.drawText(ellipsize(progress, width - 24.0f), width / 2.0f, height - 80.0f, paint);
     }
 
-    /** The last line the game printed, which is what says the app is not stuck. */
+    /** 游戏最后输出的一行，用于表明应用仍在运行。 */
     private void drawStatusText(Canvas canvas, int width, int height) {
         String message = LoadingStatus.message();
         if (message == null || message.length() == 0) {
@@ -125,7 +121,7 @@ public final class IntroScreenView extends View {
         canvas.drawText(ellipsize(message, width - 24.0f), width / 2.0f, height - 40.0f, paint);
     }
 
-    /** Shortens one line to the width the screen gives it. */
+    /** 将单行文本缩短到屏幕可容纳的宽度。 */
     private String ellipsize(String text, float maxWidth) {
         if (paint.measureText(text) <= maxWidth) {
             return text;

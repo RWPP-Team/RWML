@@ -17,13 +17,12 @@ import android.widget.TextView;
 import io.github.rwml.android.R;
 
 /**
- * The credits screen: the game's own credits layout, filled with the game's own credits text.
+ * 制作人员名单界面：使用游戏自身的布局和名单文本。
  *
- * <p>The text is two locale entries joined by a blank line, which is what the game's screen shows:
- * the credits proper, then the notices for the third-party work the game is built on. Both come
- * from the engine's language file, so the screen reads in whatever language the game is set to.</p>
+ * <p>文本由两条本地化内容以空行连接，和游戏原界面一致：先显示制作人员名单，再显示游戏所依赖的第三方项目声明。
+ * 两部分都来自引擎语言文件，因此界面语言与游戏当前设置一致。</p>
  *
- * <p>There is nothing to save here, so the screen has a single action: close it.</p>
+ * <p>此界面无需保存内容，因此只有一个操作：关闭界面。</p>
  */
 public final class CreditsActivity extends BuiltinActivity {
 
@@ -42,7 +41,7 @@ public final class CreditsActivity extends BuiltinActivity {
         Log.i(TAG, "Credits open.");
     }
 
-    /** Writes the game's credits text, leaving the layout's own text when it cannot be read. */
+    /** 写入游戏制作人员名单；无法读取时保留布局自带文本。 */
     private void fillCredits() {
         View view = findViewById(R.id.creditsText);
         if (!(view instanceof TextView)) {

@@ -7,22 +7,22 @@
 
 package io.github.rwml.api;
 
-/** Lifecycle state of an extension as seen by the host. */
+/** 宿主所见的扩展生命周期状态。 */
 public enum ExtensionState {
-    /** Archive has been seen but no descriptor was parsed yet. */
+    /** 已发现归档，但尚未解析描述文件。 */
     DISCOVERED,
-    /** Descriptor parsed, dependency graph being resolved. */
+    /** 已解析描述文件，正在解析依赖关系图。 */
     RESOLVING,
-    /** Artifacts are being fetched from the remote repository. */
+    /** 正在从远程仓库获取构件。 */
     DOWNLOADING,
-    /** Classes are being loaded and the entry point instantiated. */
+    /** 正在加载类并实例化入口点。 */
     LOADING,
-    /** Loaded and {@code onLoad} completed successfully. */
+    /** 已加载且 {@code onLoad} 已成功完成。 */
     ENABLED,
-    /** Persisted as disabled; the host does not load it on startup. */
+    /** 已持久化为禁用状态；宿主启动时不会加载它。 */
     DISABLED,
-    /** A lifecycle callback threw an exception. */
+    /** 生命周期回调抛出了异常。 */
     FAILED,
-    /** The runtime Java version cannot satisfy the extension requirement. */
+    /** 当前 Java 运行时版本不满足扩展要求。 */
     INCOMPATIBLE
 }

@@ -16,15 +16,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link JavaRuntime} validates a JDK by running it and reading the version back, so the parsing of
- * {@code java -version} and of the Adoptium response are both covered here.
+ * {@link JavaRuntime} 通过实际运行 JDK 并读取其版本来验证安装，因此此处会分别测试 {@code java -version} 和 Adoptium 响应的解析。
  */
 class JavaRuntimeTest {
 
     @Test
     void acceptsAJdkHomeOnlyAfterRunningIt() {
-        // JAVA_HOME names a JDK home, and the running JVM's java.home has the same shape: bin/java
-        // plus the runtime. A directory is accepted only if starting it reports a feature version.
+        // JAVA_HOME 指向 JDK 主目录，当前 JVM 的 java.home 也采用相同结构：包含 bin/java 和运行时。只有启动后能报告主版本的目录才会被接受。
         File home = new File(System.getProperty("java.home"));
         assertTrue(JavaRuntime.versionOf(home) >= 8, "no usable JVM at " + home);
     }
@@ -54,9 +52,7 @@ class JavaRuntimeTest {
 
     @Test
     void extractsTheFieldsOfTheAdoptiumAssetsResponse() {
-        // Mirrors the shape of /v3/assets/latest/<v>/hotspot: the values we need live in the
-        // "package" object, after a checksum that has a similarly named neighbour to trip up a
-        // naive search.
+        // 与 /v3/assets/latest/<v>/hotspot 响应结构相同：所需值位于校验和之后的“package”对象中，旁边还有一个名称相似的字段，容易让简单搜索误判。
         String json = "{\"binary\":{\"package\":{\"checksum\":\"00c847d8\",\"checksum_link\":\"https://x\","
             + "\"download_count\":42,\"link\":\"https://example.invalid/jdk.zip\",\"size\":141167264}}}";
         String scope = json.substring(json.indexOf("\"package\""));
@@ -76,8 +72,7 @@ class JavaRuntimeTest {
 
     @Test
     void mapsThePlatformToAnAdoptiumTarget() throws Exception {
-        // Only meaningful on the platform actually running the test, but it must never throw for a
-        // platform the JVM claims to support.
+        // 该测试只对当前实际运行平台有意义，但对于 JVM 声称支持的平台，解析过程绝不能抛出异常。
         String os = JavaRuntime.osName();
         String arch = JavaRuntime.archName();
         org.junit.jupiter.api.Assertions.assertTrue(

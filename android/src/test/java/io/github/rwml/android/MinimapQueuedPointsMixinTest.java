@@ -151,7 +151,7 @@ class MinimapQueuedPointsMixinTest {
 
             @Override
             public InputStream getResourceAsStream(String name) {
-                // APKs carry dex, not the JVM bytecode an overwrite would need.
+                // APK 携带的是 dex，而不是 @Overwrite 所需的 JVM 字节码。
                 return name.startsWith(MIXIN) ? null : super.getResourceAsStream(name);
             }
         };

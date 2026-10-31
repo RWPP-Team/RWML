@@ -14,19 +14,17 @@ import android.view.ViewGroup;
 import android.widget.ListView;
 
 /**
- * A list view that grows to show every row, instead of scrolling inside a box of its own.
+ * 自动扩展以显示所有行，而不是在自身区域内滚动的列表视图。
  *
- * <p>The game's lobby layout puts this inside a scroll view, and the whole screen is what scrolls;
- * a list that kept its own window would both double up the scrolling and clip the rows. The height
- * is recalculated whenever the row count changes, from the measured height of the first row.</p>
+ * <p>游戏大厅布局将此视图放在滚动视图中，整个屏幕负责滚动；若列表自身也保留滚动区域，就会出现双重滚动且行内容被裁切。
+ * 每当行数变化时，都会根据首行测量高度重新计算列表高度。</p>
  *
- * <p>This class is one of the game's own views, and the layouts RWML restores name it by its game
- * name. The archive RWML mounts does not carry it, so the app supplies it here and the restored
- * layouts stay exactly as the game wrote them.</p>
+ * <p>此类是游戏自带的视图之一，RWML 还原的布局文件使用游戏中的类名引用它。RWML 挂载的归档不包含此类，
+ * 因此由应用在此提供实现，确保还原后的布局与游戏原始文件完全一致。</p>
  */
 public class ExpandedListView extends ListView {
 
-    /** The row count the height was last worked out for. */
+    /** 上次计算高度时的行数。 */
     private int measuredCount;
 
     public ExpandedListView(Context context, AttributeSet attributes) {
@@ -39,7 +37,7 @@ public class ExpandedListView extends ListView {
         super.onDraw(canvas);
     }
 
-    /** Sets the view's height to as many rows as it holds, once per change of the row count. */
+    /** 每次行数变化时，将视图高度调整为恰好容纳所有行。 */
     private void expandToContents() {
         int count = getCount();
         if (count == measuredCount) {

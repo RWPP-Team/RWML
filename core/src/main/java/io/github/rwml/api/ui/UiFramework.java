@@ -8,36 +8,28 @@
 package io.github.rwml.api.ui;
 
 /**
- * The one entry point an extension declares to bring a user interface up.
+ * 扩展用于启动用户界面的唯一入口。
  *
- * <p>A user interface is always platform specific: the window, the surface, the GL context and the
- * event source belong to the platform, and the desktop and Android hosts provide different ones. An
- * extension declares a class implementing this interface through the {@code ui-framework} property,
- * and the host calls {@link #start(UiHost)} once, after the selected framework and its dependencies
- * have loaded.
- * Android defers the remaining extensions until game preparation.</p>
+ * <p>用户界面始终与平台相关：窗口、绘制表面、GL 上下文和事件源都由平台提供，桌面和 Android 宿主提供的内容不同。
+ * 扩展通过 {@code ui-framework} 属性声明实现此接口的类；选定的界面框架及其依赖加载后，宿主会调用一次
+ * {@link #start(UiHost)}。Android 会将其余扩展的加载延迟到游戏准备完成后。</p>
  *
- * <p>When no loaded extension declares one, no framework is started. A host may still provide
- * a management/recovery screen; the desktop bootstrap falls back to the original game launcher.</p>
+ * <p>没有已加载的扩展声明界面框架时，不会启动任何框架。宿主仍可提供管理或恢复界面；桌面引导程序会回退到游戏原始启动器。</p>
  *
- * <p>The class must be reachable from the declaring extension's own archive; a class supplied by the
- * host itself is accepted as well, so a small extension may request the platform interface without
- * shipping platform code. Implementations are instantiated through their no-argument constructor and
- * must be thread safe with respect to the host's start-up thread.</p>
+ * <p>该类必须能从声明它的扩展归档中访问；宿主自身提供的类也可使用，因此简单扩展可以请求平台界面，而无需携带平台代码。
+ * 实现类通过无参构造函数实例化，且相对于宿主启动线程必须保持线程安全。</p>
  */
 public interface UiFramework {
 
     /**
-     * Starts the user interface.
+     * 启动用户界面。
      *
-     * <p>The call happens on the loader thread on Android and the launcher thread on desktop.
-     * Implementations own their launcher and loading UI; Android view operations must be posted
-     * to the main thread. {@link UiHost#gameBoot()} initializes the game with their progress listener.</p>
+     * <p>Android 上会在加载线程调用此方法，桌面端则在启动器线程调用。实现类负责自身的启动和加载界面；Android 视图操作
+     * 必须提交到主线程。通过 {@link UiHost#gameBoot()} 启动游戏时可传入进度监听器。</p>
      *
-     * <p>A thrown exception is reported by the host. Android shows builtin diagnostics; desktop
-     * falls back to the original game launcher.</p>
+     * <p>宿主会报告此方法抛出的异常。Android 会显示内置诊断界面，桌面端则回退到游戏原始启动器。</p>
      *
-     * @param host the host that loaded the declaring extension
+     * @param host 加载声明此界面框架的扩展的宿主
      */
     void start(UiHost host) throws Exception;
 }

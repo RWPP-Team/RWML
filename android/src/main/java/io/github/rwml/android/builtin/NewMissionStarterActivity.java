@@ -23,23 +23,19 @@ import java.util.List;
 import io.github.rwml.android.R;
 
 /**
- * The starting point for a new mission: the game's own layout, with the map to play and how many
- * players to play it with.
+ * 新任务的起始界面：沿用游戏布局，用于选择地图和参与人数。
  *
- * <p>The map list is the engine's own listing of the campaign folder, named the way the map grid
- * names its tiles, and the player count runs from a duel to a full table. The screen is the one the
- * game carries for this, and the game's own copy of it fills nothing in: its setup is empty and it
- * closes as soon as it is left, so this one does the part that can be done without inventing an
- * action the layout does not carry - it shows the choices and leaves the screen.</p>
+ * <p>地图列表由引擎从战役目录中读取，名称采用地图网格中显示的格式；人数范围从双人对战到满员。游戏归档中也有此界面，
+ * 但其实现为空，离开时会立即关闭，因此这里完成布局本身支持的操作：显示选项并在选择后退出，不额外虚构其他操作。</p>
  */
 public final class NewMissionStarterActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** The folder the mission list is read from, which is the campaign's own. */
+    /** 任务列表的读取目录，即战役自身的目录。 */
     private static final String MISSIONS = "maps/normal";
 
-    /** The player counts the layout's second list offers. */
+    /** 布局第二个列表提供的玩家人数选项。 */
     private static final int MAX_PLAYERS = 8;
 
     @Override
@@ -55,7 +51,7 @@ public final class NewMissionStarterActivity extends BuiltinActivity {
         Log.i(TAG, "Mission starter open.");
     }
 
-    /** Lists the campaign folder through the engine's file layer, the way the map grid does. */
+    /** 通过引擎文件层列出战役目录，方式与地图网格一致。 */
     private void fillMaps() {
         Spinner spinner = findViewById(R.id.missionstarter_map);
         if (spinner == null) {
@@ -82,7 +78,7 @@ public final class NewMissionStarterActivity extends BuiltinActivity {
         spinner.setAdapter(adapter(names));
     }
 
-    /** Offers the player counts the layout has room for. */
+    /** 提供布局所支持的玩家人数选项。 */
     private void fillPlayerCounts() {
         Spinner spinner = findViewById(R.id.missionstarter_numberofplayers);
         if (spinner == null) {
@@ -104,8 +100,7 @@ public final class NewMissionStarterActivity extends BuiltinActivity {
 
     @Override
     protected void onStop() {
-        // The screen is a step on the way to a game rather than a place to stay: the game's own copy
-        // of it closes here too.
+        // 此界面只是进入游戏过程中的一个步骤，不是停留位置：游戏自带的实现也会在此处关闭界面。
         finish();
         super.onStop();
     }

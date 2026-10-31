@@ -23,7 +23,7 @@ import java.util.Properties;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-/** Reads UTF-8 properties without inspecting or loading extension classes. */
+/** 读取 UTF-8 属性文件，不检查或加载扩展类。 */
 public final class ExtensionDescriptorReader {
     public static final String DESCRIPTOR_ENTRY = "META-INF/extension.properties";
 
@@ -47,7 +47,7 @@ public final class ExtensionDescriptorReader {
         }
     }
 
-    /** Built-ins use the same format, with a resource of their own and no source archive. */
+    /** 内置扩展采用相同格式，但使用自身资源文件且没有源归档。 */
     public static ExtensionDescriptor readBuiltIn(Class<?> owner, String resource) {
         try (InputStream stream = owner.getResourceAsStream(resource)) {
             if (stream == null) { throw new IOException("Missing built-in descriptor: " + resource); }
@@ -66,7 +66,12 @@ public final class ExtensionDescriptorReader {
     private static ExtensionDescriptor descriptor(Properties properties, Path source, long size, String digest)
         throws ExtensionException {
         String id = required(properties, "id");
-        String mainClass = required(properties, "mainClass");
+        // 资源包只提供资源，通常没有需要执行的代码，因此入口点可省略；其他扩展必须声明入口点。
+        boolean resourcePack = flag(properties, "resourcePack", "resource");
+        String mainClass = value(properties, "mainClass", "");
+        if (mainClass.isEmpty() && !resourcePack) {
+            throw new ExtensionException("Missing required 'mainClass' in " + DESCRIPTOR_ENTRY);
+        }
         List<String> authors = splitOnCommas(properties.getProperty("authors"));
         String author = value(properties, "author", "");
         if (authors.isEmpty() && !author.isEmpty()) { authors.add(author); }
@@ -76,9 +81,42 @@ public final class ExtensionDescriptorReader {
             value(properties, "homepage", ""), value(properties, "icon", ""),
             unmodifiable(split(properties.getProperty("tags"))), value(properties, "apiVersion", "1.0"),
             parseInt(value(properties, "javaVersion", "8"), 8), mainClass,
-            value(properties, "ui-framework", ""), unmodifiable(split(properties.getProperty("dependsOn"))),
+            value(properties, "ui-framework", ""), resourcePack,
+            unmodifiable(requirements(properties.getProperty("dependsOn"))),
             unmodifiable(split(properties.getProperty("loadBefore"))),
             unmodifiable(split(properties.getProperty("loadAfter"))), source, size, digest);
+    }
+
+    /**
+     * 读取布尔标记。接受 {@code true}/{@code 1}/{@code yes}/{@code on}，其余取值视为未设置。
+     *
+     * @param aliases 依次检查的键名，用于兼容同一标记的历史写法
+     */
+    private static boolean flag(Properties properties, String... aliases) {
+        for (String key : aliases) {
+            String raw = value(properties, key, "");
+            if (raw.isEmpty()) { continue; }
+            String normalized = raw.toLowerCase(java.util.Locale.ROOT);
+            return "true".equals(normalized) || "1".equals(normalized)
+                || "yes".equals(normalized) || "on".equals(normalized);
+        }
+        return false;
+    }
+
+    /**
+     * 拆分 {@code dependsOn}，并在读取阶段拒绝无法解析的版本约束。
+     *
+     * <p>约束语法错误属于作者笔误，放在此处报告比在加载顺序解析阶段悄悄排除扩展更容易定位。</p>
+     */
+    private static List<String> requirements(String raw) throws ExtensionException {
+        List<String> tokens = new ArrayList<>(ExtensionRequirement.tokenize(raw));
+        for (String token : tokens) {
+            ExtensionRequirement requirement = ExtensionRequirement.parse(token);
+            if (requirement != null && requirement.constraint().invalid()) {
+                throw new ExtensionException("Invalid version constraint in dependsOn: " + token);
+            }
+        }
+        return tokens;
     }
 
     private static String required(Properties properties, String key) throws ExtensionException {
@@ -107,8 +145,8 @@ public final class ExtensionDescriptorReader {
     }
 
     /**
-     * Splits on commas and semicolons only. Used for values that may legitimately contain spaces,
-     * such as author names ("Ada Lovelace, Alan Turing" is two authors, not four).
+     * 只按逗号和分号拆分。用于可能合法包含空格的值，例如作者姓名（“Ada Lovelace, Alan Turing”代表两位作者，
+     * 而不是四个名字）。
      */
     private static List<String> splitOnCommas(String raw) {
         List<String> values = new ArrayList<>();
@@ -125,8 +163,8 @@ public final class ExtensionDescriptorReader {
     }
 
     // ------------------------------------------------------------------
-    // Small helpers. Deliberately Java 8 only: the very same library also runs on Android, where
-    // String.isBlank, List.copyOf, List.of and InputStream.readAllBytes do not exist.
+    // 简单辅助方法。刻意只使用 Java 8 功能：同一库也会在 Android 上运行，而 Android 尚不支持
+    // String.isBlank、List.copyOf、List.of 和 InputStream.readAllBytes。
     // ------------------------------------------------------------------
 
     private static boolean isBlank(String value) {

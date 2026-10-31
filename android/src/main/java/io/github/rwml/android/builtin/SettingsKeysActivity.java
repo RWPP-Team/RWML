@@ -26,27 +26,24 @@ import java.util.List;
 import io.github.rwml.android.R;
 
 /**
- * The keyboard bindings, laid out by the game's own keyboard layout and held in the engine's own
- * {@link GameSettings}.
+ * 使用游戏自身的键盘布局显示按键绑定，并将绑定保存在引擎的 {@link GameSettings} 中。
  *
- * <p>Five bindings are configurable: the action key, the jump key and the four directions. Each
- * button shows the key it currently answers to, named from the game's own key-code table; pressing
- * one asks for the key to use instead, and the next key pressed becomes the binding. Done writes the
- * five into the engine and saves them, Cancel leaves them alone, and Defaults puts back the four
- * directions with the action key in the middle, which is what the game's own screen does.</p>
+ * <p>可配置五项绑定：动作键、跳跃键和四个方向键。每个按钮都会根据游戏自身的键码表显示当前绑定；点击按钮后会提示选择新按键，
+ * 随后按下的键就会成为绑定。点击“完成”会将五项设置写入引擎并保存；“取消”会放弃更改；“默认”会恢复四个方向键和居中的
+ * 动作键，与游戏原生界面一致。</p>
  */
 public final class SettingsKeysActivity extends BuiltinActivity {
 
     private static final String TAG = "RWML";
 
-    /** The engine's own defaults, which the Defaults button restores: middle, up, left, right, down. */
+    /** 引擎自带的默认按键顺序；点击“默认”后恢复为中、上、左、右、下。 */
     private static final int DEFAULT_ACTION = KeyEvent.KEYCODE_DPAD_CENTER;
     private static final int DEFAULT_JUMP = KeyEvent.KEYCODE_DPAD_UP;
     private static final int DEFAULT_LEFT = KeyEvent.KEYCODE_DPAD_LEFT;
     private static final int DEFAULT_RIGHT = KeyEvent.KEYCODE_DPAD_RIGHT;
     private static final int DEFAULT_DOWN = KeyEvent.KEYCODE_DPAD_DOWN;
 
-    /** One binding: the button that shows it, what it is called, and the key code it holds. */
+    /** 一个按键绑定：显示该绑定的按钮、按键名称及对应键码。 */
     private static final class Binding {
         final Button button;
         final String name;
@@ -58,7 +55,7 @@ public final class SettingsKeysActivity extends BuiltinActivity {
             this.keyCode = keyCode;
         }
 
-        /** Writes the binding onto its button, in the game's words for the key code. */
+        /** 使用游戏提供的键码名称更新绑定按钮。 */
         void show(String label) {
             button.setText(name + ": " + label);
         }
@@ -67,13 +64,13 @@ public final class SettingsKeysActivity extends BuiltinActivity {
     private GameSettings settings;
     private final List<Binding> bindings = new ArrayList<>();
 
-    /** The game's key-code names, read once; the code is an index into them, one-based. */
+    /** 一次性读取游戏的键码名称；键码是从 1 开始的数组索引。 */
     private String[] keyLabels;
 
-    /** Whether Done was pressed: Cancel and a plain close leave the engine's bindings alone. */
+    /** 标记是否按下“完成”；取消或直接关闭时不修改引擎绑定。 */
     private boolean saveChanges = true;
 
-    /** Whether the bindings have already been written, so that closing does not write them twice. */
+    /** 标记绑定是否已写入，避免关闭时重复写入。 */
     private boolean saved;
 
     @Override
@@ -108,7 +105,7 @@ public final class SettingsKeysActivity extends BuiltinActivity {
         Log.i(TAG, "Keyboard bindings open.");
     }
 
-    /** Attaches one binding to its button, if the layout carries that button. */
+    /** 如果布局中存在对应按钮，则为其关联一个按键绑定。 */
     private void bind(int id, String name, int keyCode) {
         Button button = findViewById(id);
         if (button == null) {
@@ -118,12 +115,12 @@ public final class SettingsKeysActivity extends BuiltinActivity {
         bindings.add(new Binding(button, name, keyCode));
     }
 
-    /** Shows the key one binding currently holds. */
+    /** 显示当前绑定的按键。 */
     private void refresh(Binding binding) {
         binding.show(keyLabel(binding.keyCode));
     }
 
-    /** The game's name for a key code, or a plain spelling when its table has no entry. */
+    /** 游戏为键码提供的名称；名称表中没有对应项时显示普通文本。 */
     private String keyLabel(int keyCode) {
         if (keyLabels == null) {
             keyLabels = getResources().getStringArray(R.array.keycode_labels);
@@ -135,8 +132,7 @@ public final class SettingsKeysActivity extends BuiltinActivity {
     }
 
     /**
-     * Asks which key the binding should answer to. The next key the platform reports becomes the
-     * binding, which is how the game reads it: the dialog holds the keyboard focus while it is up.
+     * 请求用户选择此绑定对应的按键。平台接下来报告的按键将成为新的绑定；游戏也是这样读取按键的：对话框打开期间会持有键盘焦点。
      */
     private void askForKey(final Binding binding) {
         new AlertDialog.Builder(this)
@@ -154,7 +150,7 @@ public final class SettingsKeysActivity extends BuiltinActivity {
             .show();
     }
 
-    /** Puts the engine's five bindings back to the defaults the game ships with. */
+    /** 将引擎的五个按键绑定恢复为游戏自带的默认值。 */
     private void useDefaults() {
         if (bindings.size() < 5) {
             return;
@@ -169,7 +165,7 @@ public final class SettingsKeysActivity extends BuiltinActivity {
         }
     }
 
-    /** Writes the five bindings into the engine, saves them, and closes the screen. */
+    /** 将五个按键绑定写入引擎并保存，然后关闭界面。 */
     private void saveSettings() {
         if (saved || bindings.size() < 5) {
             finish();
@@ -185,7 +181,7 @@ public final class SettingsKeysActivity extends BuiltinActivity {
         finish();
     }
 
-    /** Leaves the engine's bindings as they were. */
+    /** 保留引擎现有的按键绑定。 */
     private void cancel() {
         saveChanges = false;
         finish();
@@ -193,8 +189,8 @@ public final class SettingsKeysActivity extends BuiltinActivity {
 
     @Override
     protected void onPause() {
-        // Leaving the screen any other way - the back key, the home key - keeps what was chosen, as
-        // the game's own screen does. Done has usually written it already; saveSettings says so.
+        // 通过其他方式离开界面（例如返回键或主页键）时，会像游戏原生界面一样保留已选内容。“完成”通常已经写入设置，
+        // saveSettings 会据此判断是否还需保存。
         if (saveChanges && isFinishing()) {
             saveSettings();
         }

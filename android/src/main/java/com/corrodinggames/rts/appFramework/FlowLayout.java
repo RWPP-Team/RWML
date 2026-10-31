@@ -16,16 +16,14 @@ import android.view.ViewGroup;
 import io.github.rwml.android.R;
 
 /**
- * A view group that lays its children out in rows, wrapping to the next row when one is full.
+ * 按行排列子视图，当前行放满后自动换行的视图组。
  *
- * <p>The game's lobby layout uses it for the row of join and host panels, which have to sit side by
- * side on a wide screen and stack on a narrow one. The spacing between children comes from the
- * layout's own {@code horizontalSpacing} and {@code verticalSpacing} attributes, and a child may
- * carry a {@code layout_breakLine} to start a row of its own.</p>
+ * <p>游戏大厅布局使用它排列加入和主机面板：宽屏时并排显示，窄屏时上下堆叠。子视图之间的间距由布局自身的
+ * {@code horizontalSpacing} 和 {@code verticalSpacing} 属性决定；子视图也可以通过 {@code layout_breakLine}
+ * 属性单独换行。</p>
  *
- * <p>This class is one of the game's own views, and the layouts RWML restores name it by its game
- * name. The archive RWML mounts does not carry it, so the app supplies it here and the restored
- * layouts stay exactly as the game wrote them.</p>
+ * <p>此类是游戏自带的视图之一，RWML 还原的布局文件使用游戏中的类名引用它。RWML 挂载的归档不包含此类，
+ * 因此由应用在此提供实现，确保还原后的布局与游戏原始文件完全一致。</p>
  */
 public class FlowLayout extends ViewGroup {
 
@@ -87,8 +85,7 @@ public class FlowLayout extends ViewGroup {
             LayoutParams parameters = (LayoutParams) child.getLayoutParams();
             int childSpacing = parameters.horizontalSpacing >= 0 ? parameters.horizontalSpacing : horizontalSpacing;
 
-            // The row breaks when the child would run past the right edge, or when the child asks
-            // for it. A child that does not fit an empty row still starts one, so it stays visible.
+            // 子视图超出右边界或主动要求换行时，当前行结束。即使子视图无法放入空行，也会为它新开一行以确保可见。
             if (bounded && (breakLine || x > getPaddingLeft() && child.getMeasuredWidth() + x > available)) {
                 y = y + rowHeight + verticalSpacing;
                 widestRow = Math.max(widestRow, x - childSpacing);
@@ -123,16 +120,16 @@ public class FlowLayout extends ViewGroup {
         }
     }
 
-    /** Where a child sits, and how it asks to be placed: its own spacing, or a row of its own. */
+    /** 子视图的布局参数，以及它对放置方式的要求：使用自身间距，或另起一行。 */
     public static class LayoutParams extends ViewGroup.LayoutParams {
 
         int x;
         int y;
 
-        /** The spacing to the left of this child; a negative value means the layout's own. */
+        /** 子视图左侧间距；负值表示使用布局自身设置。 */
         public int horizontalSpacing = -1;
 
-        /** Whether this child starts a new row. */
+        /** 此子视图是否另起一行。 */
         public boolean breakLine;
 
         public LayoutParams(int width, int height) {
