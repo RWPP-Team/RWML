@@ -69,6 +69,14 @@ jobs:
           dotnet tool install --global wix --version 5.0.2
           "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
+      # 模块通过坐标依赖映射后的游戏，而该坐标由 publishGameLibForIde 写入仓库；
+      # 设置脚本在配置阶段读取仓库指针，因此发布与编译必须分成两次 Gradle 调用。
+      - name: Publish mapped game library
+        shell: pwsh
+        run: |
+          ./gradlew.bat --no-daemon --stacktrace publishGameLibForIde
+          if ($LASTEXITCODE -ne 0) { throw "Publishing the mapped game library failed with exit code $LASTEXITCODE." }
+
       - name: Build host, installer and MSI
         shell: pwsh
         run: |
@@ -81,10 +89,23 @@ jobs:
         run: |
           $directory = 'build/release'
           New-Item -ItemType Directory -Force -Path $directory | Out-Null
+
+          # 映射后的游戏库是扩展的编译依赖，单独以坐标版本命名，避免与可替换的 game-lib.jar 混淆。
+          $versionLine = Select-String -Path 'gradle/libs.versions.toml' -Pattern '^game-lib\s*=\s*"(.+)"$' | Select-Object -First 1
+          if (-not $versionLine) { throw 'game-lib version is missing from the version catalog.' }
+          $gameLibraryVersion = $versionLine.Matches[0].Groups[1].Value
+          $mapped = Get-ChildItem 'build/mapped-game' -Recurse -File -Filter 'game-lib-named.jar' |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $mapped) { throw 'The mapped game library jar is missing.' }
+          $mappedName = "game-lib-$gameLibraryVersion.jar"
+          Copy-Item -LiteralPath $mapped.FullName -Destination (Join-Path $directory $mappedName) -Force
+
           $files = @(
             'build/dist/game-lib.jar',
             'setup/build/setup/rwml-setup.exe',
-            'setup/build/setup/rwml-setup.msi'
+            'setup/build/setup/rwml-setup.msi',
+            (Join-Path $directory $mappedName)
           )
           foreach ($file in $files) {
             if (-not (Test-Path $file)) { throw "Missing artifact: $file" }
@@ -104,6 +125,7 @@ jobs:
             build/dist/game-lib.jar
             setup/build/setup/rwml-setup.exe
             setup/build/setup/rwml-setup.msi
+            build/release/*.jar
             build/release/SHA256SUMS.txt
 
       - name: Publish to Gitee
@@ -133,7 +155,7 @@ jobs:
             'setup/build/setup/rwml-setup.exe',
             'setup/build/setup/rwml-setup.msi',
             'build/release/SHA256SUMS.txt'
-          )
+          ) + @(Get-ChildItem 'build/release' -Filter '*.jar' | ForEach-Object { $_.FullName })
           foreach ($file in $files) {
             curl.exe -sS -f -X POST "$api/releases/$($release.id)/attach_files" -F "access_token=$($env:GITEE_TOKEN)" -F "file=@$file" | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "Gitee upload failed: $file" }

@@ -90,6 +90,8 @@ git submodule update --init --recursive
 ./gradlew packageGameJar :android:assembleDebug :example:jar
 ```
 
+映射库先发布，编译另起一次 Gradle 调用；同一次调用里解析不到该坐标。
+
 安装程序由 `:setup:packageExe` 生成，产物位于 `setup/build/setup/`。
 
 ## 致谢

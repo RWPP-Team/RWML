@@ -90,6 +90,8 @@ git submodule update --init --recursive
 ./gradlew packageGameJar :android:assembleDebug :example:jar
 ```
 
+The mapped library is published first; compile in a separate Gradle invocation, since a single run cannot resolve the coordinate it is about to write.
+
 The installer is built by `:setup:packageExe` and written to `setup/build/setup/`.
 
 ## Credits
