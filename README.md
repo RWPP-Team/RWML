@@ -60,13 +60,13 @@ Java 8 引导层会在准备 Java 运行环境时显示进度窗口。Android �
 RWML 仓库只维护加载器与平台宿主，不包含 Kotlin API 实现。游戏服务由 RWPP 仓库的 `api` 模块维护；
 RWPP 扩展将其与自身代码一起打包，RWML 的 Android 与桌面宿主不会单独暂存或加载 `ext-api`。
 
-在扩展工程中引用 core 和映射游戏库（附反编译源码包）。`game-lib:v2-1.15` 中的 `v2` 表示映射修订，游戏版本仍为 1.15：
+在扩展工程中引用 core 和映射游戏库（附反编译源码包）。`game-lib:v2-1.15` 中的 `v3` 表示映射修订，游戏版本仍为 1.15：
 
 ```kotlin
 repositories { mavenCentral() }
 dependencies {
     compileOnly("io.github.rwpp-team:rwml-core:1.0.2")
-    compileOnly("io.github.rwpp-team:game-lib:v2-1.15")
+    compileOnly("io.github.rwpp-team:game-lib:v3-1.15")
 }
 ```
 

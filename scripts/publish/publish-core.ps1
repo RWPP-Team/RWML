@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('PrepareSigning', 'SaveToken', 'Build', 'Publish', 'Status')]
     [string]$Action = 'Build',
     [ValidateSet('Core', 'GameLib')]
@@ -8,7 +8,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$repo = Split-Path -Parent $PSScriptRoot
+$repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $configDir = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.gradle\rwml-central'
 $keyHome = Join-Path $configDir 'gnupg'
 $passwordFile = Join-Path $configDir 'gpg-password.xml'
@@ -32,6 +32,18 @@ if ($Target -eq 'GameLib') {
     $coordinates = "io.github.rwpp-team:game-lib:$gameVersion"
     $bundle = Join-Path $repo "build\game-lib-$gameVersion-central-bundle.zip"
     $bundleTask = 'bundleGameLibForCentral'
+}
+
+# 原生程序的 stderr 在 Stop 偏好下会变成终止错误，这里统一降级为输出并返回退出码。
+function Invoke-Native([scriptblock]$Command) {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Command 2>&1 | ForEach-Object { Write-Host $_ }
+        return $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
 }
 
 function Invoke-Gpg([string[]]$GpgArgs, [string]$InputText) {
@@ -149,16 +161,19 @@ if ($Action -eq 'Build' -or ($Action -eq 'Publish' -and !(Test-Path -LiteralPath
     try {
         $gradleArgs = @($bundleTask, '--console=plain', '--no-daemon')
         if ($Offline) { $gradleArgs += '--offline' }
-        & (Join-Path $repo 'gradlew.bat') @gradleArgs
-        if ($LASTEXITCODE -ne 0) { throw 'Central bundle build failed.' }
+        # JDK 25 会向 stderr 输出原生访问警告；Stop 偏好会把这类输出当成终止错误。
+        $exitCode = Invoke-Native { & (Join-Path $repo 'gradlew.bat') @gradleArgs }
+        if ($exitCode -ne 0) { throw 'Central bundle build failed.' }
     } finally {
         Pop-Location
         foreach ($variable in $previous.Keys) { [Environment]::SetEnvironmentVariable($variable, $previous[$variable], 'Process') }
         $properties.Clear()
     }
     # Verify the exact ZIP payload, not files left over in the staging repository.
-    & python (Join-Path $PSScriptRoot 'verify-central-bundle.py') $bundle --gpg $script:gpg --homedir $gpgHome --coordinates $coordinates
-    if ($LASTEXITCODE -ne 0) { throw 'Central bundle validation failed.' }
+    $exitCode = Invoke-Native {
+        & python (Join-Path $PSScriptRoot 'verify-central-bundle.py') $bundle --gpg $script:gpg --homedir $gpgHome --coordinates $coordinates
+    }
+    if ($exitCode -ne 0) { throw 'Central bundle validation failed.' }
     if ($Action -eq 'Build') { return }
 }
 
@@ -170,6 +185,12 @@ $inputJson = @{
     password = $credential.GetNetworkCredential().Password
 } | ConvertTo-Json -Compress
 try {
-    $inputJson | & python (Join-Path $PSScriptRoot 'central-portal.py') $Action $bundle $deploymentFile $coordinates
-    if ($LASTEXITCODE -ne 0) { throw 'Maven Central publishing failed; see the response above.' }
+    $exitCode = Invoke-Native {
+        $inputJson | & python (Join-Path $PSScriptRoot 'central-portal.py') $Action $bundle $deploymentFile $coordinates
+    }
+    if ($exitCode -eq 2) {
+        Write-Host 'The deployment is still publishing; run -Action Status to check again.'
+        return
+    }
+    if ($exitCode -ne 0) { throw 'Maven Central publishing failed; see the response above.' }
 } finally { $credential = $null; $inputJson = $null }

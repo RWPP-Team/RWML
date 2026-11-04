@@ -91,7 +91,9 @@ def publish(action: str, bundle: Path, deployment_file: Path,
         if action == 'Status':
             return
         time.sleep(5)
-    raise RuntimeError('Publishing is still pending. Run -Action Status to check again.')
+    # 仍在发布不属于失败：退出码 2 让调用方区分“等待中”和真正的错误。
+    print('Publishing is still pending. Run -Action Status to check again.', flush=True)
+    sys.exit(2)
 
 
 if __name__ == '__main__':
