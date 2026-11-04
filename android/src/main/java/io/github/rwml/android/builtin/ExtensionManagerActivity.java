@@ -10,10 +10,8 @@ package io.github.rwml.android.builtin;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
-import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
-import android.provider.OpenableColumns;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.widget.Button;
@@ -21,8 +19,10 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import io.github.rwml.android.AndroidBootstrap;
+import io.github.rwml.android.ArchiveImports;
 import io.github.rwml.android.HostLog;
 import io.github.rwml.android.MainActivity;
 import io.github.rwml.android.RestartActivity;
@@ -44,7 +44,6 @@ import java.util.concurrent.Executors;
 /** 管理功能独立于游戏 dex，即使游戏启动失败仍可使用。 */
 public final class ExtensionManagerActivity extends Activity {
 
-    private static final int PICK_ARCHIVE = 402;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private UiServices services;
     private Messages messages;
@@ -55,6 +54,8 @@ public final class ExtensionManagerActivity extends Activity {
     private boolean busy;
     private int pending;
     private boolean importOffered;
+    private AlertDialog importDialog;
+    private static final int PICK_ARCHIVE = 402;
     private List<ExtensionEntry> entries = new ArrayList<>();
 
     @Override
@@ -62,13 +63,13 @@ public final class ExtensionManagerActivity extends Activity {
         super.onCreate(state);
         try { services = AndroidBootstrap.get(this).ui(); }
         catch (IllegalStateException unavailable) {
-            startActivity(new Intent(this, MainActivity.class).setAction(getIntent().getAction())
-                .setData(getIntent().getData()).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+            startActivity(new Intent(getIntent()).setClass(this, MainActivity.class)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
             finish();
             return;
         }
         messages = services.messages();
-        importOffered = state != null && state.getBoolean("importOffered");
+        importOffered = false;
         layout();
     }
 
@@ -206,63 +207,87 @@ public final class ExtensionManagerActivity extends Activity {
     }
 
     private void chooseArchive() {
-        Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*")
-            .addCategory(Intent.CATEGORY_OPENABLE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try { startActivityForResult(picker, PICK_ARCHIVE); }
+        try { startActivityForResult(ArchiveImports.pickerIntent(), PICK_ARCHIVE); }
         catch (android.content.ActivityNotFoundException missing) { error(missing); }
     }
 
-    @Override
-    protected void onActivityResult(int request, int result, Intent data) {
+    @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
-        if (request == PICK_ARCHIVE && result == RESULT_OK && data != null && data.getData() != null) {
-            offerImport(data.getData());
+        if (request == PICK_ARCHIVE && result == RESULT_OK && data != null) {
+            Uri uri = data.getData();
+            if (uri == null && data.getClipData() != null && data.getClipData().getItemCount() > 0)
+                uri = data.getClipData().getItemAt(0).getUri();
+            if (uri != null) {
+                Uri selected = uri;
+                importOffered = true;
+                run(() -> {
+                    ArchiveImports.Request staged = ArchiveImports.stage(this, selected);
+                    runOnUiThread(() -> offerImport(staged));
+                });
+            }
         }
     }
 
-    private void offerImport(Uri uri) {
-        if (!"content".equals(uri.getScheme()) && !"file".equals(uri.getScheme())) {
-            error(new IllegalArgumentException("Unsupported archive URI"));
-            return;
-        }
+    private void offerPendingImport() {
+        if (importOffered) return;
+        importOffered = true;
         run(() -> {
-            String name = uri.getLastPathSegment();
-            try (Cursor cursor = getContentResolver().query(uri,
-                new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
-                if (cursor != null && cursor.moveToFirst()) { name = cursor.getString(0); }
-            } catch (RuntimeException unavailable) {
-                HostLog.warn("The provider did not supply a display name: " + unavailable);
-            }
-            String displayName = name;
-            runOnUiThread(() -> {
-                if (isDestroyed() || isFinishing()) { return; }
-                new AlertDialog.Builder(this).setTitle(messages.text("extensions.import"))
-                    .setMessage(displayName).setNegativeButton(messages.text("common.cancel"), null)
-                    .setPositiveButton(messages.text("common.confirm"),
-                        (dialog, which) -> importArchive(uri, displayName, false)).show();
-            });
+            ArchiveImports.Request request = ArchiveImports.pending(this);
+            runOnUiThread(() -> { if (request == null) importOffered = false; else offerImport(request); });
         });
     }
 
-    private void importArchive(Uri uri, String name, boolean replace) {
+    private void discardImport(ArchiveImports.Request request) {
+        run(() -> ArchiveImports.discard(this, request));
+        importOffered = false;
+    }
+
+    private void offerImport(ArchiveImports.Request request) {
+        if (isDestroyed() || isFinishing()) return;
+        if (request.isGameFile()) {
+            run(() -> {
+                java.io.File destination = io.github.rwml.android.GameFileImports.importFile(this, request);
+                if (destination != null) runOnUiThread(() -> Toast.makeText(this,
+                    messages.text("files.imported", destination.getName()), Toast.LENGTH_LONG).show());
+            });
+            return;
+        }
+        if (importDialog != null) importDialog.dismiss();
+        importDialog = new AlertDialog.Builder(this).setTitle(messages.text("extensions.import"))
+            .setMessage(request.name).setNegativeButton(messages.text("common.cancel"), (dialog, which) -> discardImport(request))
+            .setOnCancelListener(dialog -> discardImport(request))
+            .setPositiveButton(messages.text("common.confirm"), (dialog, which) -> importArchive(request, false)).show();
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent); setIntent(intent);
+        importOffered = false;
+        offerPendingImport();
+    }
+
+    private void importArchive(ArchiveImports.Request request, boolean replace) {
+        String name = request.name;
         ExtensionEntry[] imported = new ExtensionEntry[1];
         ExtensionPackReport[] pack = new ExtensionPackReport[1];
         run(() -> {
-            try (InputStream input = getContentResolver().openInputStream(uri)) {
-                if (input == null) { throw new IOException("Cannot open archive"); }
+            try {
+            try (InputStream input = request.open()) {
                 if (name != null && name.toLowerCase(Locale.ROOT).endsWith(".zip")) {
                     pack[0] = services.extensions().importPack(input, replace);
                 } else {
                     imported[0] = services.extensions().importArchive(input, replace);
                 }
+            }
+            ArchiveImports.discard(this, request);
             } catch (FileAlreadyExistsException exists) {
                 runOnUiThread(() -> {
                     if (isDestroyed()) { return; }
                     new AlertDialog.Builder(this).setTitle(messages.text("extensions.replace"))
                         .setMessage(messages.text("extensions.replaceConfirm"))
-                        .setNegativeButton(messages.text("common.cancel"), null)
+                        .setNegativeButton(messages.text("common.cancel"), (dialog, which) -> discardImport(request))
                         .setPositiveButton(messages.text("common.confirm"),
-                            (dialog, which) -> importArchive(uri, name, true)).show();
+                            (dialog, which) -> importArchive(request, true))
+                        .setOnCancelListener(dialog -> discardImport(request)).show();
                 });
             }
         }, () -> {
@@ -358,16 +383,7 @@ public final class ExtensionManagerActivity extends Activity {
         if (services == null) { return; }
         changes = services.hooks().subscribe(UiHooks.EXTENSIONS_CHANGED, this::runOnUiThread, ignored -> refresh());
         refresh();
-        if (!importOffered && getIntent().getData() != null) {
-            importOffered = true;
-            offerImport(getIntent().getData());
-        }
-    }
-
-    @Override
-    protected void onSaveInstanceState(Bundle state) {
-        state.putBoolean("importOffered", importOffered);
-        super.onSaveInstanceState(state);
+        offerPendingImport();
     }
 
     @Override
@@ -379,6 +395,7 @@ public final class ExtensionManagerActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (importDialog != null) importDialog.dismiss();
         worker.shutdown();
         super.onDestroy();
     }

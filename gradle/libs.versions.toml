@@ -1,6 +1,10 @@
 [versions]
 asm-framework = "0.0.1"
 kotlin = "2.4.20"
+coroutines = "1.11.0"
+serialization = "1.11.0"
+androidx-lifecycle = "2.10.0"
+androidx-collection = "1.6.0"
 org-ow2-asm-asm = "9.10.1"
 ow2-asm-tree = "9.10.1"
 org-ow2-asm-asm-commons = "9.10.1"
@@ -10,15 +14,19 @@ mapping-io = "0.9.1"
 dalvik-dx = "7.1.0_r7"
 android-gradle-plugin = "9.0.1"
 android-java-version = "17"
-android-compile-sdk = "35"
+android-compile-sdk = "36"
 android-min-sdk = "26"
 android-target-sdk = "35"
+androidx-appcompat = "1.7.1"
+androidx-core-ktx = "1.17.0"
 junit = "5.11.3"
 junit-platform = "1.11.3"
 game-lib = "v2-1.15"
 vineflower = "1.11.2"
 
+
 [libraries]
+kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "serialization" }
 asm-framework = { module = "kim.der.relay-cn:ASM-Framework", version.ref = "asm-framework" }
 game-lib = { module = "io.github.rwpp-team:game-lib", version.ref = "game-lib" }
 vineflower = { module = "org.vineflower:vineflower", version.ref = "vineflower" }
@@ -26,12 +34,19 @@ fabricmc-tiny-remapper = { module = "net.fabricmc:tiny-remapper", version.ref = 
 fabricmc-mapping-io = { module = "net.fabricmc:mapping-io", version.ref = "mapping-io" }
 dalvik-dx = { module = "com.jakewharton.android.repackaged:dalvik-dx", version.ref = "dalvik-dx" }
 kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+androidx-lifecycle-viewmodel = { module = "androidx.lifecycle:lifecycle-viewmodel", version.ref = "androidx-lifecycle" }
+androidx-collection = { module = "androidx.collection:collection", version.ref = "androidx-collection" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidx-appcompat" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core-ktx" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit-platform" }
 org-ow2-asm-asm-util = { module = "org.ow2.asm:asm-util", version.ref = "ow2-asm-util" }
 org-ow2-asm-asm-commons3 = { module = "org.ow2.asm:asm-commons", version.ref = "org-ow2-asm-asm-commons" }
 org-ow2-asm-asm-tree = { module = "org.ow2.asm:asm-tree", version.ref = "ow2-asm-tree" }
 org-ow2-asm-asm3 = { module = "org.ow2.asm:asm", version.ref = "org-ow2-asm-asm" }
+
+
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "android-gradle-plugin" }

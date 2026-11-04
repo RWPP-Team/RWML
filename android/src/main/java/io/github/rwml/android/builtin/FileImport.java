@@ -10,9 +10,7 @@ package io.github.rwml.android.builtin;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.database.Cursor;
 import android.net.Uri;
-import android.provider.OpenableColumns;
 import android.util.Log;
 
 import com.corrodinggames.rts.gameFramework.files.FileLoader;
@@ -20,15 +18,7 @@ import com.corrodinggames.rts.gameFramework.files.FileLoader;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-/**
- * 通过平台文件选择器将文件导入游戏自己的存储空间。
- *
- * <p>游戏自身的界面通过存储访问框架浏览目录，但 RWML 挂载的归档并未包含该框架。改用平台文件选择器：界面请求
- * 选择一个文件，然后将选中的文件复制到游戏存储目录中。</p>
- *
- * <p>文件名采用平台报告的名称，而不是 URI 的最后一段，因为选择器返回的是合成 URI，其末尾与文件名无关。复制操作
- * 通过引擎自身的文件层完成，因此文件会写入引擎读取的位置，无论设置中选择了哪种存储模式。</p>
- */
+/** Import system-selected document streams into the game's direct filesystem backend. */
 final class FileImport {
 
     private static final String TAG = "RWML";
@@ -43,40 +33,23 @@ final class FileImport {
      */
     static boolean choose(Activity from, int requestCode) {
         try {
-            Intent pick = new Intent(Intent.ACTION_GET_CONTENT);
-            pick.setType("*/*");
-            pick.addCategory(Intent.CATEGORY_OPENABLE);
-            from.startActivityForResult(pick, requestCode);
+            from.startActivityForResult(io.github.rwml.android.ArchiveImports.pickerIntent(), requestCode);
             return true;
-        } catch (Throwable t) {
-            Log.w(TAG, "No file picker answered.", t);
+        } catch (android.content.ActivityNotFoundException unavailable) {
+            Log.w(TAG, "No system file picker answered", unavailable);
             return false;
         }
     }
 
     /** 平台报告的选中文件名称；平台未提供名称时返回 {@code null}。 */
     static String nameOf(Context context, Uri uri) {
-        Cursor cursor = null;
-        try {
-            cursor = context.getContentResolver().query(uri, null, null, null, null);
-            if (cursor != null && cursor.moveToFirst()) {
-                int column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (column >= 0) {
-                    String name = cursor.getString(column);
-                    if (name != null && !name.isEmpty()) {
-                        return name;
-                    }
-                }
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "The picked file's name could not be read.", t);
-        } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
+        if ("content".equals(uri.getScheme())) {
+            try (android.database.Cursor cursor=context.getContentResolver().query(uri,
+                    new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)) {
+                if(cursor!=null && cursor.moveToFirst() && !cursor.isNull(0)) return new java.io.File(cursor.getString(0)).getName();
+            } catch(RuntimeException unavailable) { Log.w(TAG,"No provider filename",unavailable); }
         }
-        String path = uri.getLastPathSegment();
-        return path == null ? null : path.substring(path.lastIndexOf('/') + 1);
+        return uri.getLastPathSegment();
     }
 
     /**
@@ -89,7 +62,8 @@ final class FileImport {
         InputStream in = null;
         OutputStream out = null;
         try {
-            in = context.getContentResolver().openInputStream(source);
+            in = "file".equals(source.getScheme()) ? new java.io.FileInputStream(new java.io.File(source.getPath()))
+                : context.getContentResolver().openInputStream(source);
             if (in == null) {
                 return "the chosen file could not be opened";
             }

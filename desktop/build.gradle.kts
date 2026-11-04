@@ -6,37 +6,35 @@
  */
 
 import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 
 // ------------------------------------------------------------------------------------------------
-// RWML desktop: the JVM host.
+// RWML 桌面版：JVM 宿主。
 //
-// It adds what only a JVM can do - a live class-file transformer, a class loader per extension, a
-// Java version requirement that can actually be acted on - and it ends in the game's own launcher,
-// which owns the single window and the single GUI engine.
+// 这里实现只有 JVM 能提供的能力：运行时类文件转换器、每个扩展独立的类加载器，以及可实际执行的 Java 版本要求。
+// 最终交由游戏自身启动器管理唯一窗口和 GUI 引擎。
 //
-// The artifact is the drop-in replacement for the game's game-lib.jar, which is why the jar bundles
-// :core, the ASM framework and the ASM libraries into itself. It does not carry the game: that is
-// added by :packageGameJar, which merges the remapped game in.
+// 此构件用于替换游戏的 game-lib.jar，因此 jar 会将 :core、ASM 框架和 ASM 库一并打包。游戏本身不包含在此处，
+// 而由 `:packageGameJar` 合并映射后的游戏。
 // ------------------------------------------------------------------------------------------------
 
 plugins {
     `java-library`
+    `maven-publish`
 }
 
 description = "RWML desktop: the JVM host that turns RWML into the game's drop-in game-lib.jar."
 
-// The artifact keeps the name the drop-in is known by, so a build output and a released game-lib.jar
-// are recognisably the same thing.
+// 构件沿用替换包的名称，便于辨认构建输出和发布的 game-lib.jar。
 base { archivesName.set("rwml") }
 
-// The Java 8 bootstrap. It starts the game before anything modern can be loaded, so it is compiled
-// separately and against an empty class path.
+// Java 8 引导程序会在加载现代代码前启动游戏，因此单独编译且使用空类路径。
 val bootstrap = sourceSets.create("bootstrap")
 
 tasks.named<JavaCompile>(bootstrap.compileJavaTaskName) {
     options.release.set(8)
-    // A hard guarantee, not a convention: no dependency may leak into the Java 8 layer.
+    // 这是强制约束而非惯例：任何依赖都不得进入 Java 8 层。
     classpath = files()
 }
 
@@ -45,6 +43,7 @@ sourceSets["test"].compileClasspath += bootstrap.output
 sourceSets["test"].runtimeClasspath += bootstrap.output
 
 dependencies {
+    implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     api(project(":core"))
     implementation(project(":game-adapter"))
     api(libs.asm.framework)
@@ -54,23 +53,39 @@ dependencies {
     implementation(libs.org.ow2.asm.asm.commons3)
     implementation(libs.org.ow2.asm.asm.util)
 
-    // The desktop states its platform choices through the game's statics and hands over to the
-    // game's own launcher, so it is written against the game. It never carries it: the runnable jar
-    // is :packageGameJar's, which merges the remapped game in. The coordinate is the build's own
-    // repository, which is also where the decompiled source of that game is published, so the
-    // interface can open it.
+    // 桌面端通过游戏静态成员声明平台选项，并交由游戏自身启动器启动，因此需针对游戏编译，但不会打包游戏。
+    // 可运行 jar 由 `:packageGameJar` 生成，负责合并映射后的游戏。依赖坐标指向构建专用仓库，其中也发布了
+    // 游戏的反编译源码，供 IDE 界面查看。
     compileOnly(libs.game.lib)
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
+publishing {
+    publications {
+        create<MavenPublication>("host") {
+            groupId = "io.github.rwpp-team"
+            artifactId = "rwml-desktop"
+            version = rootProject.version.toString()
+            artifact(tasks.named<Jar>("jar"))
+            pom {
+                name.set("RWML desktop host")
+                description.set("The fat desktop host used by the RWML native server launcher.")
+                url.set("https://github.com/RWPP-Team/RWML")
+            }
+        }
+    }
+    repositories {
+        mavenLocal()
+    }
+}
+
 tasks.named<Jar>("jar") {
-    // The fat jar unpacks the runtime class path, which is a file collection: unpacking it hides
-    // which tasks produced those files, so the producers are named here.
+    // Fat jar 会解包运行时类路径。类路径是文件集合，解包会丢失这些文件由哪些任务生成的信息，因此在此显式声明生产任务。
     dependsOn(configurations.runtimeClasspath)
 
-    // The Java 8 bootstrap's own `main` is the jar's entry point, so it ships in the same archive.
+    // Java 8 引导程序自身的 `main` 是 jar 入口，因此也一并打包。
     from(bootstrap.output)
 
     from(configurations.runtimeClasspath.map { config ->
@@ -106,7 +121,7 @@ java {
     withSourcesJar()
 }
 
-// The Java 8 bootstrap is part of the artifact, so its sources are part of the sources jar too.
+// Java 8 引导程序属于该构件，因此其源码也包含在 sources jar 中。
 tasks.named<Jar>("sourcesJar") {
     from(bootstrap.allSource)
 }
@@ -119,12 +134,4 @@ tasks.named<Test>("test") {
     useJUnitPlatform()
 }
 
-// The game the desktop compiles against is :remapFromEnigma's output, and the coordinate it is read
-// through is published with its sources by :publishGameLibForIde, so the compiler has to wait for
-// both whenever the jar is going to be produced. On a checkout without work/game-lib.jar there is
-// nothing to wait for, and the desktop still builds its own half.
-if (rootProject.layout.projectDirectory.file("work/game-lib.jar").asFile.isFile) {
-    tasks.withType<JavaCompile>().configureEach {
-        dependsOn(":publishGameLibForIde")
-    }
-}
+// Publish mapping changes before starting this build so settings selects the matching repository.

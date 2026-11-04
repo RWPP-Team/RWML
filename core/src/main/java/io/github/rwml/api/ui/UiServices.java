@@ -9,6 +9,7 @@ package io.github.rwml.api.ui;
 
 import io.github.rwml.api.i18n.Messages;
 import io.github.rwml.api.extensions.ExtensionLibrary;
+import io.github.rwml.api.repository.ExtensionRepository;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -23,6 +24,7 @@ public final class UiServices {
     private final UiHooks hooks;
     private final ConcurrentHashMap<Class<?>, Object> capabilities = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Consumer<UiHost>> screens = new ConcurrentHashMap<>();
+    private volatile ExtensionRepository repository;
 
     public UiServices(Messages messages, ExtensionLibrary extensions, UiHooks hooks) {
         this.messages = messages;
@@ -33,6 +35,39 @@ public final class UiServices {
     public Messages messages() { return messages; }
     public ExtensionLibrary extensions() { return extensions; }
     public UiHooks hooks() { return hooks; }
+
+    /**
+     * 扩展仓库，用于搜索、安装与更新扩展。
+     *
+     * <p>仓库由宿主在启动时按数据目录中的配置建立；不支持远程仓库的宿主不会设置它。界面应在调用前检查
+     * {@link #hasRepository()}，并把目录读取与下载放到工作线程。</p>
+     *
+     * @return 此宿主的仓库
+     * @throws IllegalStateException 宿主没有可用的仓库
+     */
+    public ExtensionRepository repository() {
+        ExtensionRepository current = repository;
+        if (current == null) {
+            throw new IllegalStateException("This host has no extension repository");
+        }
+        return current;
+    }
+
+    /** @return 宿主是否提供扩展仓库 */
+    public boolean hasRepository() {
+        return repository != null;
+    }
+
+    /**
+     * 设置扩展仓库。
+     *
+     * <p>仅在宿主准备界面服务时调用。传入 {@code null} 会使 {@link #repository()} 重新抛出异常，用于关闭远程仓库。</p>
+     *
+     * @param value 新的仓库，或 {@code null}
+     */
+    public void repository(ExtensionRepository value) {
+        repository = value;
+    }
 
     /** 宿主和扩展可注册类型化服务，无需向 core 引入平台类型。 */
     public <T> AutoCloseable register(Class<T> type, T service) {

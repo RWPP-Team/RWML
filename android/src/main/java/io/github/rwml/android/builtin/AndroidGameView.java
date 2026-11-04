@@ -157,7 +157,14 @@ public final class AndroidGameView extends SurfaceView implements GameViewInterf
             // 当前帧已经锁定画布；直接返回同一个画布，避免重复锁定。
             return surfaceCanvas;
         }
-        android.graphics.Canvas canvas = getHolder().lockCanvas(null);
+        android.graphics.Canvas canvas;
+        try {
+            // Native Canvas consumers may use RenderNode/RenderEffect; preserve a software fallback
+            // for devices whose Surface does not expose hardware recording.
+            canvas = getHolder().lockHardwareCanvas();
+        } catch (RuntimeException unavailable) {
+            canvas = getHolder().lockCanvas(null);
+        }
         if (canvas == null) {
             return null;
         }

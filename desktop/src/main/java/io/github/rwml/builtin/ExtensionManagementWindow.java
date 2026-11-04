@@ -24,6 +24,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
@@ -65,10 +66,17 @@ public final class ExtensionManagementWindow extends JDialog {
     private final JButton importButton = new JButton();
     private final JButton refresh = new JButton();
     private final JButton restart = new JButton();
+    private final JTabbedPane tabs = new JTabbedPane();
+    private final ExtensionCatalogPanel catalog;
     private List<ExtensionEntry> entries = new ArrayList<>();
     private boolean busy;
 
     public ExtensionManagementWindow(Frame owner, UiHost host) {
+        this(owner, host, false);
+    }
+
+    /** @param openCatalog 为 true 时先显示仓库浏览页，供“有可用更新”的入口直接打开 */
+    public ExtensionManagementWindow(Frame owner, UiHost host, boolean openCatalog) {
         super(owner, false);
         services = host.services();
         messages = services.messages();
@@ -107,7 +115,11 @@ public final class ExtensionManagementWindow extends JDialog {
         JPanel actions = new JPanel();
         for (JButton button : new JButton[]{importButton, refresh, enable, selectVersion, remove, restart}) { actions.add(button); }
         content.add(actions, BorderLayout.SOUTH);
-        setContentPane(content);
+        catalog = new ExtensionCatalogPanel(host, this::loadAfterCatalogChange);
+        tabs.addTab(messages.text("extensions.installedTab"), content);
+        tabs.addTab(messages.text("extensions.browseTab"), catalog);
+        tabs.setSelectedIndex(openCatalog ? 1 : 0);
+        setContentPane(tabs);
         importButton.addActionListener(event -> chooseArchive());
         refresh.addActionListener(event -> load(() -> { }));
         enable.addActionListener(event -> {
@@ -141,6 +153,7 @@ public final class ExtensionManagementWindow extends JDialog {
             SwingUtilities::invokeLater, ignored -> { labels(); filter(); });
         addWindowListener(new WindowAdapter() {
             @Override public void windowClosed(WindowEvent event) {
+                catalog.close();
                 try { changes.close(); language.close(); }
                 catch (Exception failure) { System.err.println("[rwml] Cannot close UI subscription: " + failure); }
             }
@@ -149,8 +162,17 @@ public final class ExtensionManagementWindow extends JDialog {
         load(() -> { });
     }
 
+    /** 仓库安装完成后刷新已安装页；仓库面板自身也订阅了同一通知。 */
+    private void loadAfterCatalogChange() {
+        if (!busy) {
+            load(() -> { });
+        }
+    }
+
     private void labels() {
         setTitle(messages.text("extensions.title"));
+        tabs.setTitleAt(0, messages.text("extensions.installedTab"));
+        tabs.setTitleAt(1, messages.text("extensions.browseTab"));
         directory.setText(messages.text("extensions.directory") + ": " + services.extensions().directory());
         searchLabel.setText(messages.text("extensions.search"));
         search.setToolTipText(messages.text("extensions.search"));

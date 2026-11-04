@@ -106,6 +106,8 @@ public final class EngineContext extends ContextWrapper {
         return foreground;
     }
 
+    public static Activity foregroundActivity() { return foreground; }
+
     /**
      * 对话框唯一需要窗口的调用：窗口管理器携带 Activity 的令牌。其他服务均由应用上下文提供。
      */

@@ -241,34 +241,68 @@ public final class DefaultExtensionLibrary implements ExtensionLibrary {
         if (matches.stream().anyMatch(entry -> entry.source() == null)) {
             throw new IOException("Cannot replace a built-in extension: " + descriptor.id());
         }
-        List<ExtensionEntry> sameVersion = new ArrayList<>();
+        ExtensionEntry identical = null;
         for (ExtensionEntry existing : matches) {
-            if (descriptor.version().equals(existing.version())) { sameVersion.add(existing); }
-        }
-        boolean replaceSelected = false;
-        if (!sameVersion.isEmpty()) {
-            if (sameVersion.size() > 1) { throw new IOException("Remove duplicate archives of version " + descriptor.version() + " before replacing it"); }
-            ExtensionEntry existing = sameVersion.get(0);
-            if (existing.builtIn()) { throw new IOException("Bundled archives cannot be replaced"); }
-            if (!replace) {
-                if (tolerateExisting) { return null; }
-                throw new FileAlreadyExistsException(descriptor.id() + " " + descriptor.version());
+            int order = ExtensionVersion.compare(descriptor.version(), existing.version());
+            if (order < 0 && !replace) {
+                throw new IOException("A newer version of " + descriptor.id() + " is already installed: " + existing.version());
             }
-            target = managed(existing.source());
-            replaceSelected = existing.versionSelected();
-        } else if (Files.exists(target)) {
-            throw new IOException("The destination is occupied by another archive: " + target);
+            if (order == 0) {
+                if (existing.builtIn() && replace) throw new IOException("Bundled archives cannot be replaced");
+                ExtensionDescriptor old;
+                try { old = ExtensionDescriptorReader.read(existing.source()); }
+                catch (ExtensionException failure) { throw new IOException(failure); }
+                if (descriptor.sourceSha256().equals(old.sourceSha256())) identical = existing;
+                else if (!replace) throw new FileAlreadyExistsException(descriptor.id() + " " + descriptor.version());
+                else if (existing.builtIn()) throw new IOException("Bundled archives cannot be replaced");
+            }
         }
+        boolean created = identical == null;
+        if (identical != null) {
+            target = identical.source().toAbsolutePath().normalize();
+        } else {
+            if (Files.exists(target)) throw new IOException("The destination is occupied by another archive: " + target);
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, target);
+            }
+        }
+        // Publish the new identity before retiring old files, so a failed state write never
+        // strands the user without the old version. Loaded archives must remain untouched.
+        boolean selectionChanged = false;
         try {
-            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException unsupported) {
-            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            String identity = ExtensionVersions.identity(descriptor);
+            if (!matches.isEmpty() && !identity.equals(manager.extensionStates().selectedVersions().get(descriptor.id()))) {
+                manager.extensionStates().setSelectedVersion(descriptor.id(), identity);
+                selectionChanged = true;
+            }
+        } catch (IOException failure) {
+            if (created) Files.deleteIfExists(target);
+            throw failure;
         }
-        // 替换已选版本后仍保留原有选择，即使替换版本的字节内容已经变化。
-        changed();
-        if (replaceSelected) {
-            manager.extensionStates().setSelectedVersion(descriptor.id(), ExtensionVersions.identity(descriptor));
+        ExtensionHandle loaded = manager.handle(descriptor.id());
+        Path loadedPath = loaded == null || loaded.descriptor().source() == null ? null
+            : loaded.descriptor().source().toAbsolutePath().normalize();
+        boolean retired = false;
+        for (ExtensionEntry old : matches) {
+            if (old.builtIn() || old.source() == null) continue;
+            Path source = managed(old.source());
+            if (source.equals(target) || source.equals(loadedPath)) continue;
+            Path backup = directory.resolveSibling(directory.getFileName() + "-backup");
+            try {
+                Files.createDirectories(backup);
+                Path destination = backup.resolve(source.getFileName() + "." + java.util.UUID.randomUUID());
+                Files.move(source, destination);
+                retired = true;
+            } catch (IOException failure) {
+                // The selected identity still prevents duplicate loading; preserve the archive
+                // and give a bounded diagnostic if a file is locked or cannot be moved.
+                System.err.println("[rwml] Could not retire old extension archive " + source + ": " + failure.getMessage());
+            }
         }
+        if (created || selectionChanged || retired) changed();
+        if (identical != null && tolerateExisting) return null;
         for (ExtensionEntry entry : entries()) {
             if (target.equals(entry.source())) { return entry; }
         }

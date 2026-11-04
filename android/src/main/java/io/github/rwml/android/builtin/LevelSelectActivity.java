@@ -92,7 +92,7 @@ public final class LevelSelectActivity extends BuiltinActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle(LocalizedText.ui("ui.levels"));
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         background = new MenuBackground(this, R.layout.level_select_grid);
 
         Intent opening = getIntent();

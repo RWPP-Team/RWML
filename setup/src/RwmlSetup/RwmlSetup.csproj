@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>rwml-setup</AssemblyName>
+    <RootNamespace>Rwml.Setup</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <Version>1.0.2</Version>
+    <Company>RWPP-Team</Company>
+    <Product>RWML Setup</Product>
+    <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+  <!-- 宿主归档由 Gradle 任务通过 -p:GameLibPath 传入，不复制进源码目录。 -->
+  <ItemGroup Condition="'$(GameLibPath)' != ''">
+    <EmbeddedResource Include="$(GameLibPath)" LogicalName="game-lib.jar" />
+  </ItemGroup>
+</Project>

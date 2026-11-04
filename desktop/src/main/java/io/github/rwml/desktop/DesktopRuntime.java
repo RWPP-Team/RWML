@@ -27,6 +27,7 @@ import io.github.rwml.core.ExtensionHandle;
 import io.github.rwml.core.ExtensionManager;
 import io.github.rwml.core.GameContextImpl;
 import io.github.rwml.core.LoadReport;
+import io.github.rwml.core.repository.RepositoryClient;
 import io.github.rwml.game.LocaleUiMixin;
 import io.github.rwml.game.ResourcePackAssetMixin;
 import io.github.rwml.game.ResourcePackResourcePathMixin;
@@ -73,6 +74,12 @@ public final class DesktopRuntime implements RwmlRuntime {
             new DefaultExtensionLibrary(manager, manager.extensionDirectory(),
                 () -> Collections.singletonList(manager.extensionDirectory()),
                 () -> report, archive -> { }, hooks), hooks);
+        // 仓库只读取数据目录中的配置，不访问网络；目录与归档请求由界面在工作线程发起。
+        try {
+            ui.repository(RepositoryClient.open(ui.extensions(), Platform.DESKTOP, manager.dataDirectory()));
+        } catch (IOException | RuntimeException unavailable) {
+            System.err.println("[rwml] The extension repository is unavailable: " + unavailable);
+        }
         // 引导流程属于平台，因此由桌面端在此提供画布类、平台标志、HTTP 工厂，以及交给窗口所属启动器的移交操作。
         // 界面扩展只决定是否执行这些步骤。
         this.gameBoot = new GameBoot(new GameContextImpl(

@@ -50,7 +50,7 @@ public final class HostNetworkCallbacks extends NetworkCallbacks {
      *
      * <p>引擎只创建一次，生命周期长于所有界面，因此在首次使用网络时安装回调，并一直保留。</p>
      */
-    static void install(NetworkEngine network) {
+    public static void install(NetworkEngine network) {
         if (network == null) {
             return;
         }
@@ -199,6 +199,11 @@ public final class HostNetworkCallbacks extends NetworkCallbacks {
             com.corrodinggames.rts.appFramework.MultiplayerBattleroomActivity.loadMultiplayerMap();
         } catch (Throwable t) {
             Log.e(TAG, "The multiplayer map could not be loaded.", t);
+            return;
+        }
+        android.app.Activity owner = io.github.rwml.android.EngineContext.foregroundActivity();
+        if (owner != null && io.github.rwml.api.Rwml.get().ui().openRegisteredScreen("game-start",
+                new io.github.rwml.android.AndroidUiHost(owner, java.util.Collections.emptyList()))) {
             return;
         }
         Intent game = new Intent(context, InGameActivity.class);

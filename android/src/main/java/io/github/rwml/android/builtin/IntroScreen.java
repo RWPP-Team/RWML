@@ -37,7 +37,10 @@ public final class IntroScreen extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        AndroidApp.prepare(this, true);
+        // The launcher console has already prepared game DEX, mixins and extensions.
+        // This screen runs only the engine's original GameBoot loading stages.
+        getWindow().setFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
         setContentView(R.layout.intro_screen);
         LoadingStatus.reset();
         BootConsole.install();
@@ -56,6 +59,7 @@ public final class IntroScreen extends Activity {
         // 创建引擎时会加载资源、图形和音频，耗时较长；若不查看堆栈，就无法区分加载缓慢和线程停止。
         Watchdog watchdog = Watchdog.start("boot");
         try {
+            AndroidBootstrap.get(this).requestGameStart();
             StageReport report = AndroidBootstrap.get(this).gameBoot().start(
                 (percent, message) -> LoadingStatus.progress(message));
             if (!report.isClean()) {
@@ -104,7 +108,8 @@ public final class IntroScreen extends Activity {
             if (isFinishing()) {
                 return;
             }
-            Intent intent = new Intent(this, MainMenuActivity.class);
+            Class<?> menu = io.github.rwml.android.MainActivity.class;
+            Intent intent = new Intent(this, menu);
             startActivity(intent);
             AndroidApp.disableTransitionAnimation(this);
             finish();

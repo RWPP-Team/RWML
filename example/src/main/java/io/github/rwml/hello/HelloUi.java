@@ -11,27 +11,22 @@ import io.github.rwml.api.ui.UiFramework;
 import io.github.rwml.api.ui.UiHost;
 
 /**
- * The sample's declaration that an interface is wanted.
+ * 示例中声明需要界面的扩展。
  *
- * <p>The extension and its interface are two classes on purpose. An extension's entry point is what
- * gets loaded; the interface is a thing the host starts, and only one process may have one. Keeping
- * them apart means the sample keeps loading even when something else owns the interface, and it is
- * why {@code ui-framework} names a class rather than reusing the entry point.</p>
+ * <p>扩展和界面有意拆分为两个类。扩展入口负责加载；界面由宿主启动，且每个进程只能有一个界面。将二者分开后，即使其他扩展提供界面，
+ * 示例扩展仍能正常加载。这也是 {@code ui-framework} 声明单独界面类，而不重复使用扩展入口的原因。</p>
  *
- * <p>What this class does is the whole of the intended division: the platform owns the surface, the
- * events and the GL context, and an extension only decides that an interface is wanted and which
- * screen to start with. On Android the host answers with the game surface, on the desktop with the
- * game itself, and this class never learns which of the two it is talking to.</p>
+ * <p>此类体现了预期的职责划分：平台负责界面表面、事件和 GL 上下文；扩展只决定是否需要界面，以及从哪个屏幕开始。Android 宿主提供游戏表面，
+ * 桌面宿主则直接提供游戏本身；此类无需知道当前对接的是哪种平台。</p>
  */
 public final class HelloUi implements UiFramework {
 
-    /** The screen name every host knows: the game. */
+    /** 所有宿主都识别的界面名称：游戏。 */
     private static final String GAME_SCREEN = "game";
 
     @Override
     public void start(UiHost host) {
-        // Printing through the standard streams is deliberate: on Android the app mirrors them into
-        // its own log, so the line is visible without a debugger attached.
+        // 有意通过标准流输出：Android 应用会将其镜像到自身日志中，因此即使没有连接调试器也能看到该行。
         System.out.println("[hello] The host is " + host.platform().getClass().getName()
             + " and was started with " + host.arguments().size() + " argument(s).");
         System.out.println("[hello] Asking it for the '" + GAME_SCREEN + "' screen.");

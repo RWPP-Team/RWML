@@ -42,7 +42,7 @@ public final class NewMissionStarterActivity extends BuiltinActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle(LocalizedText.ui("ui.newMission"));
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         setContentView(R.layout.new_mission_starter);
 
         fillMaps();

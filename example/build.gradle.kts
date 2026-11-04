@@ -18,15 +18,12 @@ description = "RWML example: a sample extension (entry point + ASM mixin)."
 dependencies {
     compileOnly(project(":core"))
 
-    // The mixin's annotations come from the bytecode framework. An extension compiles against them
-    // and never carries them: the host has the framework on its class path, and a second copy inside
-    // an extension would be registered against a different registry than the one that patches.
+    // mixin 注解由字节码框架提供。扩展只针对这些注解编译，不会携带框架；宿主类路径中已有框架，若扩展再带一份，
+    // 它们会注册到不同于实际执行补丁的注册表中。
     compileOnly(libs.asm.framework)
 
-    // The sample's mixin names a game class, and a mixin has to be written against it. The game is
-    // compile-only: the entry point of an extension is loaded by the host, which already has the
-    // game on its class path, so an extension never carries it. The coordinate is the build's own
-    // repository, which is also where the decompiled source of that game is published.
+    // 示例 mixin 引用了游戏类，因此编写 mixin 时需针对游戏编译。游戏依赖仅用于编译：扩展入口由宿主加载，宿主类路径
+    // 已包含游戏，所以扩展无需携带游戏。依赖坐标指向构建专用仓库，那里也发布了游戏的反编译源码。
     compileOnly(libs.game.lib)
 }
 
@@ -42,12 +39,4 @@ tasks.named<Jar>("jar") {
     }
 }
 
-// The game the mixin compiles against is :remapFromEnigma's output, and the coordinate it is read
-// through is published with its sources by :publishGameLibForIde, so the compiler has to wait for
-// both whenever the jar is going to be produced. On a checkout without work/game-lib.jar there is
-// nothing to wait for, and the sample still builds its non-mixin half.
-if (rootProject.layout.projectDirectory.file("work/game-lib.jar").asFile.isFile) {
-    tasks.withType<JavaCompile>().configureEach {
-        dependsOn(":publishGameLibForIde")
-    }
-}
+// Mapping changes must be published before a new Gradle sync/build invocation.

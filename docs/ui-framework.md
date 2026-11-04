@@ -5,6 +5,45 @@ both hosts through `UiHost.services()`; extensions can access them during `onLoa
 `ExtensionContext.ui()`. The `game-adapter` module supplies game-backed services after platform
 preparation, so a framework can render a launcher and manage extensions without resolving game classes.
 
+## Native UI surfaces and shared libraries
+
+`UiHost.createSurface()` gives a framework a host-owned native surface, and `UiSurface` defines its UI-thread
+executor, content attachment, close callback and close lifecycle. Create and attach native content on
+`surface.uiExecutor()`. Desktop accepts an AWT `Window`; Android accepts a `View` and attaches it to the
+existing launcher `ComponentActivity`. This lets a framework create a Compose window or `ComposeView` without
+adding its own Android activity or manifest entry.
+
+Android adds extension JARs that contain `classes.dex` to the class path as complete archives, so resource
+entries remain visible to the extension class loader. A framework can read a resource directly with
+`context.classLoader().getResourceAsStream("composeResources/...")` or provide that reader to its toolkit's
+resource API. UI toolkits and their Android resource tables belong to the extension. The generic host
+does not bundle Compose. An extension using Android library resources must carry its compiled resource
+table and matching R classes, and create its content with an extension-owned resource context.
+
+Android first displays the built-in launcher, where extension management, mixin registration and DEX
+preparation run without constructing the engine. Only an explicit Start request opens `IntroScreen`
+and runs the original `GameBoot` engine stage before calling the selected framework. A cache rebuild
+resumes engine startup only if the player had already requested it. Frameworks attach their menu content over the native menu-map surface;
+the host pauses and resumes that surface with the Activity. They must not run a second Android boot.
+After loading a network map the host offers the `game-start` screen hook, then opens its built-in game
+Activity if no extension handles it. Frameworks can use this hook to supply a `createGameSurface()` overlay.
+
+An extension can declare `dependsOn` to use a shared library extension. Consumers see the provider's classes
+and resources through its owning loader, so the same API class has one identity and one set of static fields.
+Keep the library in its own provider archive and make each consumer depend on that provider ID.
+
+Native code stays in the extension archive until it is needed. Select the matching entry for the running
+platform, then extract and load it from the extension callback:
+
+```java
+Path library = context.extractNativeLibrary("jni/arm64-v8a/liblua54.so");
+System.load(library.toString());
+```
+
+Extraction rejects paths that escape the archive, limits individual entries to 256 MiB, and caches by the
+library contents' SHA-256 digest. Call `System.load` from the extension class that owns the native binding so
+the library is associated with the correct class loader.
+
 ## Translations
 
 ```java

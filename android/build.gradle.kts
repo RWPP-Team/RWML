@@ -24,14 +24,11 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 // ------------------------------------------------------------------------------------------------
-// The Android app is a bootstrapper, not a build-time patcher.
+// Android 应用负责启动引导，而不是在构建时打补丁。
 //
-// A desktop host can start the game with -javaagent and let the framework rewrite classes as they
-// load. Android has no such hook, so the app does the same work itself, before the runtime sees the
-// classes: it rewrites the game against the extension mixins, compiles the result to dex, and caches
-// it. Two things therefore have to be staged into the APK - the archive to rewrite, and its digest,
-// which is what tells the app whether the copy in its own storage is still current. The
-// dexer travels in the app, not in the build.
+// 桌面宿主可以通过 -javaagent 启动游戏，让框架在类加载时改写类。Android 没有这样的钩子，因此应用需在运行时
+// 看到类之前自行完成相同工作：根据扩展 mixin 改写游戏，将结果编译为 dex 并缓存。APK 因此需要暂存待改写的归档
+// 及其摘要，应用会据此判断自身存储中的副本是否仍为最新版本。dex 转换器随应用打包，而非构建环境。
 // ------------------------------------------------------------------------------------------------
 
 plugins {
@@ -42,16 +39,15 @@ group = "io.github.rwpp-team"
 version = rootProject.version
 description = "RWML Android bootstrapper: rewrites and dexes the game on the device, then caches it."
 
-// The Android platform levels and the Java level live in gradle/libs.versions.toml so each is
-// declared once.
+// Android 平台版本和 Java 版本统一在 gradle/libs.versions.toml 中声明，避免重复定义。
 val androidCompileSdk = libs.versions.android.compile.sdk.get().toInt()
 val androidMinSdk = libs.versions.android.min.sdk.get().toInt()
 val androidTargetSdk = libs.versions.android.target.sdk.get().toInt()
 val androidJavaVersion = JavaVersion.toVersion(libs.versions.android.java.version.get())
 
 /**
- * Turns a project version into the integer Android compares, so a release cannot bump one number and
- * forget the other: `1.2.3` becomes `10203`, and a prerelease suffix is ignored.
+ * 将项目版本转换为 Android 用于比较的整数，避免发布时只更新其中一个版本号：`1.2.3` 会变成 `10203`，
+ * 预发布后缀会被忽略。
  */
 fun androidVersionCode(version: String): Int {
     val numbers = version.substringBefore('-')
@@ -76,7 +72,8 @@ android {
         targetSdk = androidTargetSdk
         versionCode = androidVersionCode(version.toString())
         versionName = version.toString()
-        testInstrumentationRunner = "io.github.rwml.android.builtin.NavigationRegressionRunner"
+        testInstrumentationRunner = providers.gradleProperty("rwmlAndroidTestRunner")
+            .orElse("io.github.rwml.android.builtin.NavigationRegressionRunner").get()
     }
 
     compileOptions {
@@ -86,36 +83,30 @@ android {
 
     buildTypes {
         getByName("release") {
-            // The app reaches the dexer, the bytecode framework and the extensions through
-            // reflection, so nothing may be renamed away from it. proguard-rules.pro is what makes
-            // shrinking possible the day it is turned on, not a statement that it is on.
+            // 应用通过反射访问 dex 转换器、字节码框架和扩展，因此这些名称不得被混淆改写。proguard-rules.pro
+            // 为将来启用代码缩减做好准备，并不表示当前已启用缩减。
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
     lint {
-        // The game arrives as a compile-only dependency, and lint reads its classes as though they
-        // were this application's own code. The game posts notifications; this application does not,
-        // and it is not the one that would hold the permission.
+        // 游戏以仅编译依赖的形式提供，而 lint 会把游戏类当作应用自身代码来检查。游戏会发布通知，本应用不会发布，
+        // 也不应由本应用持有相应权限。
         disable += "NotificationPermission"
 
-        // The rest of the list is the game's resources, which are restored exactly as they shipped.
-        // They name views, attributes and namespaces of their own, and lint reads all three as this
-        // module's mistakes: a namespace it wants written as res-auto, a prefix it wants on an
-        // attribute the game declares without one, and the game's view classes, which the archive
-        // this module compiles against does not carry. None of the three is this module's to fix,
-        // and editing the restored files to satisfy lint would make them no longer a copy.
+        // 列表中的其余文件都是原样还原的游戏资源。它们使用自己的视图、属性和命名空间，但 lint 会把这些都当成本模块
+        // 的错误：要求将某命名空间写作 res-auto、要求为游戏未加前缀的属性补前缀，以及找不到本模块编译所依赖归档中
+        // 不包含的游戏视图类。这些问题都不应由本模块修复；修改还原文件以通过 lint 会导致文件不再是原样副本。
         disable += setOf("ResAuto", "MissingClass", "MissingPrefix")
     }
 
     packaging {
         resources {
-            // Merging refuses two entries of one name, and a few of the jars carried here publish the
-            // same metadata. The copies are equivalent, so the first of each is kept.
+            // 合并时不允许重名条目，而此处携带的少数 jar 会包含相同元数据。重复项内容相同，因此每种只保留第一份。
             pickFirsts += setOf("gradleRes/**", "kotlin/**", "META-INF/native-image/**")
 
-            // Multi-release classes, which the platform does not consult.
+            // 多版本类，平台不会读取这些类。
             excludes += setOf("META-INF/versions/**")
         }
     }
@@ -125,32 +116,26 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":game-adapter"))
 
-    // The bridge implements the game's own view interface, so it compiles against the game's names.
-    // At run time those classes never come from here: they come from the dex the app rewrites,
-    // compiles and mounts, which is why this is compileOnly and not implementation. The game's own
-    // Android build treats its game libraries the same way. The coordinate is the build's own
-    // repository, which is also where the decompiled source of that game is published, so the
-    // interface can open it.
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.core.ktx)
+
     compileOnly(libs.game.lib)
 
-    // The device compiles the rewritten classes to dex itself, and nothing on the platform does
-    // that, so the dexer has to be in the APK. `dalvik-dx` is AOSP's dx; it brings `libcore-dex`
-    // with it. This is not a compile-only dependency for exactly that reason.
     implementation(libs.dalvik.dx)
-
-    // The device-side rewriter and JarResources drive ASM directly, and those classes have to be in
-    // the APK: they run on the device, not at build time.
     implementation(libs.org.ow2.asm.asm3)
     implementation(libs.org.ow2.asm.asm.tree)
     implementation(libs.org.ow2.asm.asm.commons3)
     implementation(libs.org.ow2.asm.asm.util)
 
-    // The offline rewriter is the framework the desktop host installs as a transformer, driven by
-    // hand instead of by the JVM: OfflineMixinBridge registers mixins in its registry and applies
-    // them with its processor. It is a runtime dependency for that reason, and the framework is
-    // written in Kotlin, so the standard library comes with it.
     implementation(libs.asm.framework)
     implementation(libs.kotlin.stdlib)
+    implementation(libs.kotlinx.serialization.core)
+    // Extensions share the host's Kotlin runtime through parent-first loading.
+    // Keep its coroutine ABI compatible with Kotlin 2.4 extensions.
+    implementation(libs.kotlinx.coroutines.android)
+    // ComponentActivity and extension surfaces share these platform owner types.
+    implementation(libs.androidx.lifecycle.viewmodel)
+    implementation(libs.androidx.collection)
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
@@ -160,39 +145,26 @@ dependencies {
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     systemProperty("rwml.testGameArchive",
-        rootProject.layout.buildDirectory.file("libs/game-lib-named.jar").get().asFile.absolutePath)
+        (rootProject.extra["rwmlMappedGameJar"] as Provider<RegularFile>).get().asFile.absolutePath)
 }
 
-// The game above is produced by :remapFromEnigma out of work/game-lib.jar and the mapping set, and
-// the coordinate this module reads it through is published with its sources by
-// :publishGameLibForIde, so the compiler has to wait for both. It is declared only when the game jar
-// is there, because assembling an APK on a checkout that has neither must not require the mapping
-// pipeline.
-if (rootProject.layout.projectDirectory.file("work/game-lib.jar").asFile.isFile) {
-    tasks.withType<JavaCompile>().configureEach {
-        dependsOn(":publishGameLibForIde")
-    }
-}
+// Publish the matching game binary and sources before starting a new Gradle invocation.
 
 // ------------------------------------------------------------------------------------------------
-// The game shim: what the staged archive is missing.
+// 游戏垫片：补齐暂存归档缺少的内容。
 //
-// The archive this module stages is the game's platform-independent half, and it names two kinds of
-// things it does not carry. Its file readers reference `AndroidSAF` and `SAFInterface$FileRow`, which
-// only the Android build has - on the device that is a NoClassDefFoundError the moment the language
-// bundle loads. And its bundled `android/support/*` classes keep the support library's member names
-// but no bodies: `ContextCompat.checkSelfPermission` throws and `ActivityCompat.requestPermissions`
-// returns without asking anyone, which is how the engine stage dies with "Placeholder only". The
-// platform does not supply the support library, so the game dex has to.
+// 此模块暂存的归档是游戏中与平台无关的部分，但它引用了两类自身未包含的内容。文件读取器引用了仅存在于 Android 构建中
+// 的 `AndroidSAF` 和 `SAFInterface$FileRow`；设备加载语言包时会立即发生 NoClassDefFoundError。另外，归档中自带的
+// `android/support/*` 类保留了支持库成员名称，却没有方法实现：`ContextCompat.checkSelfPermission` 会抛异常，
+// `ActivityCompat.requestPermissions` 则会直接返回而不弹出请求，导致引擎阶段以“Placeholder only”错误退出。平台不提供
+// 支持库，因此这些类必须进入游戏 dex。
 //
-// The shim is compiled here against the same android.jar the module uses - none of it touches a game
-// class - and the staging task below writes it into the archive: entries the shim also names are
-// replaced, the rest are added. It travels with the game, so the app's own dex keeps carrying no
-// game class and the mixin rule stays intact. The merged archive's digest changes, which is what
-// tells the device its cached copy is stale; no cache format bump is needed.
+// 垫片在此处针对模块使用的同一 android.jar 编译，不会引用游戏类。下面的暂存任务会将它写入归档：同名条目会被替换，
+// 其余条目会新增。垫片随游戏归档提供，因此应用自身 dex 无需携带游戏类，mixin 规则也保持不变。合并归档的摘要会改变，
+// 设备据此识别缓存副本已过期，无需提升缓存格式版本。
 // ------------------------------------------------------------------------------------------------
 
-/** Where the shim's classes land, and the root its entry names are relative to. */
+/** 垫片类的输出位置，以及归档条目名称所依据的根目录。 */
 val gameShimClassesDirectory = layout.buildDirectory.dir("gameShim/classes")
 
 val compileGameShim = tasks.register<JavaCompile>("compileGameShim") {
@@ -201,24 +173,22 @@ val compileGameShim = tasks.register<JavaCompile>("compileGameShim") {
     source("src/gameShim/java")
     destinationDirectory = gameShimClassesDirectory
 
-    // The android.jar set below is the whole class path; nothing else is on it.
+    // 下方设置的 android.jar 是完整类路径，不含其他内容。
     classpath = files()
 
-    // Java 8: no invokedynamic string concat, which the on-device dexer cannot lower.
+    // 使用 Java 8，避免生成设备 dex 转换器无法降级的 invokedynamic 字符串拼接指令。
     sourceCompatibility = "8"
     targetCompatibility = "8"
 }
 
-/** The shim's class files, as a tree rather than a task's outputs: the outputs carry more than
-    classes, and a plain directory argument is not walked at all. */
+/** 以目录树形式获取垫片类文件；任务输出还包含其他文件，而且普通目录参数不会递归遍历。 */
 val gameShimClasses = fileTree(gameShimClassesDirectory.get().asFile) {
     include("**/*.class")
     builtBy(compileGameShim)
 }
 
-// The shim calls the real platform API, so the module's own android.jar is its whole class path.
-// `sdkComponents` is a property in AGP 9, not a configuration block, and the class path stays a
-// provider: reading it here would trip AGP's "not yet finalized" guard for the module's own level.
+// 垫片调用真实的平台 API，因此模块自己的 android.jar 就是其完整类路径。`sdkComponents` 在 AGP 9 中是属性而非配置块，
+// 类路径会保持为 provider：在此读取会触发 AGP 的“模块自身级别尚未最终确定”保护。
 androidComponents {
     compileGameShim.configure {
         options.bootstrapClasspath = files(sdkComponents.bootClasspath)
@@ -226,22 +196,20 @@ androidComponents {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Staging: the game archive the app rewrites, plus its digest.
+// 暂存：供应用改写的游戏归档及其摘要。
 //
-// The app cannot patch the APK in place, so it copies this into its own storage first and copies
-// again only when the digest changed. Staging it here - rather than leaving it in a source tree - is
-// what makes the assets directory a build output, so AGP both consumes it and depends on the task
-// that produces it.
+// 应用无法直接改写 APK，因此先将文件复制到自身存储，仅在摘要变化时重新复制。在此处暂存而非放在源码目录中，使 assets
+// 目录成为构建输出，AGP 会读取该输出并依赖生成它的任务。
 //
-// This application stages nothing else. The core library is an ordinary dependency of the app (see
-// `dependencies`), so it reaches the APK as dex, and no extension ships with the application.
+// RWML 只暂存待改写的游戏归档；扩展（包括 RWPP 携带的 API）由扩展管理器按需处理。
 // ------------------------------------------------------------------------------------------------
 
-/** Set by -PrwmlGameJar=<path>, relative to the repository root, to stage another game jar. */
+/** 通过 -PrwmlGameJar=<path> 指定其他游戏 jar，以仓库根目录为相对路径。 */
 val gameJarOverride = providers.gradleProperty("rwmlGameJar")
 
-/** The remapped game, which is what `:remapFromEnigma` writes. Staged only when it exists. */
-val remappedGameJar = rootProject.layout.buildDirectory.file("libs/game-lib-named.jar")
+/** `:remapFromEnigma` 生成的映射后游戏；仅在文件存在时暂存。 */
+@Suppress("UNCHECKED_CAST")
+val remappedGameJar = rootProject.extra["rwmlMappedGameJar"] as Provider<RegularFile>
 
 val stageAndroidAssets = tasks.register<StageAndroidAssetsTask>("stageAndroidAssets") {
     group = "rwml"
@@ -251,19 +219,15 @@ val stageAndroidAssets = tasks.register<StageAndroidAssetsTask>("stageAndroidAss
     } else {
         gameJar.from(remappedGameJar)
 
-        // That file is `:remapFromEnigma`'s output, so this task has to wait for that one whenever
-        // it is there. The dependency is declared only then. The mapping pipeline needs the game jar
-        // and the Anvil submodule, and assembling a debug APK must not require either: on a checkout
-        // that has neither, there is nothing to wait for, and the app builds and runs with no game
-        // classes to rewrite.
-        if (remappedGameJar.get().asFile.isFile) {
+        // 该文件由 `:remapFromEnigma` 生成，存在时本任务必须等待它，因此只在文件存在时声明依赖。映射流程需要游戏 jar
+        // 和 Anvil 子模块，但构建 debug APK 不应依赖两者：检出目录缺少这些内容时无需等待，应用仍可构建运行，
+        // 只是没有游戏类可供改写。
+        if (rootProject.file("work/game-lib.jar").isFile) {
             dependsOn(":remapFromEnigma")
         }
     }
     outputDirectory.set(layout.buildDirectory.dir("generated/rwml-assets"))
-
-    // The shim classes are written into the archive as it is staged: replacing the entries it
-    // already carries under the same names, adding the ones it references but does not carry.
+    // 暂存归档时会一并写入垫片类：替换归档中同名条目，并补入归档未包含但有引用的条目。
     dependsOn(compileGameShim)
     shimClasses.from(gameShimClasses)
     shimRoot.set(gameShimClassesDirectory)
@@ -279,29 +243,27 @@ androidComponents {
 }
 
 /**
- * Copies the archive the app installs into an assets root it owns outright, merged with the shim.
+ * 将应用要安装的归档与垫片合并，复制到专供应用使用的 assets 根目录。
  *
- * <p>Everything under the output directory is written here, so an archive that is no longer staged
- * is deleted rather than left behind - otherwise it would keep shipping in the APK. The task writes
- * nothing that depends on where it runs, so its result is cacheable.</p>
+ * <p>输出目录中的所有内容都由此任务生成，因此不再暂存的归档会被删除，否则它仍会留在 APK 中。任务输出不依赖运行位置，
+ * 因此可以缓存。</p>
  */
 @CacheableTask
 abstract class StageAndroidAssetsTask : DefaultTask() {
 
-    /** The game classes to stage, if any were produced. A file collection, so a missing jar is not
-        an error: the app runs without game classes. */
+    /** 要暂存的游戏类（如果已生成）。这是文件集合，因此缺少 JAR 不算错误：应用仍可在没有游戏类的情况下运行。 */
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val gameJar: ConfigurableFileCollection
 
-    /** The shim classes, if any were compiled. Written into the staged archive; empty is legal. */
+    /** 替身类（如果已编译）。这些类会写入暂存归档；集合为空也是合法的。 */
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val shimClasses: ConfigurableFileCollection
 
-    /** The root `shimClasses` lives under, which is what turns a class file into an entry name. */
+    /** 根 `shimClasses` 所在的目录；据此将类文件转换为归档条目名称。 */
     @get:Internal
     abstract val shimRoot: DirectoryProperty
 
@@ -313,8 +275,7 @@ abstract class StageAndroidAssetsTask : DefaultTask() {
         val assetsRoot = outputDirectory.get().asFile
         val digests = sortedMapOf<String, String>()
 
-        // The root is the task's own: a directory left by an earlier layout is not part of the app
-        // any more, and pruning only the staged groups would keep it.
+        // 根目录完全由此任务管理：旧布局遗留的目录已不属于应用，若只清理暂存分组，它仍会残留。
         assetsRoot.listFiles().orEmpty()
             .filter { it.name != ASSET_ROOT }
             .forEach { stale ->
@@ -329,8 +290,7 @@ abstract class StageAndroidAssetsTask : DefaultTask() {
         }
         stageGroup(assetsRoot, GAME_GROUP, game, digests)
 
-        // A group this build no longer writes is not part of the app any more. The copy an earlier
-        // build left behind would keep shipping in the APK.
+        // 当前构建不再写入的分组已不属于应用。若不删除旧构建留下的副本，它仍会被打包进 APK。
         File(assetsRoot, ASSET_ROOT).listFiles().orEmpty()
             .filter { it.isDirectory && it.name != GAME_GROUP }
             .forEach { stale ->
@@ -342,9 +302,8 @@ abstract class StageAndroidAssetsTask : DefaultTask() {
     }
 
     /**
-     * Copies every archive of one group into `<assets>/rwml/<group>`, then deletes whatever else
-     * that directory still holds. A file that is not there is skipped: the app is expected to start
-     * even when nothing was staged.
+     * 将某分组的所有归档复制到 `<assets>/rwml/<group>`，然后删除该目录中的其他内容。文件不存在时跳过；
+     * 即使没有暂存任何文件，应用也应能够启动。
      */
     private fun stageGroup(
         assetsRoot: File,
@@ -362,7 +321,8 @@ abstract class StageAndroidAssetsTask : DefaultTask() {
                 "two archives in $ASSET_ROOT/$group are called ${archive.name}"
             }
             val stagedFile = File(directory, archive.name)
-            stageArchive(archive, stagedFile)
+            if (group == GAME_GROUP) stageArchive(archive, stagedFile)
+            else archive.copyTo(stagedFile, overwrite = true)
             val digest = sha256(stagedFile)
             digests["$group/${archive.name}"] = digest
             logger.lifecycle("  $group/${archive.name}  ${digest.take(12)}")
@@ -381,10 +341,8 @@ abstract class StageAndroidAssetsTask : DefaultTask() {
     }
 
     /**
-     * Writes one staged archive. A plain copy, unless there are shim classes: then the archive's own
-     * entries are written first and the shim's after them, and a game entry the shim also names is
-     * skipped, which is how a placeholder body is replaced. Every timestamp the shim contributes is
-     * fixed, so an unchanged input yields the same archive and the same digest.
+     * 写入一个暂存归档。没有垫片类时直接复制；否则先写入归档自身条目，再写入垫片条目，并跳过与垫片同名的游戏条目，
+     * 从而替换占位实现。垫片条目的时间戳固定，因此输入未变时归档及其摘要也保持不变。
      */
     private fun stageArchive(archive: File, target: File) {
         val shims = shimEntries()
@@ -417,7 +375,7 @@ abstract class StageAndroidAssetsTask : DefaultTask() {
         }
     }
 
-    /** The shim's class files as jar entry names, relative to [shimRoot]. */
+    /** 垫片类文件相对于 [shimRoot] 的 jar 条目路径。 */
     private fun shimEntries(): Map<String, File> {
         val root = shimRoot.get().asFile
         val entries = mutableMapOf<String, File>()
@@ -429,11 +387,11 @@ abstract class StageAndroidAssetsTask : DefaultTask() {
         return entries
     }
 
-    /** Deterministic: no timestamp, so an unchanged input leaves the file alone. */
+    /** 保证结果稳定：不写入时间戳，输入未变时不改动文件。 */
     private fun writeManifest(assetsRoot: File, digests: Map<String, String>) {
         val text = buildString {
-            append("# Written by :android:stageAndroidAssets. Do not edit.\n")
-            append("# Consumed by io.github.rwml.android.AssetInstaller.\n")
+            append("# 由 :android:stageAndroidAssets 生成，请勿手动修改。\n")
+            append("# 由 io.github.rwml.android.AssetInstaller 读取。\n")
             digests.forEach { (key, value) -> append(key).append('=').append(value).append('\n') }
         }
         val manifest = File(assetsRoot, "$ASSET_ROOT/$MANIFEST_NAME")
@@ -459,16 +417,15 @@ abstract class StageAndroidAssetsTask : DefaultTask() {
     }
 
     private companion object {
-        /** Root of everything staged into `assets/`, as AssetInstaller.ASSET_ROOT has it. */
+        /** 按 AssetInstaller.ASSET_ROOT 设置的 assets 暂存根目录。 */
         const val ASSET_ROOT = "rwml"
 
-        /** The group the app installs the game classes from, as AndroidBootstrap names it. */
+        /** 应用安装游戏类的分组名称，与 AndroidBootstrap 中的定义一致。 */
         const val GAME_GROUP = "game"
-
-        /** The file AssetInstaller reads the digests from. */
+        /** AssetInstaller 读取摘要的文件。 */
         const val MANIFEST_NAME = "manifest.properties"
 
-        /** Fixed entry time for every shim class, so the merged archive is reproducible. */
+        /** 固定所有垫片类条目的时间，使合并后的归档可重复生成。 */
         const val SHIM_TIMESTAMP = 946684800000L
     }
 }

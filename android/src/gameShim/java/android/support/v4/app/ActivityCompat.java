@@ -3,12 +3,10 @@ package android.support.v4.app;
 import android.app.Activity;
 
 /**
- * Real body for the placeholder the platform-independent game archive ships under this name.
+ * 为跨平台游戏归档中同名占位类提供真实实现。
  *
- * <p>The archive declares this method as an empty stub. This shim replaces that entry at staging
- * time, so the game's request for the storage permission reaches the platform. The activity has
- * carried {@link Activity#requestPermissions} itself since API 23, and the app's minimum is far
- * above that.</p>
+ * <p>游戏归档将此方法声明为空桩。暂存时会用此垫片替换对应条目，使游戏的存储权限请求能够传递到平台。
+ * 从 API 23 开始，Activity 自身就提供了 {@link Activity#requestPermissions}，而本应用的最低版本远高于此。</p>
  */
 public class ActivityCompat {
 

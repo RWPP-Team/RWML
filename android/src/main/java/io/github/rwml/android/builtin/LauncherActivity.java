@@ -54,8 +54,16 @@ public final class LauncherActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        host = new AndroidUiHost(this, Collections.emptyList());
         AndroidBootstrap runtime = AndroidBootstrap.get(this);
+        if (!runtime.launcherReady()) {
+            // Android may restore this Activity directly after process death. Re-enter through MainActivity so
+            // extension metadata is scanned before the launcher is rebuilt.
+            startActivity(new Intent(this, io.github.rwml.android.MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+            finish();
+            return;
+        }
+        host = new AndroidUiHost(this, Collections.emptyList());
         try {
             services = host.services();
             messages = services.messages();
@@ -103,10 +111,12 @@ public final class LauncherActivity extends Activity {
         String error = getIntent().getStringExtra(EXTRA_ERROR);
         failed = error != null;
         if (error != null) { log.append(error); }
+        ready = runtime.gameBoot() != null && runtime.gameBoot().isStarted();
         labels();
         // 构建流程替换了发起构建的启动进程。玩家已经按下启动按钮，因此由第二个进程代为再次触发，而不是停留在
         // 看起来毫无反应的界面上。
-        if (AndroidBootstrap.consumeAutostart(this)) {
+        boolean resumeRequested = AndroidBootstrap.consumeAutostart(this);
+        if (resumeRequested && !failed) {
             new android.os.Handler(android.os.Looper.getMainLooper()).post(this::startGame);
         }
     }
@@ -147,20 +157,30 @@ public final class LauncherActivity extends Activity {
     }
 
     private void startGame() {
-        if (ready) { host.openScreen("main-menu"); return; }
+        if (ready) { openMenu(); return; }
+        AndroidBootstrap runtime = AndroidBootstrap.get(this);
+        runtime.requestGameStart();
         work(() -> {
-            io.github.rwml.api.game.StageReport report = host.gameBoot().start((percent, message) ->
-                runOnUiThread(() -> {
-                    if (isDestroyed()) { return; }
-                    progress.setIndeterminate(percent <= 0);
-                    progress.setProgress(percent);
-                    log.append(percent + "% " + message + "\n");
-                }));
-            ready = report.isClean();
-            failed = !ready;
-            if (!ready) { runOnUiThread(() -> log.append(report.failed().toString() + "\n")); }
-            if (ready) { runOnUiThread(() -> host.openScreen("main-menu")); }
+            // Keep transformation and extension initialization visible in the launcher console.
+            // Only the engine stage belongs to the loading screen.
+            runtime.prepareGameRuntime((percent, message) -> runOnUiThread(() -> {
+                if (isDestroyed()) { return; }
+                progress.setIndeterminate(false);
+                progress.setProgress(percent);
+                status.setText(message);
+                log.append(message + "\n");
+            }));
+            runOnUiThread(() -> {
+                if (isDestroyed() || isFinishing()) { return; }
+                startActivity(new Intent(this, IntroScreen.class));
+                finish();
+            });
         });
+    }
+
+    private void openMenu() {
+        startActivity(new Intent(this, io.github.rwml.android.MainActivity.class));
+        finish();
     }
 
     private interface Work { void run() throws Exception; }

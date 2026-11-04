@@ -1,311 +1,109 @@
 package com.corrodinggames.rts.appFramework.android;
 
 import android.content.Context;
-import android.database.Cursor;
 import android.net.Uri;
-import android.os.Build.VERSION;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
-import android.provider.DocumentsContract;
 import android.util.Log;
-
 import com.corrodinggames.rts.appFramework.common.SAFInterface.FileRow;
-
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.util.ArrayList;
 
-/**
- * The Storage Access Framework helper the game's file readers talk to.
- *
- * <p>The platform-independent game archive does not carry this class - it belongs to the Android
- * build - yet three of its readers reference it by this exact name, and one of them calls
- * {@link #getInstance()} from its static initializer. This shim restores the class against the real
- * platform API, following the Android build's own implementation, so the archive the device mounts
- * resolves and the readers' calls behave as the game expects.</p>
- */
-public class AndroidSAF {
-
+/** Binary name required by the game archive. All operations use java.io; no SAF/provider API. */
+public final class AndroidSAF {
     public static final String TAG = "RustedWarfare";
+    private static final AndroidSAF INSTANCE = new AndroidSAF();
+    private static final Object LOCK = new Object();
+    private AndroidSAF() {}
+    public static AndroidSAF getInstance() { return INSTANCE; }
+    public static Object getLockObject() { return LOCK; }
+    public static void setGlobalLocking(boolean value) {}
+    public static void log(String message) { Log.d(TAG, message); }
+    public static void writeStdOut(String message) { log(message); }
 
-    private static final Object globalLock = new Object();
-    private static final AndroidSAF instance = new AndroidSAF();
-    private static boolean useGlobalLocking = false;
-
-    private AndroidSAF() {
-    }
-
-    public static AndroidSAF getInstance() {
-        return instance;
-    }
-
-    public static Object getLockObject() {
-        return useGlobalLocking ? globalLock : new Object();
-    }
-
-    public static void setGlobalLocking(boolean locking) {
-        useGlobalLocking = locking;
-    }
-
-    public static void log(String message) {
-        Log.d(TAG, message);
-    }
-
-    public static void writeStdOut(String message) {
-        Log.d(TAG, message);
-    }
-
-    private static void closeQuietly(AutoCloseable closeable) {
-        if (closeable != null) {
-            try {
-                closeable.close();
-            } catch (RuntimeException e) {
-                throw e;
-            } catch (Exception e) {
-                // Ignored, as the game's own helper does.
-            }
-        }
-    }
-
-    private static long queryForLong(Context context, Uri uri, String column, long fallback) {
-        synchronized (getLockObject()) {
-            Cursor cursor = null;
-            try {
-                cursor = context.getContentResolver()
-                        .query(uri, new String[] {column}, null, null, null);
-                if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
-                    return cursor.getLong(0);
-                }
-                return fallback;
-            } catch (Exception e) {
-                Log.w(TAG, "Failed query (column:" + column + "): " + e);
-                return fallback;
-            } finally {
-                closeQuietly(cursor);
-            }
-        }
-    }
-
-    private static String queryForString(Context context, Uri uri, String column, String fallback) {
-        synchronized (getLockObject()) {
-            Cursor cursor = null;
-            try {
-                cursor = context.getContentResolver()
-                        .query(uri, new String[] {column}, null, null, null);
-                if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
-                    return cursor.getString(0);
-                }
-                return fallback;
-            } catch (Exception e) {
-                Log.w(TAG, "Failed query (column:" + column + "): " + e);
-                return fallback;
-            } finally {
-                closeQuietly(cursor);
-            }
-        }
-    }
-
-    private String getRawType(Context context, Uri uri) {
-        return queryForString(context, uri, "mime_type", null);
-    }
-
-    public Uri buildDocumentUriUsingTree(Uri uri) {
-        return DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri));
-    }
-
-    public Uri createDirectory(Context context, Uri uri, String name) throws FileNotFoundException {
-        return createFile(context, uri, "vnd.android.document/directory", name);
-    }
-
-    public Uri createFile(Context context, Uri uri, String mimeType, String name)
-            throws FileNotFoundException {
-        synchronized (getLockObject()) {
-            return DocumentsContract.createDocument(context.getContentResolver(), uri, mimeType, name);
-        }
-    }
-
-    public Uri createTextFile(Context context, Uri uri, String name) throws FileNotFoundException {
-        return createFile(context, uri, "", name);
-    }
-
-    public boolean deleteFile(Context context, Uri uri) throws FileNotFoundException {
-        synchronized (getLockObject()) {
-            return DocumentsContract.deleteDocument(context.getContentResolver(), uri);
-        }
-    }
-
-    public boolean exists(Context context, Uri uri) {
-        synchronized (getLockObject()) {
-            Cursor cursor = null;
-            try {
-                cursor = context.getContentResolver()
-                        .query(uri, new String[] {"document_id"}, null, null, null);
-                return cursor != null && cursor.getCount() > 0;
-            } catch (Exception e) {
-                Log.w(TAG, "Failed exists query: " + e);
-                return false;
-            } finally {
-                closeQuietly(cursor);
-            }
-        }
-    }
-
-    public Uri getChildUri(Uri uri, String documentId) {
-        return DocumentsContract.buildDocumentUriUsingTree(uri, documentId);
-    }
-
-    public long getFileSize(Context context, Uri uri) {
-        return queryForLong(context, uri, "_size", -1L);
-    }
-
-    public long getLastModified(Context context, Uri uri) {
-        return queryForLong(context, uri, "last_modified", 0L);
-    }
-
-    public String getName(Context context, Uri uri) {
-        return queryForString(context, uri, "_display_name", null);
-    }
-
-    public ParcelFileDescriptor getParcelFileDescriptor(Context context, Uri uri) throws IOException {
-        synchronized (getLockObject()) {
-            return context.getContentResolver().openFileDescriptor(uri, "r");
-        }
-    }
-
-    public String getReadablePath(Context context, Uri uri) {
-        if (uri == null) {
-            return null;
-        }
-        log("getReadablePath() uri: " + uri.toString());
-        log("getReadablePath() uri authority: " + uri.getAuthority());
-        log("getReadablePath() uri path: " + uri.getPath());
+    private static File file(Uri uri) {
+        if (uri == null) throw new IllegalArgumentException("Missing file path");
+        if ("file".equals(uri.getScheme()) || uri.getScheme() == null) return new File(uri.getPath());
+        // Migrate a historical local document path without contacting a document provider.
         if ("com.android.externalstorage.documents".equals(uri.getAuthority())) {
-            String documentId = uri.getPath();
-            String[] parts = documentId.split(":");
-            String type = parts[0];
-            log("getReadablePath() docId: " + documentId + ", split: " + parts.length + ", type: " + type);
-            String root;
-            if ("/tree/primary".equalsIgnoreCase(type)) {
-                root = Environment.getExternalStorageDirectory() + "/";
-            } else {
-                root = "storage/";
+            String path = uri.getPath();
+            int marker = path.lastIndexOf("/document/");
+            String id = marker >= 0 ? path.substring(marker + 10) : path.substring(path.indexOf("/tree/") + 6);
+            int colon = id.indexOf(':');
+            if (colon > 0) {
+                String volume = id.substring(0, colon);
+                File root = volume.equalsIgnoreCase("primary") ? Environment.getExternalStorageDirectory() : new File("/storage", volume);
+                File resolved = new File(root, id.substring(colon + 1));
+                try {
+                    if (!resolved.getCanonicalPath().startsWith(root.getCanonicalPath() + "/") && !resolved.getCanonicalFile().equals(root.getCanonicalFile()))
+                        throw new IllegalArgumentException("File path escapes storage volume");
+                } catch (IOException failure) { throw new IllegalArgumentException(failure); }
+                return resolved;
             }
-            if (parts.length > 1) {
-                return root + parts[1];
-            }
-            return root;
         }
-        log("getReadablePath() uri: " + uri.toString());
-        return uri.toString();
+        throw new IllegalArgumentException("Only local file paths are supported: " + uri);
     }
-
-    public String getTreeDocumentId(Uri uri) {
-        return DocumentsContract.getTreeDocumentId(uri);
+    private static File child(Uri parent, String name) throws FileNotFoundException {
+        File root = file(parent);
+        File value = new File(root, name);
+        try {
+            if (!root.getCanonicalFile().equals(value.getCanonicalFile().getParentFile())) throw new FileNotFoundException("Invalid file name");
+        } catch (IOException failure) { throw new FileNotFoundException(failure.toString()); }
+        return value;
     }
-
-    public boolean isDirectory(Context context, Uri uri) {
-        return "vnd.android.document/directory".equals(getRawType(context, uri));
+    public Uri buildDocumentUriUsingTree(Uri uri) { return Uri.fromFile(file(uri)); }
+    public Uri createDirectory(Context context, Uri uri, String name) throws FileNotFoundException {
+        File value = child(uri, name);
+        if (!value.isDirectory() && !value.mkdir()) throw new FileNotFoundException("Cannot create " + value);
+        return Uri.fromFile(value);
     }
-
+    public Uri createFile(Context context, Uri uri, String mime, String name) throws FileNotFoundException {
+        if ("vnd.android.document/directory".equals(mime)) return createDirectory(context, uri, name);
+        File value = child(uri, name);
+        try { if (!value.exists() && !value.createNewFile()) throw new IOException("Cannot create " + value); }
+        catch (IOException failure) { throw new FileNotFoundException(failure.toString()); }
+        return Uri.fromFile(value);
+    }
+    public Uri createTextFile(Context context, Uri uri, String name) throws FileNotFoundException { return createFile(context, uri, "", name); }
+    public boolean deleteFile(Context context, Uri uri) { return file(uri).delete(); }
+    public boolean exists(Context context, Uri uri) { return file(uri).exists(); }
+    public Uri getChildUri(Uri uri, String id) { return Uri.fromFile(new File(id)); }
+    public long getFileSize(Context context, Uri uri) { return file(uri).length(); }
+    public long getLastModified(Context context, Uri uri) { return file(uri).lastModified(); }
+    public String getName(Context context, Uri uri) { return file(uri).getName(); }
+    public ParcelFileDescriptor getParcelFileDescriptor(Context context, Uri uri) throws IOException { return ParcelFileDescriptor.open(file(uri), ParcelFileDescriptor.MODE_READ_ONLY); }
+    public String getReadablePath(Context context, Uri uri) { return file(uri).getAbsolutePath(); }
+    public String getTreeDocumentId(Uri uri) { return file(uri).getAbsolutePath(); }
+    public boolean isDirectory(Context context, Uri uri) { return file(uri).isDirectory(); }
+    private static File[] children(Uri uri) throws IOException {
+        File[] values = file(uri).listFiles();
+        if (values == null) throw new IOException("Cannot list " + file(uri));
+        return values;
+    }
     public ArrayList<String> listByName(Context context, Uri uri) throws IOException {
-        synchronized (getLockObject()) {
-            Cursor cursor = null;
-            try {
-                Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(
-                        uri, DocumentsContract.getDocumentId(uri));
-                ArrayList<String> names = new ArrayList<String>();
-                cursor = context.getContentResolver()
-                        .query(children, new String[] {"_display_name"}, null, null, null);
-                while (cursor != null && cursor.moveToNext()) {
-                    names.add(cursor.getString(0));
-                }
-                return names;
-            } catch (Exception e) {
-                throw new IOException("Failed query: " + e, e);
-            } finally {
-                closeQuietly(cursor);
-            }
-        }
+        ArrayList<String> values = new ArrayList<>();
+        for (File child : children(uri)) values.add(child.getName());
+        return values;
     }
-
     public ArrayList<String> listRaw(Context context, Uri uri) throws IOException {
-        synchronized (getLockObject()) {
-            Cursor cursor = null;
-            try {
-                Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(
-                        uri, DocumentsContract.getDocumentId(uri));
-                ArrayList<String> ids = new ArrayList<String>();
-                cursor = context.getContentResolver()
-                        .query(children, new String[] {"document_id"}, null, null, null);
-                while (cursor != null && cursor.moveToNext()) {
-                    ids.add(cursor.getString(0));
-                }
-                return ids;
-            } catch (Exception e) {
-                throw new IOException("Failed query (listRaw): " + e, e);
-            } finally {
-                closeQuietly(cursor);
-            }
-        }
+        ArrayList<String> values = new ArrayList<>();
+        for (File child : children(uri)) values.add(child.getAbsolutePath());
+        return values;
     }
-
     public ArrayList<FileRow> listWithDetails(Context context, Uri uri) throws IOException {
-        synchronized (getLockObject()) {
-            Cursor cursor = null;
-            try {
-                Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(
-                        uri, DocumentsContract.getDocumentId(uri));
-                ArrayList<FileRow> rows = new ArrayList<FileRow>();
-                cursor = context.getContentResolver().query(children,
-                        new String[] {"document_id", "_display_name", "mime_type"}, null, null, null);
-                while (cursor != null && cursor.moveToNext()) {
-                    FileRow row = new FileRow();
-                    row.id = cursor.getString(0);
-                    row.name = cursor.getString(1);
-                    row.isDirectory = "vnd.android.document/directory".equals(cursor.getString(2));
-                    rows.add(row);
-                    if (row.name == null || row.name.length() == 0) {
-                        log("SAF: File had no name when listing:" + uri);
-                    }
-                }
-                return rows;
-            } catch (Exception e) {
-                throw new IOException("Failed query (listWithDetails): " + e, e);
-            } finally {
-                closeQuietly(cursor);
-            }
+        ArrayList<FileRow> values = new ArrayList<>();
+        for (File child : children(uri)) {
+            FileRow row = new FileRow(); row.id = child.getAbsolutePath(); row.name = child.getName(); row.isDirectory = child.isDirectory(); values.add(row);
         }
+        return values;
     }
-
-    public InputStream read(Context context, Uri uri) throws IOException {
-        synchronized (getLockObject()) {
-            return context.getContentResolver().openInputStream(uri);
-        }
-    }
-
+    public InputStream read(Context context, Uri uri) throws IOException { return new FileInputStream(file(uri)); }
+    public OutputStream write(Context context, Uri uri, String mode) throws IOException { return new FileOutputStream(file(uri), mode != null && mode.contains("a")); }
     public Uri renameFile(Context context, Uri uri, String name) throws FileNotFoundException {
-        synchronized (getLockObject()) {
-            return DocumentsContract.renameDocument(context.getContentResolver(), uri, name);
-        }
+        File original = file(uri); File target = child(Uri.fromFile(original.getParentFile()), name);
+        if (target.exists() || !original.renameTo(target)) throw new FileNotFoundException("Cannot rename " + original);
+        return Uri.fromFile(target);
     }
-
-    public void takePersistableUriPermissionRead(Context context, Uri uri) {
-        if (VERSION.SDK_INT >= 19) {
-            context.getContentResolver().takePersistableUriPermission(uri, 1);
-        }
-    }
-
-    public void takePersistableUriPermissionReadAndWrite(Context context, Uri uri) {
-        if (VERSION.SDK_INT >= 19) {
-            context.getContentResolver().takePersistableUriPermission(uri, 3);
-        }
-    }
-
-    public OutputStream write(Context context, Uri uri, String mode) throws IOException {
-        synchronized (getLockObject()) {
-            return context.getContentResolver().openOutputStream(uri, mode);
-        }
-    }
+    public void takePersistableUriPermissionRead(Context context, Uri uri) { file(uri); }
+    public void takePersistableUriPermissionReadAndWrite(Context context, Uri uri) { file(uri); }
 }

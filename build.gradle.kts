@@ -14,6 +14,12 @@ import net.fabricmc.tinyremapper.OutputConsumerPath
 import net.fabricmc.tinyremapper.TinyRemapper
 import net.fabricmc.tinyremapper.TinyUtils
 
+import java.lang.classfile.ClassFile
+import java.lang.classfile.ClassTransform
+import java.lang.classfile.attribute.InnerClassInfo
+import java.lang.classfile.attribute.InnerClassesAttribute
+import java.lang.classfile.attribute.SourceFileAttribute
+import java.lang.constant.ClassDesc
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.process.ExecOperations
 
@@ -41,8 +47,7 @@ version = providers.gradleProperty("version").get()
 description = "RWML - a mixin loader framework for the Rusted Warfare."
 
 buildscript {
-    // The mapping pipeline is a build-time library, so it lives on this script's own classpath
-    // rather than in a module: nothing at run time needs TinyRemapper.
+    // 映射流程库只在构建时使用，因此放在此脚本自己的类路径中，而不属于任何模块；运行时不需要 TinyRemapper。
     repositories {
         mavenCentral()
         maven {
@@ -56,6 +61,32 @@ buildscript {
     }
 }
 
+// Both IDEA and Kotlin/Gradle daemons may keep jars open on Windows. Never replace an
+// archive that an earlier import is using, even before it reaches the Maven repository.
+val mappingOutputRevision = run {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    val inputs = listOf(file("work/game-lib.jar"), file("build.gradle.kts"), file("gradle/libs.versions.toml")) +
+        fileTree("work/mappings").files.filter { it.isFile }
+            .sortedBy { it.relativeTo(rootDir).invariantSeparatorsPath }
+    inputs.forEach { input ->
+        digest.update(input.relativeTo(rootDir).invariantSeparatorsPath.toByteArray(Charsets.UTF_8))
+        digest.update(0.toByte())
+        if (input.isFile) input.inputStream().buffered().use { stream ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val count = stream.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        digest.update(0.toByte())
+    }
+    digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+}
+val mappedGameArchive = layout.buildDirectory.file("mapped-game/$mappingOutputRevision/game-lib-named.jar")
+val mappedGameSources = layout.buildDirectory.file("mapped-game/$mappingOutputRevision/game-lib-named-sources.jar")
+extra["rwmlMappedGameJar"] = mappedGameArchive
+
 val remapFromEnigma = tasks.register<RemapFromEnigmaTask>("remapFromEnigma") {
     group = "jar mapping"
 
@@ -63,34 +94,31 @@ val remapFromEnigma = tasks.register<RemapFromEnigmaTask>("remapFromEnigma") {
     inputJar.set(layout.projectDirectory.file("work/game-lib.jar"))
     fromNamespace.set("source")
     toNamespace.set("target")
-    outputJar.set(layout.buildDirectory.file("libs/game-lib-named.jar"))
+    outputJar.set(mappedGameArchive)
     tinyCache.set(layout.buildDirectory.file("temp/mappings-converted.tiny"))
     derivedReport.set(layout.buildDirectory.file("reports/mappings/derived-nested-classes.txt"))
 }
 
 // ------------------------------------------------------------------------------------------------
-// genSources: the game's own source, for the interface to open.
+// genSources：为界面查看而生成的游戏源码。
 //
-// The modules compile against the remapped game and never run it, so what they need from it at build
-// time is its names. Reading those names back - following a call into the engine, seeing what a field
-// holds - is what an interface cannot do without source, and decompiling by hand for every question
-// is what this replaces: the game is decompiled once into a sources jar beside the remapped one, and
-// both are published into the build's own Maven repository. The modules then depend on the game by
-// coordinate, and the `-sources` classifier is reached the way it is for every other dependency.
+// 各模块只需针对映射后的游戏进行编译，不会运行游戏，因此构建时只需要游戏的名称信息。要追踪引擎调用、
+// 查看字段内容，界面必须能访问源码；本任务通过反编译一次并在映射后 jar 旁生成 sources jar，避免每次
+// 查阅都手动反编译。两个 jar 都会发布到构建专用的 Maven 仓库。模块随后通过坐标依赖游戏，并像其他依赖
+// 一样通过 `-sources` 分类器获取源码。
 //
-// The decompiler is a build-time tool, so it lives on a configuration of this script rather than in
-// a module: nothing at run time decompiles anything.
+// 反编译器是构建工具，因此通过此脚本的配置引入，而不属于某个模块；运行时不会执行反编译。
 // ------------------------------------------------------------------------------------------------
 
-/** The decompiler, which is resolved from Maven Central when the task that runs it does. */
+/** 运行反编译任务时从 Maven Central 解析的反编译器。 */
 val vineflower = configurations.create("vineflower")
 dependencies.add(vineflower.name, libs.vineflower)
 
-/** The game's coordinate: what the modules ask for, and what this script publishes. */
+/** 游戏的依赖坐标：供各模块请求，也是此脚本发布时使用的坐标。 */
 val gameLibCoordinate = libs.game.lib.map { it.toString() }
 val gameLibVersion = libs.versions.game.lib.get()
 
-/** Where the game's jar and its sources are published, and so where the modules read them from. */
+/** 游戏 jar 及其源码的发布位置，也是各模块读取它们的位置。 */
 val localGameRepository = layout.buildDirectory.dir("local-maven")
 
 val genSources = tasks.register<DecompileGameSourcesTask>("genSources") {
@@ -98,7 +126,7 @@ val genSources = tasks.register<DecompileGameSourcesTask>("genSources") {
     description = "Decompiles the remapped game into a sources jar, so the interface can open it."
 
     gameJar.set(remapFromEnigma.flatMap { it.outputJar })
-    outputJar.set(layout.buildDirectory.file("libs/game-lib-named-sources.jar"))
+    outputJar.set(mappedGameSources)
     toolClasspath.from(vineflower)
     androidPlatformJar()?.let { androidJar.set(it) }
 }
@@ -141,33 +169,18 @@ tasks.register("verifyGameSources") {
     }
 }
 
-// Maven library dependencies expose sources through their standard classifier.
+// Maven 库依赖通过标准分类器提供源码。
 subprojects {
-    pluginManager.withPlugin("java") {
-        apply(plugin = "idea")
-        extensions.configure<org.gradle.plugins.ide.idea.model.IdeaModel> {
-            module.isDownloadSources = true
-        }
-        tasks.named("ideaModule") {
-            if (rootProject.file("work/game-lib.jar").isFile) {
-                dependsOn(publishGameLibForIde)
-            }
-        }
-    }
-}
-
-tasks.named("ideaProject") {
-    if (file("work/game-lib.jar").isFile) {
-        dependsOn(publishGameLibForIde)
+    apply(plugin = "idea")
+    extensions.configure<org.gradle.plugins.ide.idea.model.IdeaModel> {
+        module.isDownloadSources = true
     }
 }
 
 /**
- * The platform's own API, which is what the decompiler resolves the game's Android-facing names
- * against. The SDK is found where the Android module finds it: the local `sdk.dir`, then the two
- * environment variables, then the newest platform the SDK carries. A build without an SDK still
- * decompiles - the game's own half does not name a platform class - so a missing platform is not
- * a failure.
+ * 平台自身的 API，反编译器用它解析游戏中面向 Android 的名称。SDK 的查找顺序与 Android 模块相同：先看本地
+ * `sdk.dir`，再看两个环境变量，最后选择 SDK 中版本最新的平台。没有 SDK 时仍可反编译，因为游戏自身部分
+ * 不引用平台类；缺少平台 API 不会导致失败。
  */
 fun androidPlatformJar(): File? {
     val local = layout.projectDirectory.file("local.properties").asFile
@@ -187,10 +200,9 @@ fun androidPlatformJar(): File? {
 }
 
 /**
- * Decompiles a jar into a sources jar.
+ * 将 jar 反编译为 sources jar。
  *
- * The decompiler writes Java files into a directory, which are then packed the way a sources jar
- * packs them, so the archive holds one file per class at the path its package names.
+ * 反编译器先将 Java 文件写入目录，再按 sources jar 的结构打包，使归档中每个类都位于对应包路径下的文件中。
  */
 @CacheableTask
 abstract class DecompileGameSourcesTask : DefaultTask() {
@@ -199,7 +211,7 @@ abstract class DecompileGameSourcesTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val gameJar: RegularFileProperty
 
-    /** The platform's classes, when the SDK supplies them; the game's own are in [gameJar]. */
+    /** SDK 提供的平台类；游戏自身的类位于 [gameJar] 中。 */
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     @get:Optional
@@ -217,7 +229,16 @@ abstract class DecompileGameSourcesTask : DefaultTask() {
     @TaskAction
     fun decompile() {
         val output = outputJar.get().asFile
+        if (output.isFile) {
+            logger.lifecycle("Reusing immutable game sources ${output.absolutePath}")
+            return
+        }
         val sources = File(temporaryDir, "sources")
+        val temporaryRoot = temporaryDir.toPath().toAbsolutePath().normalize()
+        val sourcesPath = sources.toPath().toAbsolutePath().normalize()
+        check(sourcesPath.startsWith(temporaryRoot) && sourcesPath != temporaryRoot) {
+            "Source staging must stay inside $temporaryRoot"
+        }
         sources.deleteRecursively()
         sources.mkdirs()
 
@@ -233,11 +254,11 @@ abstract class DecompileGameSourcesTask : DefaultTask() {
             setClasspath(toolClasspath)
             mainClass.set(DECOMPILER)
             args(
-                "-dgs=1", // keep generic signatures
-                "-din=1", // decompile inner classes rather than leaving them as fields
-                "-rsy=1", // hide synthetic members, which no reader needs
-                "-hdc=0", // keep the implicit super constructor
-                "-jrt=1", // read the JDK's own classes from the running runtime
+                "-dgs=1", // 保留泛型签名
+                "-din=1", // 反编译内部类，不将其保留为字段
+                "-rsy=1", // 隐藏无需查看的合成成员
+                "-hdc=0", // 保留隐式的父类构造函数
+                "-jrt=1", // 从当前运行时读取 JDK 自带类
                 "-log=WARN"
             )
             classpath.forEach { args("-e=${it.absolutePath}") }
@@ -249,7 +270,8 @@ abstract class DecompileGameSourcesTask : DefaultTask() {
         check(written.isNotEmpty()) { "The decompiler wrote no source for ${game.name}." }
 
         output.parentFile.mkdirs()
-        BufferedOutputStream(FileOutputStream(output)).use { stream ->
+        val temporaryOutput = File(temporaryDir, "game-sources.jar")
+        BufferedOutputStream(FileOutputStream(temporaryOutput)).use { stream ->
             JarOutputStream(stream).use { jar ->
                 for (file in written) {
                     val entry = JarEntry(file.relativeTo(sources).invariantSeparatorsPath)
@@ -259,6 +281,11 @@ abstract class DecompileGameSourcesTask : DefaultTask() {
                     jar.closeEntry()
                 }
             }
+        }
+        try {
+            java.nio.file.Files.move(temporaryOutput.toPath(), output.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            java.nio.file.Files.move(temporaryOutput.toPath(), output.toPath())
         }
         logger.lifecycle(
             "Decompiled ${written.size} source files into ${output.name} (${output.length() / 1024} KiB)"
@@ -271,11 +298,10 @@ abstract class DecompileGameSourcesTask : DefaultTask() {
 }
 
 /**
- * Publishes the game and its sources into a Maven repository inside this build's output.
+ * 将游戏及其源码发布到此构建输出目录内的 Maven 仓库。
  *
- * The layout is the one Maven defines: `group/artifact/version`, the artifact itself, the sources
- * under the `-sources` classifier, and a POM that says what they are. Writing the four files is
- * cheaper than a publishing plugin and is what the modules resolve against.
+ * 每一组映射 jar 和源码 jar 都发布到按内容摘要隔离的 Maven 仓库中。仓库根目录的指针只在新版本完整
+ * 写入后更新，避免另一个 Gradle 进程打开 sources jar 时，本任务或 Gradle 的输出清理先删除它。
  */
 abstract class PublishGameLibForIdeTask : DefaultTask() {
 
@@ -288,7 +314,7 @@ abstract class PublishGameLibForIdeTask : DefaultTask() {
     @get:Input
     abstract val coordinate: Property<String>
 
-    @get:OutputDirectory
+    @get:org.gradle.api.tasks.Internal
     abstract val repository: DirectoryProperty
 
     @TaskAction
@@ -296,17 +322,164 @@ abstract class PublishGameLibForIdeTask : DefaultTask() {
         val parts = coordinate.get().split(":")
         check(parts.size == 3) { "The coordinate ${coordinate.get()} is not group:artifact:version." }
         val (group, artifact, version) = parts
+        val jar = gameJar.get().asFile
+        val sources = sourcesJar.get().asFile
+        val baseRepository = repository.get().asFile.toPath().toAbsolutePath().normalize()
+        val revision = "revisions/${contentRevision(jar, sources, coordinate.get())}"
+        val revisionRepository = baseRepository.resolve(revision).normalize()
+        check(revisionRepository.startsWith(baseRepository)) { "Invalid game-lib revision path: $revision" }
 
-        val directory = repository.get()
-            .dir(group.replace('.', '/') + '/' + artifact + '/' + version).asFile
-        directory.mkdirs()
+        val artifactName = "$artifact-$version"
+        val publicationRelativePath = Path.of(group.replace('.', '/'), artifact, version)
+        val publicationDirectory = revisionRepository.resolve(publicationRelativePath)
+        val binaryOutput = publicationDirectory.resolve("$artifactName.jar")
+        val sourcesOutput = publicationDirectory.resolve("$artifactName-sources.jar")
+        val pomOutput = publicationDirectory.resolve("$artifactName.pom")
+        val expectedPom = pom(group, artifact, version)
 
-        val name = "$artifact-$version"
-        gameJar.get().asFile.copyTo(File(directory, "$name.jar"), overwrite = true)
-        sourcesJar.get().asFile.copyTo(File(directory, "$name-sources.jar"), overwrite = true)
-        File(directory, "$name.pom").writeText(pom(group, artifact, version), Charsets.UTF_8)
+        if (java.nio.file.Files.exists(revisionRepository)) {
+            checkRevision(jar, sources, expectedPom, binaryOutput, sourcesOutput, pomOutput)
+            logger.lifecycle("Reusing existing game-lib revision $revision")
+        } else {
+            publishRevision(
+                jar,
+                sources,
+                expectedPom,
+                artifactName,
+                revisionRepository,
+                publicationRelativePath
+            )
+            logger.lifecycle("Published a new game-lib revision $revision")
+        }
 
-        logger.lifecycle("Published $group:$artifact:$version to ${repository.get().asFile}")
+        writeCurrentRepository(baseRepository, revision)
+        logger.lifecycle("Published $group:$artifact:$version to ${revisionRepository.toFile()}")
+    }
+
+    private fun contentRevision(jar: File, sources: File, coordinate: String): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        digest.update(coordinate.toByteArray(Charsets.UTF_8))
+        digest.update(0.toByte())
+        for ((label, file) in listOf("game-lib" to jar, "sources" to sources)) {
+            digest.update(label.toByteArray(Charsets.UTF_8))
+            digest.update(0.toByte())
+            file.inputStream().buffered().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+        }
+        return "sha256-" + digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private fun publishRevision(
+        jar: File,
+        sources: File,
+        pom: String,
+        artifactName: String,
+        revisionRepository: java.nio.file.Path,
+        publicationRelativePath: java.nio.file.Path,
+    ) {
+        val revisionsDirectory = revisionRepository.parent
+        java.nio.file.Files.createDirectories(revisionsDirectory)
+        val temporaryRepository = java.nio.file.Files.createTempDirectory(revisionsDirectory, "publishing-")
+        try {
+            val publicationDirectory = temporaryRepository.resolve(publicationRelativePath)
+            java.nio.file.Files.createDirectories(publicationDirectory)
+            java.nio.file.Files.copy(jar.toPath(), publicationDirectory.resolve("$artifactName.jar"))
+            java.nio.file.Files.copy(sources.toPath(), publicationDirectory.resolve("$artifactName-sources.jar"))
+            java.nio.file.Files.writeString(publicationDirectory.resolve("$artifactName.pom"), pom, Charsets.UTF_8)
+            try {
+                java.nio.file.Files.move(
+                    temporaryRepository,
+                    revisionRepository,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                try {
+                    java.nio.file.Files.move(temporaryRepository, revisionRepository)
+                } catch (_: java.nio.file.FileAlreadyExistsException) {
+                    checkRevision(
+                        jar,
+                        sources,
+                        pom,
+                        revisionRepository.resolve(publicationRelativePath).resolve("$artifactName.jar"),
+                        revisionRepository.resolve(publicationRelativePath).resolve("$artifactName-sources.jar"),
+                        revisionRepository.resolve(publicationRelativePath).resolve("$artifactName.pom")
+                    )
+                }
+            } catch (_: java.nio.file.FileAlreadyExistsException) {
+                checkRevision(
+                    jar,
+                    sources,
+                    pom,
+                    revisionRepository.resolve(publicationRelativePath).resolve("$artifactName.jar"),
+                    revisionRepository.resolve(publicationRelativePath).resolve("$artifactName-sources.jar"),
+                    revisionRepository.resolve(publicationRelativePath).resolve("$artifactName.pom")
+                )
+            }
+        } finally {
+            if (java.nio.file.Files.exists(temporaryRepository)) {
+                deleteTree(temporaryRepository)
+            }
+        }
+    }
+
+    private fun checkRevision(
+        jar: File,
+        sources: File,
+        pom: String,
+        jarOutput: java.nio.file.Path,
+        sourcesOutput: java.nio.file.Path,
+        pomOutput: java.nio.file.Path,
+    ) {
+        check(java.nio.file.Files.isRegularFile(jarOutput)) { "Incomplete game-lib revision: $jarOutput" }
+        check(java.nio.file.Files.isRegularFile(sourcesOutput)) { "Incomplete game-lib revision: $sourcesOutput" }
+        check(java.nio.file.Files.isRegularFile(pomOutput)) { "Incomplete game-lib revision: $pomOutput" }
+        check(java.nio.file.Files.mismatch(jar.toPath(), jarOutput) == -1L) {
+            "The game-lib jar differs from the existing revision artifact $jarOutput."
+        }
+        check(java.nio.file.Files.mismatch(sources.toPath(), sourcesOutput) == -1L) {
+            "The sources jar differs from the existing revision artifact $sourcesOutput."
+        }
+        check(java.nio.file.Files.readString(pomOutput, Charsets.UTF_8) == pom) {
+            "The POM differs from the existing revision artifact $pomOutput."
+        }
+    }
+
+    private fun writeCurrentRepository(baseRepository: java.nio.file.Path, revision: String) {
+        java.nio.file.Files.createDirectories(baseRepository)
+        val pointer = baseRepository.resolve("current-repository.txt")
+        val contents = "$revision\n"
+        if (java.nio.file.Files.isRegularFile(pointer) &&
+            java.nio.file.Files.readString(pointer, Charsets.UTF_8) == contents
+        ) return
+
+        val temporary = java.nio.file.Files.createTempFile(baseRepository, "current-repository.", ".tmp")
+        try {
+            java.nio.file.Files.writeString(temporary, contents, Charsets.UTF_8)
+            try {
+                java.nio.file.Files.move(
+                    temporary,
+                    pointer,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                java.nio.file.Files.move(temporary, pointer, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            }
+        } finally {
+            java.nio.file.Files.deleteIfExists(temporary)
+        }
+    }
+
+    private fun deleteTree(root: java.nio.file.Path) {
+        java.nio.file.Files.walk(root).use { paths ->
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach { java.nio.file.Files.deleteIfExists(it) }
+        }
     }
 
     private fun pom(group: String, artifact: String, version: String) = """
@@ -322,17 +495,15 @@ abstract class PublishGameLibForIdeTask : DefaultTask() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// The modules
+// 各模块
 //
-// :core is the platform-neutral extension system, :desktop is the JVM host that turns it into the
-// game's drop-in game-lib.jar, and :android is the app that does the same work on the device. This
-// project builds no code of its own: it owns the mapping pipeline, which is what turns the
-// obfuscated game into the names every module compiles against, and the packaging of the desktop
-// artifact.
+// :core 是跨平台扩展系统；:desktop 是 JVM 宿主，会将其打包成可替换游戏原 game-lib.jar 的文件；:android
+// 是在设备上完成同样工作的应用。本项目自身不编译代码，负责映射流程（将混淆游戏转换成各模块编译所用的名称）
+// 以及桌面构件的打包。
 // ------------------------------------------------------------------------------------------------
 
 // ------------------------------------------------------------------------------------------------
-// Maven Central bundle ZIP task
+// Maven Central 发布包 ZIP 任务
 // ------------------------------------------------------------------------------------------------
 tasks.register<Zip>("bundleForCentral") {
     group = "publishing"
@@ -363,7 +534,7 @@ tasks.register<Zip>("bundleForCentral") {
 }
 
 // ------------------------------------------------------------------------------------------------
-// packageGameJar: build the drop-in replacement for the game's game-lib.jar.
+// packageGameJar：构建可替换游戏 game-lib.jar 的文件。
 // ------------------------------------------------------------------------------------------------
 val gameJarOverride = providers.gradleProperty("rwmlGameJar")
 
@@ -371,6 +542,7 @@ val packageGameJar = tasks.register<PackageGameJarTask>("packageGameJar") {
     group = "distribution"
     description = "Merges the remapped game into RWML's jar and writes the drop-in game-lib.jar " +
             "replacement to build/dist."
+    if (!gameJarOverride.isPresent) dependsOn(remapFromEnigma)
 
     rwmlJar.set(project(":desktop").tasks.named<Jar>("jar").flatMap { it.archiveFile })
     gameJar.set(
@@ -383,7 +555,7 @@ val packageGameJar = tasks.register<PackageGameJarTask>("packageGameJar") {
 }
 
 /**
- * Merges the game into RWML's jar.
+ * 将游戏合并到 RWML 的 jar 中。
  */
 abstract class PackageGameJarTask : DefaultTask() {
 
@@ -568,7 +740,8 @@ abstract class RemapFromEnigmaTask : DefaultTask() {
     fun remap() {
         val enigmaPath = enigmaDir.get().asFile.toPath()
         val input = inputJar.get().asFile.toPath()
-        val output = outputJar.get().asFile.toPath()
+        val destination = outputJar.get().asFile.toPath()
+        val output = File(temporaryDir, "game-lib-remapping.jar").toPath()
         val from = fromNamespace.get()
         val to = toNamespace.get()
 
@@ -601,6 +774,11 @@ abstract class RemapFromEnigmaTask : DefaultTask() {
         }
         logger.lifecycle("Wrote mappings to Tiny v2: ${tinyFile.absolutePath}")
 
+        if (java.nio.file.Files.isRegularFile(destination)) {
+            logger.lifecycle("Reusing immutable mapped game archive $destination")
+            return
+        }
+
         val remapper: TinyRemapper = TinyRemapper.newRemapper()
             .withMappings(
                 TinyUtils.createTinyMappingProvider(
@@ -609,11 +787,14 @@ abstract class RemapFromEnigmaTask : DefaultTask() {
                     to
                 )
             )
+            // ProGuard replaced SourceFile with the literal "SourceFile". IDEA resolves attached
+            // sources by package + this attribute, so mapped class names alone are insufficient.
+            .rebuildSourceFilenames(true)
             .threads(Runtime.getRuntime().availableProcessors())
             .build()
 
-        // The consumer appends into an existing archive, so an old output would keep every class
-        // name the mapping no longer produces.
+        // Only the private task staging file is replaceable. Published/generated revisions are immutable.
+        output.toFile().parentFile.mkdirs()
         val outputFile = output.toFile()
         check(!outputFile.exists() || outputFile.delete()) {
             "Could not replace the existing remap output ${outputFile.absolutePath}."
@@ -634,7 +815,278 @@ abstract class RemapFromEnigmaTask : DefaultTask() {
             remapper.finish()
         }
 
-        logger.lifecycle("Remapping complete: $input ->$output ($from ->$to)")
+        val restoredInnerClasses = restoreNamedInnerClasses(input, output, tree, to)
+        logger.lifecycle("Restored missing InnerClasses entries in $restoredInnerClasses class files.")
+        java.nio.file.Files.createDirectories(destination.parent)
+        try {
+            java.nio.file.Files.move(output, destination, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            java.nio.file.Files.move(output, destination)
+        }
+        logger.lifecycle("Remapping complete: $input ->$destination ($from ->$to)")
+    }
+
+    /**
+     * Some bundled classes contain nested class files but omit their InnerClasses attributes. Restore named member
+     * relationships from source metadata where available, then from a clear binary-name/mapping relationship. The
+     * latter also covers flattened mapped names such as `Root$TableData` -> `RootTableData`. Keep existing entries;
+     * skip classes marked as local or anonymous by numeric binary-name segments or an EnclosingMethod attribute.
+     */
+    private fun restoreNamedInnerClasses(
+        input: Path,
+        output: Path,
+        tree: MemoryMappingTree,
+        toNamespace: String,
+    ): Int {
+        val dstNs = tree.getNamespaceId(toNamespace)
+        check(dstNs >= 0) {
+            "The mapping namespaces are ${tree.srcNamespace} ->${tree.dstNamespaces}, which does not contain \"$toNamespace\"."
+        }
+
+        val sourceToTarget = LinkedHashMap<String, String>()
+        tree.classes.forEach { cls ->
+            val source = cls.srcName
+            val target = cls.getDstName(dstNs)
+            if (source != null) sourceToTarget[source] = target ?: source
+        }
+
+        val sourceClassNames = jarClassNames(input).toSet()
+        sourceClassNames.forEach { sourceToTarget.putIfAbsent(it, it) }
+
+        data class SourceInnerClass(
+            val outerName: String?,
+            val innerName: String?,
+            val flags: Int,
+        )
+
+        data class SourceClass(
+            val hasEnclosingMethod: Boolean,
+            val flags: Int,
+            val possibleOuterOwners: Set<String>,
+        )
+
+        val sourceClasses = LinkedHashMap<String, SourceClass>()
+        val sourceInnerClasses = LinkedHashMap<String, MutableList<SourceInnerClass>>()
+        ZipFile(input.toFile()).use { inputZip ->
+            val classFile = ClassFile.of()
+            val entries = inputZip.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                if (!entry.name.endsWith(".class") || entry.name.startsWith("META-INF/versions/")) continue
+
+                val sourceName = entry.name.removeSuffix(".class")
+                val model = classFile.parse(inputZip.getInputStream(entry).use { it.readBytes() })
+                val attributes = model.attributes()
+                val possibleOuterOwners = model.fields().mapNotNull { field ->
+                    val descriptor = field.fieldType().stringValue()
+                    val isPotentialOuter = field.fieldName().stringValue().startsWith("this\$") ||
+                            field.flags().has(java.lang.reflect.AccessFlag.SYNTHETIC)
+                    if (isPotentialOuter && descriptor.startsWith("L") && descriptor.endsWith(";")) {
+                        descriptor.substring(1, descriptor.length - 1)
+                    } else {
+                        null
+                    }
+                }.toSet()
+                sourceClasses[sourceName] = SourceClass(
+                    hasEnclosingMethod = attributes.any { it.attributeName().stringValue() == "EnclosingMethod" },
+                    flags = model.flags().flagsMask(),
+                    possibleOuterOwners = possibleOuterOwners,
+                )
+
+                attributes.filterIsInstance<InnerClassesAttribute>().forEach { attribute ->
+                    attribute.classes().forEach { innerClass ->
+                        val childName = innerClass.innerClass().asInternalName()
+                        sourceInnerClasses.getOrPut(childName) { ArrayList() }.add(
+                            SourceInnerClass(
+                                outerName = innerClass.outerClass().orElse(null)?.asInternalName(),
+                                innerName = innerClass.innerName().orElse(null)?.stringValue(),
+                                flags = innerClass.flagsMask(),
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        fun hasLocalOrAnonymousAncestor(sourceName: String): Boolean {
+            var current = sourceName
+            while (true) {
+                val simpleName = current.substringAfterLast('/')
+                if (simpleName.split('$').drop(1).any { it.isEmpty() || it.first().isDigit() }) return true
+                if (sourceClasses[current]?.hasEnclosingMethod == true) return true
+
+                val separator = current.lastIndexOf('$')
+                if (separator <= current.lastIndexOf('/')) return false
+                current = current.substring(0, separator)
+            }
+        }
+
+        val entriesByOwner = LinkedHashMap<String, LinkedHashMap<String, InnerClassInfo>>()
+        for ((sourceName, targetName) in sourceToTarget) {
+            if (sourceName !in sourceClassNames) continue
+
+            val sourceEntries = sourceInnerClasses[sourceName].orEmpty()
+            val memberEntries = sourceEntries
+                .filter { it.outerName != null && it.innerName != null }
+                .distinctBy { Triple(it.outerName, it.innerName, it.flags) }
+            // An explicit local/anonymous/non-member record is evidence against inventing member metadata.
+            if (sourceEntries.isNotEmpty() && memberEntries.isEmpty()) continue
+            if (memberEntries.size > 1) continue
+
+            val sourceMember = memberEntries.singleOrNull()
+            if (hasLocalOrAnonymousAncestor(sourceName)) continue
+
+            val sourceOwner = sourceMember?.outerName ?: sourceName.let { name ->
+                val separator = name.lastIndexOf('$')
+                if (separator > name.lastIndexOf('/')) name.substring(0, separator) else ""
+            }
+            if (sourceOwner.isEmpty() || sourceOwner !in sourceClassNames) continue
+            if (hasLocalOrAnonymousAncestor(sourceOwner)) continue
+
+            val targetOwner = sourceToTarget[sourceOwner] ?: continue
+            if (targetName == targetOwner) continue
+            if (sourceMember == null &&
+                    targetName.substringBeforeLast('/', "") != targetOwner.substringBeforeLast('/', "")) continue
+
+            val binaryPrefix = "$targetOwner\$"
+            val hasMappedOwnerPrefix = targetName.startsWith(binaryPrefix) ||
+                    (targetName.startsWith(targetOwner) && targetName.length > targetOwner.length)
+            // Without source InnerClasses evidence, a mapped owner prefix distinguishes flattened member names
+            // from an explicitly named top-level class that happens to contain '$' in its source name.
+            if (sourceMember == null && !hasMappedOwnerPrefix) continue
+
+            val nestedName = when {
+                targetName.startsWith(binaryPrefix) -> targetName.removePrefix(binaryPrefix)
+                targetName.startsWith(targetOwner) -> targetName.removePrefix(targetOwner)
+                else -> targetName.substringAfterLast('/')
+            }.removePrefix("\$")
+            if (nestedName.isEmpty() || nestedName.first().isDigit()) continue
+
+            val classInfo = sourceClasses[sourceName] ?: continue
+            val flags = if (sourceMember != null) {
+                sourceMember.flags
+            } else {
+                val hasOuterInstance = sourceOwner in classInfo.possibleOuterOwners
+                val memberFlags = classInfo.flags and INNER_CLASS_FLAGS
+                if (hasOuterInstance) memberFlags else memberFlags or ClassFile.ACC_STATIC
+            }
+            val nestedInfo = InnerClassInfo.of(
+                ClassDesc.of(targetName.replace('/', '.')),
+                java.util.Optional.of(ClassDesc.of(targetOwner.replace('/', '.'))),
+                java.util.Optional.of(nestedName),
+                flags
+            )
+
+            entriesByOwner.getOrPut(targetOwner) { LinkedHashMap() }[targetName] = nestedInfo
+            entriesByOwner.getOrPut(targetName) { LinkedHashMap() }[targetName] = nestedInfo
+        }
+
+        if (entriesByOwner.isEmpty()) return 0
+
+        fun compilationUnitName(targetName: String): String {
+            var owner = targetName
+            val visited = HashSet<String>()
+            while (visited.add(owner)) {
+                owner = entriesByOwner[owner]?.get(owner)?.outerClass()?.orElse(null)?.asInternalName() ?: break
+            }
+            return owner.substringAfterLast('/').substringBefore('$') + ".java"
+        }
+
+        val outputFile = output.toFile()
+        val temporary = java.nio.file.Files.createTempFile(outputFile.parentFile.toPath(), "${outputFile.name}.", ".tmp")
+        var restored = 0
+        val restoredRelationships = LinkedHashMap<String, InnerClassInfo>()
+        try {
+            ZipFile(outputFile).use { zip ->
+                JarOutputStream(java.nio.file.Files.newOutputStream(temporary)).use { jar ->
+                    val classFile = ClassFile.of()
+                    val entryEnumeration = zip.entries()
+                    while (entryEnumeration.hasMoreElements()) {
+                        val entry = entryEnumeration.nextElement()
+                        val bytes = zip.getInputStream(entry).use { it.readBytes() }
+                        val targetName = entry.name.removeSuffix(".class")
+                        val nestedEntries = if (entry.name.endsWith(".class")) entriesByOwner[targetName] else null
+                        val result = if (nestedEntries == null || nestedEntries.isEmpty()) {
+                            bytes
+                        } else {
+                            val model = classFile.parse(bytes)
+                            val existingInnerClasses = model.attributes().filterIsInstance<InnerClassesAttribute>()
+                            // Some mapped members have flattened binary names (RootTableData),
+                            // while their source lives in the restored outer class (Root.java).
+                            val sourceFileName = compilationUnitName(targetName)
+                            val existingSourceFiles = model.attributes().filterIsInstance<SourceFileAttribute>()
+                            val sourceFileChanged = existingSourceFiles.singleOrNull()?.sourceFile()?.stringValue() != sourceFileName
+                            val mergedEntries = LinkedHashMap<String, InnerClassInfo>()
+                            existingInnerClasses.forEach { attribute ->
+                                attribute.classes().forEach { innerClass ->
+                                    mergedEntries.putIfAbsent(innerClass.innerClass().asInternalName(), innerClass)
+                                }
+                            }
+                            val missingEntries = nestedEntries.filterKeys { it !in mergedEntries }
+                            missingEntries.forEach { (innerName, info) ->
+                                mergedEntries[innerName] = info
+                                restoredRelationships.putIfAbsent(innerName, info)
+                            }
+                            if (missingEntries.isEmpty() && existingInnerClasses.size <= 1 && !sourceFileChanged) {
+                                bytes
+                            } else {
+                                restored++
+                                val info = mergedEntries.values.sortedBy { it.innerClass().asInternalName() }
+                                classFile.transformClass(
+                                    model,
+                                    ClassTransform.dropping { element -> element is InnerClassesAttribute || element is SourceFileAttribute }
+                                        .andThen(ClassTransform.endHandler { builder ->
+                                        builder.with(InnerClassesAttribute.of(info))
+                                        builder.with(SourceFileAttribute.of(sourceFileName))
+                                        })
+                                )
+                            }
+                        }
+
+                        val outputEntry = java.util.jar.JarEntry(entry.name)
+                        if (entry.time >= 0L) outputEntry.time = entry.time
+                        jar.putNextEntry(outputEntry)
+                        jar.write(result)
+                        jar.closeEntry()
+                    }
+                }
+            }
+            replaceRemappedJar(temporary, outputFile)
+        } finally {
+            java.nio.file.Files.deleteIfExists(temporary)
+        }
+
+        if (restoredRelationships.isNotEmpty()) {
+            logger.lifecycle("Added InnerClasses entries for ${restoredRelationships.size} named member classes.")
+            restoredRelationships.values
+                .filter { innerClass ->
+                    val targetOwner = innerClass.outerClass().orElse(null)?.asInternalName() ?: return@filter false
+                    val targetName = innerClass.innerClass().asInternalName()
+                    targetName.startsWith(targetOwner) && !targetName.startsWith("$targetOwner\$")
+                }
+                .take(5)
+                .forEach { innerClass ->
+                    val targetOwner = innerClass.outerClass().orElse(null)?.asInternalName() ?: return@forEach
+                    val innerName = innerClass.innerName().orElse(null)?.stringValue() ?: return@forEach
+                    logger.lifecycle(
+                        "  ${innerClass.innerClass().asInternalName()} is ${targetOwner}.$innerName"
+                    )
+                }
+        }
+        return restored
+    }
+
+    private fun replaceRemappedJar(temporary: Path, output: File) {
+        try {
+            java.nio.file.Files.move(
+                temporary,
+                output.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            java.nio.file.Files.move(temporary, output.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
     }
 
     private fun jarClassNames(jar: Path): List<String> =
@@ -691,8 +1143,7 @@ abstract class RemapFromEnigmaTask : DefaultTask() {
     }
 
     /**
-     * The name of a nested class relative to its outer class. Anonymous classes keep the numeric
-     * `$1` suffix, named ones are appended with their first letter capitalised and no separator.
+     * 内部类相对于外部类的名称。匿名类保留数字后缀（如 `$1`）；具名内部类则直接拼接，首字母大写且不加分隔符。
      */
     private fun nestedTarget(outerTarget: String, suffix: String): String =
         outerTarget + suffix.split('$').joinToString("") { segment ->
@@ -701,9 +1152,8 @@ abstract class RemapFromEnigmaTask : DefaultTask() {
         }
 
     /**
-     * The Enigma reader joins a nested class' target onto its outer target with `$`. Rewrite those
-     * named targets to [nestedTarget] form. Anonymous targets and untouched third-party classes are
-     * left alone.
+     * Enigma 读取器会用 `$` 将内部类目标名拼接到外部类目标名后。将具名内部类目标改写为 [nestedTarget] 格式，
+     * 匿名类和未修改的第三方类保持不变。
      */
     private fun normaliseNestedTargetNames(
         tree: MemoryMappingTree,
@@ -734,10 +1184,16 @@ abstract class RemapFromEnigmaTask : DefaultTask() {
         }
         return changed
     }
+
+    private companion object {
+        const val INNER_CLASS_FLAGS =
+            ClassFile.ACC_PUBLIC or ClassFile.ACC_PRIVATE or ClassFile.ACC_PROTECTED or ClassFile.ACC_FINAL or
+                    ClassFile.ACC_INTERFACE or ClassFile.ACC_ABSTRACT or ClassFile.ACC_SYNTHETIC or
+                    ClassFile.ACC_ANNOTATION or ClassFile.ACC_ENUM
+    }
 }
 
-// The decompiled sources have no original API documentation. Central permits a
-// documentation placeholder; direct IDE users to the matching sources instead.
+// 反编译源码没有原始 API 文档。Central 允许使用占位文档；IDE 用户可直接查看对应源码。
 val gameJavadocJar = tasks.register<Jar>("gameJavadocJar") {
     archiveBaseName.set("game-lib")
     archiveVersion.set(gameLibVersion)

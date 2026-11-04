@@ -34,11 +34,11 @@ final class NavigationRegressionChecks {
 
     void run() throws Exception {
         check("singlePlayerMenuBackgroundAndRows", this::singlePlayerMenuBackgroundAndRows);
-        // No remote players, listening socket or master-server registration are involved.
+        // 不涉及远程玩家、监听套接字或主服务器注册。
         MapSelectActivity.loadMapWithAI("maps/skirmish/[p8]Many Islands (8p).tmx",
             true, 1, 0, true, false);
         network.startSingleplayerServer();
-        // Keep multiplayer host rules when the room starts another map, without opening a socket.
+        // 房间开始另一张地图时仍遵循多人游戏主机规则，但不打开套接字。
         network.singlePlayerServer = false;
         network.serverVisible = false;
         network.gameStarted = true;
@@ -156,7 +156,7 @@ final class NavigationRegressionChecks {
                 MultiplayerBattleroomActivity.class.getName(), null, false);
             MultiplayerBattleroomActivity room;
             try {
-                // Exercise the real engine return protocol, including match reset and menu option 21.
+                // 验证引擎实际的返回协议，包括比赛重置和菜单选项 21。
                 ((RWGameEngine) engine).gameThreadTaskQueue.add(
                     (Runnable) () -> network.sendReturnToBattleroom(null));
                 Activity returned = roomMonitor.waitForActivityWithTimeout(15000);

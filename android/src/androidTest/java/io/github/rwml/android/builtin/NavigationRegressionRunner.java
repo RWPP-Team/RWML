@@ -16,7 +16,7 @@ import io.github.rwml.api.game.GameBoot;
 import io.github.rwml.api.game.StageReport;
 
 
-/** Device regression tests without a dependency on a second test framework. */
+/** 无需依赖其他测试框架即可运行的设备回归测试。 */
 public final class NavigationRegressionRunner extends Instrumentation {
     @Override
     public void onCreate(Bundle arguments) {
@@ -30,15 +30,14 @@ public final class NavigationRegressionRunner extends Instrumentation {
         int resultCode = Activity.RESULT_CANCELED;
         Activity bootstrapScreen = null;
         try {
-            // Keep the test process in the foreground while the first-run dex cache is built.
-            // Some devices suspend even instrumented processes that have no visible activity.
+            // 首次构建 dex 缓存时让测试进程保持前台运行。有些设备会暂停没有可见 Activity 的测试进程。
             bootstrapScreen = startActivitySync(new Intent().setClassName(getTargetContext(),
                 "io.github.rwml.android.BootstrapTestActivity")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             AndroidBootstrap runtime = AndroidBootstrap.get(getTargetContext());
             verifyEarlyInterface(runtime);
             verifySharedGameBoot(runtime.gameBoot());
-            // Do not load checks whose signatures mention game classes before mounting their dex.
+            // 挂载游戏 dex 前，不要加载方法签名引用了游戏类的检查代码。
             new NavigationRegressionChecks(this).run();
             results.putString("stream", "\nTests run: 6, Failures: 0\n");
             resultCode = Activity.RESULT_OK;

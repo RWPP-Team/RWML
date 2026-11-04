@@ -50,7 +50,8 @@ class ExtensionLibraryTest {
             new ByteArrayInputStream(archive("example", "1", "description=replaced\n")), false));
         library.importArchive(new ByteArrayInputStream(archive("example", "1", "description=replaced\n")), true);
         ExtensionEntry replacement = library.entries().get(0);
-        assertEquals(imported.source(), replacement.source());
+        assertNotEquals(imported.source(), replacement.source());
+        assertFalse(Files.exists(imported.source()));
         assertEquals("1", replacement.version());
         assertEquals("replaced", replacement.description());
         assertFalse(replacement.enabled());
@@ -124,13 +125,13 @@ class ExtensionLibraryTest {
     }
 
     @Test
-    void differentVersionsCoexistAndTheNewestIsSelectedUntilAnExplicitChoiceOverridesIt() throws Exception {
+    void importingAnUpdateReplacesTheOldVersionAndPreservesDisabledState() throws Exception {
         DefaultExtensionLibrary library = library();
         ExtensionEntry first = library.importArchive(new ByteArrayInputStream(archive("example", "1", "")), false);
         ExtensionEntry second = library.importArchive(new ByteArrayInputStream(archive("example", "2", "")), false);
         assertNotEquals(first.source(), second.source());
-        assertEquals(2, library.entries().size());
-        // 两个版本共存不再需要人工选择：默认取最新版本。
+        assertEquals(1, library.entries().size());
+        assertFalse(Files.exists(first.source()));
         assertFalse(library.versionSelectionRequired());
         assertEquals("2", selected(library).version());
         library.selectVersion(second.source());
@@ -145,8 +146,8 @@ class ExtensionLibraryTest {
         assertTrue(next.entries().stream().noneMatch(ExtensionEntry::enabled));
         next.setEnabled("example", true);
         assertFalse(next.versionSelectionRequired());
-        next.selectVersion(first.source());
-        assertEquals("1", selected(next).version());
+        assertThrows(IOException.class, () -> next.importArchive(new ByteArrayInputStream(archive("example", "1", "")), false));
+        assertEquals("2", selected(next).version());
     }
 
     private static ExtensionEntry selected(DefaultExtensionLibrary library) throws IOException {
@@ -154,17 +155,18 @@ class ExtensionLibraryTest {
     }
 
     @Test
-    void replacingSelectedVersionKeepsChoiceButDoesNotRemoveOtherVersions() throws Exception {
+    void replacingSelectedVersionRetiresOlderArchivesAndKeepsTheChoice() throws Exception {
         DefaultExtensionLibrary library = library();
         ExtensionEntry one = library.importArchive(new ByteArrayInputStream(archive("example", "1", "")), false);
         ExtensionEntry two = library.importArchive(new ByteArrayInputStream(archive("example", "2", "")), false);
         library.selectVersion(two.source());
         library.importArchive(new ByteArrayInputStream(archive("example", "2", "description=updated\n")), true);
-        assertEquals(2, library.entries().size());
+        assertEquals(1, library.entries().size());
         ExtensionEntry selected = library.entries().stream().filter(ExtensionEntry::versionSelected).findFirst().orElseThrow();
-        assertEquals(two.source(), selected.source());
+        assertNotEquals(two.source(), selected.source());
         assertEquals("updated", selected.description());
-        assertTrue(Files.exists(one.source()));
+        assertFalse(Files.exists(one.source()));
+        assertFalse(Files.exists(two.source()));
         assertThrows(IOException.class, () -> library.selectVersion(root.resolve("outside.jar")));
     }
 
@@ -196,6 +198,63 @@ class ExtensionLibraryTest {
         assertTrue(store.selectedVersions().isEmpty());
     }
 
+    @Test
+    void upgradeRetainsTheLoadedArchiveAndOnlyLoadsTheNewVersionOnRestart() throws Exception {
+        HostPlatform host = new HostPlatform() {
+            final MixinBridge bridge = new MixinBridge() {
+                public void install() { }
+                public void registerArchive(Path archive) { }
+                public void register(Class<?> mixin) { }
+                public byte[] transform(String name, byte[] bytes, ClassLoader loader) { return bytes; }
+            };
+            public MixinBridge mixins() { return bridge; }
+            public List<ExtensionDescriptor> builtInExtensions() { return Collections.emptyList(); }
+            public List<String> stageArchives(Path path) { return Collections.emptyList(); }
+            public ClassLoader createExtensionLoader(ExtensionDescriptor descriptor) throws IOException {
+                return new java.net.URLClassLoader(new java.net.URL[]{descriptor.source().toUri().toURL()}, Entry.class.getClassLoader());
+            }
+            public ExtensionDescriptor reconcileJavaRequirement(ExtensionDescriptor descriptor, ProgressListener progress) { return descriptor; }
+        };
+        ExtensionManager manager = new ExtensionManager(root, host);
+        DefaultExtensionLibrary library = new DefaultExtensionLibrary(manager, manager.extensionDirectory(),
+            () -> List.of(manager.extensionDirectory()), () -> null, path -> { }, new UiHooks(failure -> fail(failure)));
+        ExtensionEntry old = library.importArchive(new ByteArrayInputStream(archive("example", "1", "", LoadableEntry.class)), false);
+        var initialLoad = manager.loadAll(manager.discover(), null);
+        assertTrue(initialLoad.failed().isEmpty(), initialLoad.failed().toString());
+        ExtensionEntry updated = library.importArchive(new ByteArrayInputStream(archive("example", "2", "", LoadableEntry.class)), false);
+        assertTrue(Files.exists(old.source()), "the running process may still use the old archive");
+        assertEquals("1", manager.handle("example").descriptor().version());
+        assertEquals("2", selected(library).version());
+        assertTrue(library.restartRequired());
+        manager.shutdown();
+        ExtensionManager next = new ExtensionManager(root, host);
+        try {
+            var nextLoad = next.loadAll(next.discover(), null);
+            assertTrue(nextLoad.failed().isEmpty(), nextLoad.failed().toString());
+            assertEquals(1, next.handles().size());
+            assertEquals("2", next.handle("example").descriptor().version());
+            assertEquals(updated.source(), next.handle("example").descriptor().source());
+        } finally { next.shutdown(); }
+    }
+
+    @Test
+    void updateRemovesExistingDuplicatesAndFailedSelectionKeepsOldArchive() throws Exception {
+        DefaultExtensionLibrary library = library();
+        ExtensionEntry old = library.importArchive(new ByteArrayInputStream(archive("example", "1", "")), false);
+        Files.copy(old.source(), library.directory().resolve("duplicate.jar"));
+        Path state = root.resolve("data/extension-state.properties");
+        Files.createDirectory(state);
+        Files.write(state.resolve("blocker"), new byte[]{1});
+        assertThrows(IOException.class, () -> library.importArchive(new ByteArrayInputStream(archive("example", "2", "")), false));
+        assertTrue(Files.exists(old.source()));
+        assertEquals(2, library.entries().size());
+        Files.delete(state.resolve("blocker"));
+        Files.delete(state);
+        library.importArchive(new ByteArrayInputStream(archive("example", "2", "")), false);
+        assertEquals(1, library.entries().size());
+        assertEquals("2", selected(library).version());
+    }
+
     private DefaultExtensionLibrary library(Path... extra) throws Exception {
         ExtensionManager manager = new ExtensionManager(root, new HostPlatform() {
             public MixinBridge mixins() { return null; }
@@ -213,18 +272,26 @@ class ExtensionLibraryTest {
     }
 
     private static byte[] archive(String id, String version, String extra) throws Exception {
+        return archive(id, version, extra, Entry.class);
+    }
+
+    private static byte[] archive(String id, String version, String extra, Class<? extends Extension> entryClass) throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (JarOutputStream jar = new JarOutputStream(bytes)) {
             jar.putNextEntry(new JarEntry("META-INF/extension.properties"));
-            jar.write(("id=" + id + "\nversion=" + version + "\nmainClass=" + Entry.class.getName() + "\n" + extra)
+            jar.write(("id=" + id + "\nversion=" + version + "\nmainClass=" + entryClass.getName() + "\n" + extra)
                 .getBytes(StandardCharsets.UTF_8));
             jar.closeEntry();
-            String name = Entry.class.getName().replace('.', '/') + ".class";
+            String name = entryClass.getName().replace('.', '/') + ".class";
             jar.putNextEntry(new JarEntry(name));
             try (InputStream input = Entry.class.getClassLoader().getResourceAsStream(name)) { input.transferTo(jar); }
             jar.closeEntry();
         }
         return bytes.toByteArray();
+    }
+
+    public static final class LoadableEntry implements Extension {
+        public void onLoad(ExtensionContext context) { }
     }
 
     public static final class Entry implements Extension {

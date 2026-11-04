@@ -1,0 +1,46 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!--
+    MSI 只负责安装安装程序，并在安装序列中调用它替换 game-lib.jar。
+    目标目录通过 GAMEDIR 传入；未提供时不做任何替换，交互安装请使用 EXE。
+  -->
+  <Package
+    Name="RWML Setup"
+    Manufacturer="RWPP-Team"
+    Version="$(var.Version)"
+    UpgradeCode="6e1b2a64-3c0f-4a5b-9d71-3f8e2c5a4b10"
+    Scope="perUser"
+    Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 RWML Setup。" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="RWML Setup" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="RWML Setup" Level="1">
+      <ComponentGroupRef Id="SetupFiles" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="SetupFiles" Directory="INSTALLFOLDER">
+      <Component Id="SetupExe" Guid="*">
+        <File Id="SetupExe" Source="$(var.SourceExe)" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <CustomAction
+      Id="PatchGame"
+      FileRef="SetupExe"
+      ExeCommand="--install --dir &quot;[GAMEDIR]&quot;"
+      Execute="deferred"
+      Impersonate="yes"
+      Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="PatchGame" After="InstallFiles" Condition="GAMEDIR" />
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

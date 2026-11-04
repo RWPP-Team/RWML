@@ -6,7 +6,7 @@ build/
 .kotlin
 __pycache__/
 
-### IntelliJ IDEA ###
+### IntelliJ IDEA 开发环境 ###
 .idea/modules.xml
 .idea/jarRepositories.xml
 .idea/compiler.xml
@@ -18,7 +18,7 @@ out/
 !**/src/main/**/out/
 !**/src/test/**/out/
 
-### Eclipse ###
+### Eclipse 开发环境 ###
 .apt_generated
 .classpath
 .factorypath
@@ -30,23 +30,27 @@ bin/
 !**/src/main/**/bin/
 !**/src/test/**/bin/
 
-### NetBeans ###
+### NetBeans 开发环境 ###
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
 
-### VS Code ###
+### VS Code 开发环境 ###
 .vscode/
 
-### Mac OS ###
+### macOS 系统文件 ###
 .DS_Store
 
-### Android ###
-# Machine-specific SDK location; ANDROID_HOME or the `android.sdk` Gradle property works too.
+### Android 开发文件 ###
+# 本机 SDK 路径；也可使用 ANDROID_HOME 或 Gradle 属性 `android.sdk`。
 local.properties
 .cxx/
 /android/src/main/res/
 /android/src/main/assets/
+/android/release/
 /.workbuddy/
+/scripts/
+/docs/
+/.idea/

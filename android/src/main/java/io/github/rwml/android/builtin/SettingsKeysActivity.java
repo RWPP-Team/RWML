@@ -77,7 +77,7 @@ public final class SettingsKeysActivity extends BuiltinActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle(LocalizedText.ui("ui.keyboard"));
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         setContentView(R.layout.settings_keyboard);
 
         settings = Rwml.get().ui().find(GameSettings.class);

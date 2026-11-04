@@ -16,12 +16,12 @@ import java.nio.file.Path;
 import java.time.Instant;
 
 /**
- * Entry point of the sample extension.
+ * 示例扩展的入口。
  *
- * <p>It shows the three things an extension typically does right after it is loaded:</p>
+ * <p>示例展示扩展加载后通常会立即执行的两项操作：</p>
  * <ol>
- *   <li>announce itself through the context logger;</li>
- *   <li>persist some state in its private data directory;</li>
+ *   <li>通过上下文日志记录器报告自身已加载；</li>
+ *   <li>在私有数据目录中持久化状态；</li>
  * </ol>
  */
 public final class HelloExtension implements Extension {
@@ -31,8 +31,7 @@ public final class HelloExtension implements Extension {
         context.log("Hello Extension starting up");
 
         Path marker = context.dataDirectory().resolve("last-load.txt");
-        // Files.write rather than Files.writeString: the same extension also runs on Android, where
-        // the writeString helper does not exist below API 33.
+        // 使用 Files.write 而不是 Files.writeString：此扩展也会在 Android 上运行，而 API 33 以下没有 writeString 方法。
         Files.write(marker, Instant.now().toString().getBytes(StandardCharsets.UTF_8));
         context.log("Recorded this load in " + marker);
     }

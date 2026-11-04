@@ -74,7 +74,7 @@ class ExtensionPackImportTest {
     }
 
     @Test
-    void manifestPinsAVersionAndSelectsTheNextLaunchWithoutUserInteraction() throws Exception {
+    void packResolvesDuplicateIdsBeforeApplyingItsManifest() throws Exception {
         DefaultExtensionLibrary library = library();
         byte[] pack = pack(
             "core-1.jar", archive("lib.core", "1.0", ""),
@@ -87,14 +87,13 @@ class ExtensionPackImportTest {
         assertEquals(2, report.installed(), report.failed().toString());
         assertEquals("Demo pack", report.name());
         assertEquals("2.1", report.version());
-        // 清单固定较低版本，因此自动解析不会改选更高版本，也不需要用户再确认。
+        // The older archive was replaced; an unavailable pin cannot select it.
         assertFalse(library.versionSelectionRequired());
         ExtensionEntry selected = library.entries().stream().filter(ExtensionEntry::versionSelected)
             .findFirst().orElseThrow();
-        assertEquals("1.0", selected.version());
+        assertEquals("2.0", selected.version());
         assertFalse(selected.enabled());
-        assertTrue(library.entries().stream().filter(entry -> entry.version().equals("2.0"))
-            .noneMatch(ExtensionEntry::versionSelected));
+        assertEquals(1, library.entries().size());
     }
 
     @Test
@@ -109,7 +108,7 @@ class ExtensionPackImportTest {
     }
 
     @Test
-    void replacingAnInstalledVersionKeepsOtherVersionsOfTheSameExtension() throws Exception {
+    void replacingAnInstalledVersionRetiresOtherVersionsOfTheSameExtension() throws Exception {
         DefaultExtensionLibrary library = library();
         library.importArchive(new ByteArrayInputStream(archive("lib.core", "1.0", "")), false);
         library.importArchive(new ByteArrayInputStream(archive("lib.core", "2.0", "")), false);
@@ -118,7 +117,7 @@ class ExtensionPackImportTest {
         ExtensionPackReport report = library.importPack(new ByteArrayInputStream(pack), true);
 
         assertEquals(1, report.installed(), report.failed().toString());
-        assertEquals(2, library.entries().size());
+        assertEquals(1, library.entries().size());
         assertEquals("updated", library.entries().stream()
             .filter(entry -> entry.version().equals("2.0")).findFirst().orElseThrow().description());
     }

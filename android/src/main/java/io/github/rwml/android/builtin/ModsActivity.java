@@ -72,7 +72,7 @@ public final class ModsActivity extends BuiltinActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle(LocalizedText.ui("ui.mods"));
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         setContentView(R.layout.mods);
 
         GameEngine engine = GameEngine.getInstance();

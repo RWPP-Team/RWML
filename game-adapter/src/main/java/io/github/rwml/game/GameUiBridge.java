@@ -63,7 +63,7 @@ public final class GameUiBridge implements GameUi {
 
     @Override
     public String mapName(String displayName) {
-        return LocaleEngine.b(displayName);
+        return LocaleEngine.translateMapName(displayName);
     }
 
     @Override

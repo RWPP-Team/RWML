@@ -6,22 +6,19 @@
  */
 
 import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.api.JavaVersion
 
 // ------------------------------------------------------------------------------------------------
-// RWML core: everything that does not depend on where RWML runs.
+// RWML 核心模块：包含所有与 RWML 运行平台无关的内容。
 //
-// The API an extension is written against, the loader that discovers and orders extensions, the
-// boot a host fills in with its platform's steps. Built-in interfaces live in their host modules.
-// The game itself is not here, and neither is any host: a module either hosts this one and supplies
-// a HostPlatform, or extends it.
+// 包含扩展使用的 API、发现并排序扩展的加载器，以及由宿主补充平台专属步骤的启动流程。内置界面位于各宿主模块。
+// 此处不包含游戏本身或任何宿主：其他模块要么提供 HostPlatform 来承载本模块，要么扩展本模块。
 //
-// Nothing here names the game, so the module has no dependency on any game jar - a class-file
-// reference to one would put the game on the class path of every consumer, which is what makes the
-// game's mixins silently stop applying on Android.
+// 本模块没有引用任何游戏类，因此不依赖游戏 jar。若字节码引用游戏类，所有使用者的类路径都会包含游戏，
+// 这会导致游戏 mixin 在 Android 上悄然失效。
 //
-// This is the module RWML publishes. An extension is compiled against it; the desktop host is not
-// published, because it is a host rather than a dependency - it ships as the drop-in game-lib.jar
-// that :packageGameJar builds.
+// RWML 对外发布此模块，扩展以它作为编译依赖。桌面宿主不会单独发布，因为它是宿主而非依赖；它会随
+// `:packageGameJar` 构建的替换版 game-lib.jar 一起发布。
 // ------------------------------------------------------------------------------------------------
 
 plugins {
@@ -32,8 +29,7 @@ plugins {
 
 description = "RWML core: the platform-neutral extension system (API, loader, boot)."
 
-// The artifact is named for the coordinate it is published under, so a local build and a downloaded
-// one are recognisably the same thing.
+// 构件名称与发布坐标一致，便于辨认本地构建和下载所得的文件。
 base { archivesName.set("rwml-core") }
 
 group = "io.github.rwpp-team"
@@ -46,8 +42,14 @@ dependencies {
 
 java {
     toolchain { languageVersion.set(JavaLanguageVersion.of(25)) }
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
     withJavadocJar()
     withSourcesJar()
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(17)
 }
 
 tasks.withType<Jar>().configureEach {
@@ -90,11 +92,10 @@ tasks.withType<Javadoc>().configureEach {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Publishing
+// 发布
 //
-// The POM states no dependency: nothing outside the JDK is needed to use this module, and the two
-// frameworks the desktop bundles are not part of the API an extension is written against. That is
-// also why the module is published alone.
+// POM 不声明依赖：使用本模块无需 JDK 以外的库，桌面版打包的两个框架也不是扩展 API 的组成部分。
+// 因此本模块单独发布。
 // ------------------------------------------------------------------------------------------------
 
 publishing {
@@ -132,8 +133,7 @@ publishing {
     }
 
     repositories {
-        // Everything is staged here first, so the bundle the Central Portal is handed is exactly
-        // what was built and reviewed.
+        // 先将所有文件暂存到此处，确保交给 Central Portal 的包与构建并审核过的内容完全一致。
         maven {
             name = "localStaging"
             url = uri(layout.buildDirectory.dir("central-staging").get().asFile)
@@ -148,8 +148,7 @@ publishing {
                     "https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
                 }
             )
-            // Credentials are only attached when they were given, so a local build never asks for
-            // them and a publish without them fails at the upload rather than at configuration.
+            // 仅在提供凭据时才附加它们，因此本地构建无需凭据；未提供凭据的发布会在上传时失败，而非配置阶段。
             val user = providers.gradleProperty("centralUsername").orNull
             val secret = providers.gradleProperty("centralPassword").orNull
             if (user != null && secret != null) {
@@ -162,8 +161,7 @@ publishing {
     }
 }
 
-// A property that was declared but left empty is treated as absent: `gradle.properties` ships the
-// signing key names with no value, and an empty string is not a key.
+// 已声明但为空的属性按未设置处理：`gradle.properties` 中列出了签名密钥属性名但没有填写值，空字符串并非密钥。
 fun gradlePropertyOrNull(name: String): String? =
     providers.gradleProperty(name).orNull?.takeIf { it.trim().isNotEmpty() }
 
@@ -176,8 +174,7 @@ signing {
         gradlePropertyOrNull("signingInMemoryPassword") ?: environmentOrNull("GPG_PASSPHRASE")
     val keyId = gradlePropertyOrNull("signing.gnupg.keyName") ?: gradlePropertyOrNull("signing.keyId")
 
-    // A snapshot is not signed, and neither is a build with no key: the signature is what the
-    // portal checks, and requiring it from a machine that has no key would only stop local builds.
+    // 快照版本以及未提供密钥的构建都不签名。门户检查的是签名；若在没有密钥的机器上强制签名，只会阻止本地构建。
     isRequired = (inMemoryKey != null || keyId != null) && !version.toString().endsWith("SNAPSHOT")
     if (inMemoryKey != null) {
         useInMemoryPgpKeys(inMemoryKey, inMemoryPassword)

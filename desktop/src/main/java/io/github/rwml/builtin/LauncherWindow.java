@@ -53,6 +53,8 @@ public final class LauncherWindow {
     private final JButton language = new JButton();
     private final JButton restart = new JButton();
     private final JButton exit = new JButton();
+    private final JLabel updateNotice = new JLabel();
+    private int pendingUpdates;
     private boolean busy;
     private boolean failed;
 
@@ -80,6 +82,16 @@ public final class LauncherWindow {
         log.setWrapStyleWord(true);
         content.add(diagnostics, BorderLayout.CENTER);
         JPanel actions = new JPanel();
+        updateNotice.setVisible(false);
+        updateNotice.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        updateNotice.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent event) {
+                if (pendingUpdates > 0) {
+                    new ExtensionManagementWindow(window, host, true).setVisible(true);
+                }
+            }
+        });
+        actions.add(updateNotice);
         for (JButton button : new JButton[]{start, extensions, language, restart, exit}) { actions.add(button); }
         content.add(actions, BorderLayout.SOUTH);
         start.addActionListener(event -> start());
@@ -111,6 +123,38 @@ public final class LauncherWindow {
         if (host.services().extensions().versionSelectionRequired()) {
             new ExtensionManagementWindow(window, host).setVisible(true);
         }
+        checkRepositoryUpdates();
+    }
+
+    /**
+     * 后台读取仓库目录并标记可更新的扩展。
+     *
+     * <p>目录读取只在后台线程发生，失败时静默保留原有界面：仓库不可达不应妨碍启动游戏。</p>
+     */
+    private void checkRepositoryUpdates() {
+        if (!host.services().hasRepository()) {
+            return;
+        }
+        new Thread(() -> {
+            int count;
+            try {
+                count = host.services().repository()
+                    .updates(host.services().extensions().entries()).size();
+            } catch (Exception failure) {
+                System.err.println("[rwml] Cannot check extension updates: " + failure);
+                return;
+            }
+            int pending = count;
+            SwingUtilities.invokeLater(() -> {
+                pendingUpdates = pending;
+                if (!window.isDisplayable()) {
+                    return;
+                }
+                updateNotice.setText(messages.text("extensions.updatesAvailable", pending));
+                updateNotice.setVisible(pending > 0);
+                window.pack();
+            });
+        }, "rwml-repository-check").start();
     }
 
     /** 调用任何扩展代码前先创建引导流程；调用线程不会运行在 EDT 上。 */

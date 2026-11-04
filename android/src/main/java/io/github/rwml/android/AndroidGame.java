@@ -55,6 +55,7 @@ public final class AndroidGame {
         // 因为包装器只负责提供窗口，不应替代应用本身。
         AndroidApp.setApplicationContext(platform);
         GameUiBridge.install(AndroidBootstrap.get(platform).ui());
+        io.github.rwml.android.builtin.HostNetworkCallbacks.install(engine.networkEngine);
         HostLog.add("The engine is up: " + engine.getClass().getName());
         return engine;
     }

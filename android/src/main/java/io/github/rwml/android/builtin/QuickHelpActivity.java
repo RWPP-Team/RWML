@@ -53,7 +53,7 @@ public final class QuickHelpActivity extends BuiltinActivity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        AndroidApp.prepare(this, false);
+        if (!AndroidApp.prepare(this, false)) { return; }
         setContentView(R.layout.quick_help);
 
         int[] ids = {R.drawable.help1, R.drawable.help2, R.drawable.help3, R.drawable.help4};
@@ -84,7 +84,7 @@ public final class QuickHelpActivity extends BuiltinActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        AndroidApp.prepare(this, false);
+        if (!AndroidApp.prepare(this, false)) { return; }
     }
 
     @Override

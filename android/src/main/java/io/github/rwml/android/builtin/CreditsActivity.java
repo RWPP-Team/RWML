@@ -33,7 +33,7 @@ public final class CreditsActivity extends BuiltinActivity {
         super.onCreate(state);
         setTitle(LocalizedText.ui("ui.credits"));
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         setContentView(R.layout.credits);
 
         fillCredits();

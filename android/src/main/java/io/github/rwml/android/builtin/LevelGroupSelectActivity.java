@@ -53,7 +53,7 @@ public final class LevelGroupSelectActivity extends BuiltinActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle(LocalizedText.ui("ui.singlePlayer"));
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         background = new MenuBackground(this, R.layout.level_select);
 
         hide(R.id.aiDifficulty);

@@ -46,7 +46,7 @@ public final class ReplaySelectActivity extends BuiltinActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle(LocalizedText.ui("ui.replay"));
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         setContentView(R.layout.replay_select);
 
         View back = findViewById(R.id.levelButtonBack);

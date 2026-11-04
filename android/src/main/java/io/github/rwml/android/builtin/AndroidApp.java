@@ -45,25 +45,29 @@ public final class AndroidApp {
     /**
      * 初始化一个 Activity。
      *
-     * <p>如果引擎尚未创建，除启动画面以外的界面都会转交给启动画面处理。Android 可能从上次打开的 Activity
-     * 重启进程，而该入口不会执行启动画面的工作，因此 dex 虽然已挂载，引擎却可能尚未创建。此时依赖引擎的
-     * 界面会无内容可显示，看起来像是列表为空，而不是缺少引擎。启动画面是唯一能创建引擎的界面，因此其他界面
-     * 都会先进入启动画面。</p>
+     * <p>原生游戏界面只可以在启动器已经准备过游戏运行时、且 IntroScreen 已完成引擎启动后继续初始化。Android
+     * 可能在任一 Activity 上恢复进程；若运行时还是冷状态，必须回到 MainActivity，由其扫描界面扩展并显示启动器，
+     * 让玩家在启动器 console 中准备 DEX/mixin/扩展。此处不能同步准备运行时，也不能绕过启动器直接进入 LoadingScreen。</p>
      *
      * @param activity   正在启动的 Activity
      * @param fullScreen 是否隐藏系统栏
      */
-    public static void prepare(Activity activity, boolean fullScreen) {
-        // 任何代码按名称查找游戏类之前，运行时都必须准备就绪：Android 可能从上次打开的 Activity 重启进程，
-        // 而该 Activity 从未执行启动画面的引导流程。
-        AndroidBootstrap.prepare(activity.getApplicationContext());
+    public static boolean prepare(Activity activity, boolean fullScreen) {
+        AndroidBootstrap runtime = AndroidBootstrap.get(activity.getApplicationContext());
+        if (!runtime.launcherReady() || runtime.gameBoot() == null || !runtime.gameBoot().isStarted()) {
+            Log.i(TAG, "A native screen resumed without a prepared engine; returning through the launcher.");
+            startScreen(activity, new Intent(activity, io.github.rwml.android.MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+            activity.finish();
+            return false;
+        }
         GameEngine engine = GameEngine.getInstance();
         if (!(activity instanceof IntroScreen) && engine == null) {
-            Log.i(TAG, "No engine is running; handing over to the splash from "
+            Log.i(TAG, "The engine is missing after boot; handing over to the loading screen from "
                 + activity.getClass().getSimpleName() + ".");
             startScreen(activity, new Intent(activity, IntroScreen.class));
             activity.finish();
-            return;
+            return false;
         }
         // 其余工作沿用游戏自身的界面初始化方法，而不在此重复实现：保存引擎读取的应用上下文；根据玩家的设置
         // 隐藏系统栏；显示先前因没有界面而暂存的引擎消息（例如地图加载失败消息）；清除窗口背景，因为游戏每帧
@@ -75,6 +79,7 @@ public final class AndroidApp {
             // 即使平台界面设置失败，也必须显示该界面：玩家正在等待这个界面，否则只会看到空白窗口。
             Log.w(TAG, "The game's screen setup did not complete.", t);
         }
+        return true;
     }
 
     /**

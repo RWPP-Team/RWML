@@ -39,11 +39,11 @@ public interface ExtensionLibrary {
     /**
      * 导入一个包含多个扩展的 zip 整合包。
      *
-     * <p>包内每个带 {@code META-INF/extension.properties} 的 jar 都按 {@link #importArchive} 的规则安装；同一 ID 的不同
-     * 版本可以共存，下一次启动时由版本解析挑选。不带说明文件的成员被跳过而不是视为错误，因为整合包常同时携带库与文档。</p>
+     * <p>包内每个带 {@code META-INF/extension.properties} 的 jar 都按 {@link #importArchive} 的规则安装。较新版本会自动
+     * 替换同 ID 的受管理归档；正在运行的归档保留到重启，启动前始终为每个 ID 选出一个版本。不带说明文件的成员被跳过。</p>
      *
      * @param input 压缩包内容
-     * @param replace 是否替换已安装的同一版本
+     * @param replace 是否允许替换内容不同的同一版本或显式降级
      * @return 每个成员的导入结果
      */
     default ExtensionPackReport importPack(InputStream input, boolean replace) throws IOException {

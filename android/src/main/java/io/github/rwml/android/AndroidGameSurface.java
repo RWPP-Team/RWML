@@ -116,6 +116,13 @@ public final class AndroidGameSurface implements UiSurface {
         SurfaceOwners surfaceOwners = new SurfaceOwners(viewModelStore, activity);
         Bundle restored = savedInstanceState == null ? null : savedInstanceState.getBundle(SAVED_STATE_KEY);
         surfaceOwners.create(restored);
+        // Window-scoped UI consumers look up owners from the window content root, not necessarily
+        // from the extension's child view. Native GameActivity does not install AndroidX owners.
+        View decor = activity.getWindow().getDecorView();
+        ViewTreeLifecycleOwner.set(decor, surfaceOwners);
+        ViewTreeViewModelStoreOwner.set(decor, surfaceOwners);
+        ViewTreeSavedStateRegistryOwner.set(decor, surfaceOwners);
+        ViewTreeOnBackPressedDispatcherOwner.set(decor, surfaceOwners);
         View created = null;
         try {
             Object result = factory.create(activity);

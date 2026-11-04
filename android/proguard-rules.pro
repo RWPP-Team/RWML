@@ -1,13 +1,11 @@
-# The core RWML artifact is a self-contained JVM agent: it bundles kotlin-stdlib, asm and the
-# IronCore ASM framework, and its agent entry points reference java.lang.instrument. None of that is
-# used on Android (mixins are applied at build time instead), so the missing desktop-only types are
-# harmless and must not fail the build.
+# RWML 核心构件是自包含的 JVM 代理：其中打包了 kotlin-stdlib、asm 和 IronCore ASM 框架，代理入口会引用
+# java.lang.instrument。Android 不会用到这些内容（mixin 在构建时应用），因此缺少仅桌面端使用的类型是正常情况，
+# 不应导致构建失败。
 -dontwarn java.lang.instrument.**
 -dontwarn com.sun.tools.attach.**
 -dontwarn javax.annotation.**
 
-# Extensions are loaded reflectively by RWML itself, so their entry points and mixins must survive
-# shrinking if minification is ever turned on.
+# RWML 会通过反射加载扩展，因此即使将来启用代码缩减，扩展入口点和 mixin 也必须保留。
 -keep class kotlin.** { *; }
 -keep class kotlinx.** { *; }
 -keep class io.github.rwml.** { *; }

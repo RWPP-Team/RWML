@@ -24,11 +24,8 @@
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 
     <application
         android:allowBackup="false"
@@ -68,7 +65,30 @@
                 <data android:mimeType="application/java-archive" />
                 <data android:mimeType="application/x-java-archive" />
                 <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/x-jar" />
                 <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/x-rwmod" />
+                <data android:mimeType="application/*" />
+                <data android:mimeType="text/xml" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/java-archive" />
+                <data android:mimeType="application/x-java-archive" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/x-rwmod" />
+                <data android:mimeType="application/*" />
+                <data android:mimeType="text/xml" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
 
@@ -105,17 +125,6 @@
 
         <activity
             android:name="io.github.rwml.android.builtin.InGameActivity"
-            android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
-            android:exported="false"
-            android:screenOrientation="sensorLandscape" />
-
-        <!-- The screen the game's own in-game settings menu opens to change which folder the game
-             reads and writes in. It belongs to the game rather than to this app, and it is declared
-             here for the same reason every screen the game opens is: an activity the platform has
-             not been told about cannot be started at all, and the game's own manifest is not the one
-             that is built into this APK. -->
-        <activity
-            android:name="com.corrodinggames.rts.appFramework.FolderSelectActivity"
             android:configChanges="screenSize|orientation|keyboardHidden|screenLayout|uiMode|fontScale|locale|navigation|keyboard|touchscreen"
             android:exported="false"
             android:screenOrientation="sensorLandscape" />

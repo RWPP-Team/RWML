@@ -209,7 +209,7 @@ public final class MultiplayerBattleroomActivity extends BuiltinActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle(LocalizedText.ui("ui.battleroom"));
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         setContentView(R.layout.multiplayer_battleroom);
         // 对战房间绘制在游戏自身的平铺背景上，因此移除窗口背景。聊天输入框位于长布局底部，打开键盘时应平移窗口，而不是调整整个布局的大小。
         getWindow().setBackgroundDrawable(null);

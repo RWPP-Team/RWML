@@ -32,6 +32,7 @@ import io.github.rwml.api.i18n.Messages;
 import io.github.rwml.api.ui.UiFramework;
 import io.github.rwml.api.ui.UiHooks;
 import io.github.rwml.api.ui.UiServices;
+import io.github.rwml.core.repository.RepositoryClient;
 import io.github.rwml.core.DefaultExtensionLibrary;
 import io.github.rwml.core.ExtensionDescriptor;
 import io.github.rwml.core.ExtensionDescriptorReader;
@@ -133,6 +134,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
     private ClassLoader classLoader;
     private LoadReport lastReport;
     private GameBoot gameBoot;
+    private boolean gameStartRequested;
     private UiServices ui;
     private String cacheKey = "";
     private boolean cacheHit;
@@ -269,22 +271,14 @@ public final class AndroidBootstrap implements RwmlRuntime {
             new DefaultExtensionLibrary(manager, sharedExtensionsDirectory(),
                 () -> Arrays.asList(sharedExtensionsDirectory(), extensionsDirectory),
                 () -> lastReport, Dexer::validateCarriedDex, hooks), hooks);
+        // 仓库只读取数据目录中的配置；目录与归档请求由界面在工作线程发起。
+        try {
+            ui.repository(RepositoryClient.open(ui.extensions(), Platform.ANDROID, dataDirectory));
+        } catch (IOException | RuntimeException unavailable) {
+            HostLog.error("The extension repository is unavailable", unavailable);
+        }
         gameBoot = new GameBoot(new GameContextImpl(context, null, rootDirectory, HostLog::add));
         gameBoot.stopOnFailure();
-        gameBoot.beforeStages("runtime", stage -> {
-            preparationProgress = (percent, message) -> stage.subProgress(message);
-            try {
-                stage.subProgress("game dex");
-                if (!prepare()) { throw new IllegalStateException("Game preparation failed: " + log()); }
-                stage.subProgress("extensions");
-                LoadReport loaded = load((percent, message) -> stage.subProgress(message));
-                if (!loaded.isClean() || manager.recoveryRequired()) {
-                    ExtensionException failure = manager.recoveryFailure("Extension preparation failed: " + loaded.failed());
-                    showRecovery(failure);
-                    throw failure;
-                }
-            } finally { preparationProgress = ProgressListener.NOOP; }
-        });
         gameBoot.add(GameBoot.ENGINE, stage -> {
             requirePrepared();
             // 只有在游戏 dex 加入应用类路径后，才能解析面向游戏的辅助类。
@@ -393,6 +387,23 @@ public final class AndroidBootstrap implements RwmlRuntime {
         return loaded;
     }
 
+    /** Host bootstrap phase: install mixins and extensions without constructing the engine. */
+    public synchronized void prepareGameRuntime(ProgressListener progress) throws Exception {
+        preparationProgress = progress == null ? ProgressListener.NOOP : progress;
+        try {
+            preparationProgress.onProgress(0, "game dex");
+            if (!prepare()) { throw new IllegalStateException("Game preparation failed: " + log()); }
+            LoadReport loaded = load(preparationProgress);
+            if (!loaded.isClean() || manager.recoveryRequired()) {
+                ExtensionException failure = manager.recoveryFailure("Extension preparation failed: " + loaded.failed());
+                showRecovery(failure);
+                throw failure;
+            }
+        } finally { preparationProgress = ProgressListener.NOOP; }
+    }
+
+    public synchronized void requestGameStart() { gameStartRequested = true; }
+
     /** @return 准备流程按顺序产生的所有日志行。 */
     public List<String> log() {
         return Collections.unmodifiableList(new ArrayList<>(log));
@@ -407,6 +418,9 @@ public final class AndroidBootstrap implements RwmlRuntime {
     public boolean usedCache() {
         return cacheHit;
     }
+
+    /** Launcher metadata is ready; game classes and mixins are deferred until GameBoot starts. */
+    public synchronized boolean launcherReady() { return interfacePrepared; }
 
     /** @return 最近一次构建中，已注册 mixin 修改的游戏类数量。 */
     public int patchedClasses() {
@@ -482,7 +496,7 @@ public final class AndroidBootstrap implements RwmlRuntime {
         }
         record("restarting in a fresh process: the dex is built and the cache key is written");
         writeMarker(marker);
-        requestAutostart();
+        if (gameStartRequested) { requestAutostart(); }
         int pid = android.os.Process.myPid();
         try {
             context.startActivity(new android.content.Intent(context, RestartActivity.class)
@@ -687,7 +701,12 @@ public final class AndroidBootstrap implements RwmlRuntime {
                 AndroidSoundFactoryMixin.class, GraphicsEngineAndroidMixin.class, LocaleUiMixin.class,
                 NetworkEngineNotificationMixin.class, ServerListNotifyMixin.class,
                 MinimapHandlerMixin.class, MinimapHandlerQueuedPointsDrawMixin.class,
-                io.github.rwml.android.mixin.MasterServerListLifecycleMixin.class);
+                io.github.rwml.android.mixin.MasterServerListLifecycleMixin.class,
+                io.github.rwml.android.mixin.DirectStorageMixins.Access.class,
+                io.github.rwml.android.mixin.DirectStorageMixins.Loader.class,
+                io.github.rwml.android.mixin.DirectStorageMixins.Settings.class,
+                io.github.rwml.android.mixin.DirectStorageMixins.Readers.class,
+                io.github.rwml.android.mixin.DirectStorageMixins.Permissions.class);
 
             // 资源包替换的是游戏自身的资源文件；这些处理方法的注入点固定，因此由宿主随应用一起注册，
             // 不依赖任何扩展归档。它们在任何游戏类被改写之前登记。

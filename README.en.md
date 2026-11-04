@@ -1,6 +1,6 @@
 <h1 align="center">RWML</h1>
 
-<div align="center"><img alt="Tests: Gradle" src="https://img.shields.io/badge/tests-Gradle-blue.svg"> <img alt="License: RWPP-Team Shield" src="https://img.shields.io/badge/license-RWPP--Team%20Shield-blue.svg"> <img alt="Version: 1.0.1" src="https://img.shields.io/badge/version-1.0.1-green.svg"> <img alt="Language: Java" src="https://img.shields.io/badge/language-Java-orange.svg"></div>
+<div align="center"><img alt="Tests: Gradle" src="https://img.shields.io/badge/tests-Gradle-blue.svg"> <img alt="License: RWPP-Team Shield" src="https://img.shields.io/badge/license-RWPP--Team%20Shield-blue.svg"> <img alt="Version: 1.0.2" src="https://img.shields.io/badge/version-1.0.2-green.svg"> <img alt="Language: Java" src="https://img.shields.io/badge/language-Java-orange.svg"></div>
 
 <p align="center">🇨🇳 <a href="./README.md">简体中文</a> | 🇺🇸 English</p>
 
@@ -57,7 +57,7 @@ Compile extensions against core and the mapped game library (includes decompiled
 ```kotlin
 repositories { mavenCentral() }
 dependencies {
-    compileOnly("io.github.rwpp-team:rwml-core:1.0.1")
+    compileOnly("io.github.rwpp-team:rwml-core:1.0.2")
     compileOnly("io.github.rwpp-team:game-lib:v2-1.15")
 }
 ```
@@ -89,21 +89,26 @@ public final class HelloExtension implements Extension {
 |-----------------------------------------------|-----------------------------------------------------------------|
 | `Extension.onLoad(ExtensionContext)`          | Entry point, called once per loaded instance                    |
 | `ExtensionContext`                            | Private data directory, logging, class loader, and mixin bridge |
-| `dependsOn` / `loadAfter` / `loadBefore`      | Required dependencies / preferred load order                    |
+| `dependsOn` / `loadAfter` / `loadBefore`      | Required dependencies (with versions) / preferred load order    |
 | `ui-framework`                                | Class implementing `UiFramework.start(UiHost)`                  |
+| `resourcePack`                                | Marks a resource pack; `mainClass` becomes optional, one active |
 | `UiHost.gameBoot()`                           | Shared game initialization and progress reporting               |
 | `UiHost.services()` / `ExtensionContext.ui()` | Translations, archive management, events and typed services     |
 | `GameUi` / `GameSettings`                     | Portable menu data, translations, map names and typed settings  |
 
 See [UI framework services](./docs/ui-framework.md) for lifecycle, hook and extension examples.
 
+Dependencies may state a version range, as in `dependsOn=com.acme.core>=1.4, com.acme.renderer^2.0`. When several versions of an extension are installed, the resolver picks one without asking. A zip pack containing several extensions can be imported from the extension manager. See [extension packs and version constraints](./docs/extension-packs.md).
+
 Only one UI framework loads; external frameworks take priority over builtin. On Android, the selected framework starts before game dex preparation. Draw the loading screen, then start `GameBoot` on a worker; use game classes after boot succeeds.
+
+An extension may declare itself a resource pack and replace original resources with `gui/`, `units/`, `res/` and similar directories from its archive. One pack is active at a time; its content is materialised into `data/resource-pack` when it changes, and host-owned mixins take over the three paths the game reads resources through. Layout and limits are in [resource packs](./docs/resource-packs.md).
 
 Use `compileOnly` for core, game APIs, and ASM annotations; do not bundle host libraries. Android extensions also need executable `classes.dex` alongside `.class` metadata and mixins. See the [example](./example), [shared API](./core/src/main/java/io/github/rwml/api), and [ASM-Framework](https://github.com/RELAY-CN/ASM-Framework).
 
 ## Building
 
-Requires a JDK 25 toolchain, Android SDK 35, the original `work/game-lib.jar`, and mappings in `work/mappings`. On Windows, replace `./gradlew` with `.\gradlew.bat`.
+Requires a JDK 25 toolchain, Android SDK 36, the original `work/game-lib.jar`, and mappings in `work/mappings`. On Windows, replace `./gradlew` with `.\gradlew.bat`.
 
 ```bash
 git submodule update --init --recursive

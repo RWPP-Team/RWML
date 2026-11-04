@@ -38,13 +38,19 @@ public final class MainActivity extends ComponentActivity {
         status.setGravity(android.view.Gravity.CENTER);
         setContentView(status);
         EngineContext.obtain(getApplicationContext());
-        checkStoragePermission();
+        android.net.Uri incoming = ArchiveImports.incomingUri(getIntent());
+        if (incoming == null) checkStoragePermission();
+        else stageIncoming(incoming, true);
     }
 
     private boolean launched;
     private boolean requesting;
+    private volatile boolean externalGameFileIntent;
+    private volatile Throwable incomingFailure;
     private void checkStoragePermission() {
-        if (launched || requesting) { return; }
+        if (requesting) return;
+        if (launched && hasStoragePermission()) return;
+        launched = false;
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             if (!android.os.Environment.isExternalStorageManager()) {
                 requesting = true;
@@ -67,6 +73,54 @@ public final class MainActivity extends ComponentActivity {
         }
         launched = true;
         Thread worker = new Thread(this::launch, "rwml-ui-loader");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private boolean hasStoragePermission() {
+        return android.os.Build.VERSION.SDK_INT >= 30
+            ? android.os.Environment.isExternalStorageManager()
+            : checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED
+              && checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** Copy the provider stream before leaving for Android's storage-permission screen. */
+    private void stageIncoming(android.net.Uri uri, boolean initial) {
+        Thread worker = new Thread(() -> {
+            boolean staged = false;
+            Throwable operationFailure = null;
+            try {
+                ArchiveImports.Request request = ArchiveImports.stage(this, uri);
+                externalGameFileIntent = request.isGameFile();
+                staged = true;
+            }
+            catch (Throwable failure) {
+                HostLog.error("Cannot stage incoming game or extension file", failure);
+                if (initial) incomingFailure = failure;
+                operationFailure = failure;
+            }
+            if (!initial && staged && hasStoragePermission()) {
+                try { consumeIncomingGameFile(); }
+                catch (Throwable failure) {
+                    HostLog.error("Cannot import the incoming game file", failure);
+                    operationFailure = failure;
+                }
+            }
+            boolean operationSucceeded = staged && operationFailure == null;
+            Throwable reportedFailure = operationFailure;
+            runOnUiThread(() -> {
+                if (initial) { checkStoragePermission(); return; }
+                if (!hasStoragePermission()) { checkStoragePermission(); return; }
+                if (reportedFailure != null) {
+                    new android.app.AlertDialog.Builder(this)
+                        .setMessage(reportedFailure.getMessage())
+                        .setPositiveButton(android.R.string.ok, null).show();
+                }
+                if (operationSucceeded) routePendingExtensionIfReady();
+            });
+        }, "rwml-content-snapshot");
         worker.setDaemon(true);
         worker.start();
     }
@@ -101,17 +155,31 @@ public final class MainActivity extends ComponentActivity {
 
     private void launch() {
         try {
+            if (incomingFailure != null) throw new IOException("The incoming file could not be read", incomingFailure);
+            consumeIncomingGameFile();
             AndroidBootstrap runtime = AndroidBootstrap.get(this);
+            if (externalGameFileIntent && runtime.gameBoot() != null && runtime.gameBoot().isStarted()) {
+                runOnUiThread(this::finish);
+                return;
+            }
             if (!runtime.prepareLauncher()) { return; }
-            if (Intent.ACTION_VIEW.equals(getIntent().getAction()) && getIntent().getData() != null) {
-                openExtensionManager(getIntent());
+            ArchiveImports.Request pending = ArchiveImports.pending(this);
+            if (pending != null) {
+                openExtensionManager();
                 return;
             }
             if (runtime.ui().extensions().versionSelectionRequired()) {
-                openExtensionManager(new Intent());
+                openExtensionManager();
                 return;
             }
             UiFramework framework = runtime.uiFramework();
+            if (!runtime.gameBoot().isStarted()) {
+                runOnUiThread(() -> {
+                    startActivity(new Intent(this, LauncherActivity.class));
+                    finish();
+                });
+                return;
+            }
             if (framework != null) {
                 try { framework.start(new AndroidUiHost(this, Collections.emptyList())); }
                 catch (Throwable failure) {
@@ -122,7 +190,8 @@ public final class MainActivity extends ComponentActivity {
             } else {
                 // 即使禁用了所有界面扩展，管理功能仍然可用。
                 runOnUiThread(() -> {
-                    startActivity(new Intent(this, LauncherActivity.class));
+                    startActivity(new Intent(this, runtime.gameBoot().isStarted()
+                        ? io.github.rwml.android.builtin.MainMenuActivity.class : LauncherActivity.class));
                     finish();
                 });
             }
@@ -138,26 +207,45 @@ public final class MainActivity extends ComponentActivity {
         }
     }
 
-    private void openExtensionManager(Intent source) {
+    private void openExtensionManager() {
         runOnUiThread(() -> {
             startActivity(new Intent(this, io.github.rwml.android.builtin.ExtensionManagerActivity.class)
-                .setAction(Intent.ACTION_VIEW).setData(source.getData())
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
             finish();
         });
+    }
+
+    private void consumeIncomingGameFile() {
+        try {
+            ArchiveImports.Request request = ArchiveImports.pending(this);
+            if (request == null || !request.isGameFile()) return;
+            File destination = GameFileImports.importFile(this, request);
+            if (destination == null) return;
+            HostLog.add("Imported " + request.name + " to " + destination.getAbsolutePath());
+            runOnUiThread(() -> android.widget.Toast.makeText(this,
+                messages.text("files.imported", destination.getName()), android.widget.Toast.LENGTH_LONG).show());
+        } catch (Throwable failure) {
+            HostLog.error("Cannot import the incoming game file", failure);
+            throw new IllegalStateException("The game file remains staged and can be retried", failure);
+        }
+    }
+
+    private void routePendingExtensionIfReady() {
+        try {
+            if (AndroidBootstrap.get(this).launcherReady()) {
+                ArchiveImports.Request request = ArchiveImports.pending(this);
+                if (request != null && !request.isGameFile()) openExtensionManager();
+            }
+        } catch (IOException | IllegalStateException preparing) {
+            // The regular startup worker routes staged extension archives after the host scan completes.
+        }
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (launched && Intent.ACTION_VIEW.equals(intent.getAction())) {
-            try {
-                AndroidBootstrap.get(this).ui();
-                openExtensionManager(intent);
-            } catch (IllegalStateException preparing) {
-                // 正在运行的启动器工作线程会在准备完成后读取最新 Intent。
-            }
-        }
+        android.net.Uri incoming = ArchiveImports.incomingUri(intent);
+        if (incoming != null) stageIncoming(incoming, false);
     }
 }

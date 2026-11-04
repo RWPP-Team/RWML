@@ -134,7 +134,7 @@ public final class MultiplayerLobbyActivity extends BuiltinActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle(LocalizedText.ui("ui.multiplayer"));
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         setContentView(R.layout.multiplayer_lobby);
 
         engine = GameEngine.getInstance();

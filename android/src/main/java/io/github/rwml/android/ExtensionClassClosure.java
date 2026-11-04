@@ -65,24 +65,31 @@ final class ExtensionClassClosure {
 
         Set<String> visited = new HashSet<>();
         Set<String> localFirst = new HashSet<>();
-        while (!pending.isEmpty()) {
-            String name = pending.removeFirst();
-            if (!visited.add(name) || isSharedType(name)) {
-                continue;
-            }
-            ClassEntry entry = classes.get(name);
-            if (entry == null) {
-                continue;
-            }
-            localFirst.add(name);
-            for (String referenced : references(entry)) {
-                if (!visited.contains(referenced) && !isSharedType(referenced)
-                    && classes.containsKey(referenced)) {
-                    pending.addLast(referenced);
+        Map<Path, JarFile> openArchives = new HashMap<>();
+        try {
+            while (!pending.isEmpty()) {
+                String name = pending.removeFirst();
+                if (!visited.add(name) || isSharedType(name)) {
+                    continue;
+                }
+                ClassEntry entry = classes.get(name);
+                if (entry == null) {
+                    continue;
+                }
+                localFirst.add(name);
+                for (String referenced : references(entry, openArchives)) {
+                    if (!visited.contains(referenced) && !isSharedType(referenced)
+                        && classes.containsKey(referenced)) {
+                        pending.addLast(referenced);
+                    }
                 }
             }
+            return localFirst;
+        } finally {
+            for (JarFile archive : openArchives.values()) {
+                try { archive.close(); } catch (IOException ignored) { }
+            }
         }
-        return localFirst;
     }
 
     private static Map<String, ClassEntry> index(List<Path> archives) throws ExtensionException {
@@ -111,9 +118,14 @@ final class ExtensionClassClosure {
         return classes;
     }
 
-    private static Set<String> references(ClassEntry classEntry) throws ExtensionException {
+    private static Set<String> references(ClassEntry classEntry, Map<Path, JarFile> openArchives) throws ExtensionException {
         Set<String> references = new HashSet<>();
-        try (JarFile jar = new JarFile(classEntry.archive.toFile())) {
+        try {
+            JarFile jar = openArchives.get(classEntry.archive);
+            if (jar == null) {
+                jar = new JarFile(classEntry.archive.toFile());
+                openArchives.put(classEntry.archive, jar);
+            }
             JarEntry entry = jar.getJarEntry(classEntry.path);
             if (entry == null) {
                 throw new IOException("class entry disappeared: " + classEntry.path);

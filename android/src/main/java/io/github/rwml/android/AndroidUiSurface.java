@@ -9,6 +9,10 @@ package io.github.rwml.android;
 
 import android.os.Looper;
 import android.view.View;
+import android.widget.FrameLayout;
+import io.github.rwml.android.builtin.AndroidGameView;
+import io.github.rwml.android.builtin.AndroidApp;
+import com.corrodinggames.rts.gameFramework.GameEngine;
 
 import androidx.activity.ComponentActivity;
 import androidx.lifecycle.Lifecycle;
@@ -29,9 +33,14 @@ final class AndroidUiSurface implements UiSurface {
     private final ComponentActivity activity;
     private final List<Runnable> closeListeners = new ArrayList<>();
     private final Executor uiExecutor;
+    private AndroidGameView background;
     private final LifecycleEventObserver lifecycleObserver = (LifecycleOwner owner, Lifecycle.Event event) -> {
         if (event == Lifecycle.Event.ON_DESTROY) {
             finishClose();
+        } else if (event == Lifecycle.Event.ON_RESUME) {
+            resumeBackground();
+        } else if (event == Lifecycle.Event.ON_PAUSE && background != null) {
+            background.setDrawingEnabled(false);
         }
     };
 
@@ -79,7 +88,26 @@ final class AndroidUiSurface implements UiSurface {
             }
             attached = true;
         }
-        activity.setContentView((View) nativeContent);
+        FrameLayout root = new FrameLayout(activity);
+        if (AndroidBootstrap.get(activity).gameBoot().isStarted()) {
+            background = new AndroidGameView(activity);
+            root.addView(background, new FrameLayout.LayoutParams(-1, -1));
+        }
+        root.addView((View) nativeContent, new FrameLayout.LayoutParams(-1, -1));
+        activity.setContentView(root);
+        if (activity.getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) {
+            resumeBackground();
+        }
+    }
+
+    private void resumeBackground() {
+        if (closed || background == null) { return; }
+        if (!AndroidApp.prepare(activity, true)) { return; }
+        GameEngine engine = GameEngine.getInstance();
+        if (engine == null) { return; }
+        background.setDrawingEnabled(true);
+        engine.setActivityAndGameView(activity, background, true);
+        background.pushScreenSize();
     }
 
     @Override

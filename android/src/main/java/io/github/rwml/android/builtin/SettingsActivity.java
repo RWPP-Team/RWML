@@ -97,7 +97,7 @@ public final class SettingsActivity extends BuiltinActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle(LocalizedText.ui("ui.settings"));
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         setContentView(R.layout.settings);
 
         settings = Rwml.get().ui().find(GameSettings.class);
@@ -306,7 +306,7 @@ public final class SettingsActivity extends BuiltinActivity {
         settings.set("teamUnitCapSinglePlayer", valueAt(teamUnitCapSinglePlayer));
         settings.set("teamUnitCapHostedGame", valueAt(teamUnitCapHostedGame));
         settings.set("aiDifficulty", aiDifficulty.getSelectedItemPosition() - 2);
-        settings.set("storageType", storageType.getSelectedItemPosition());
+        settings.set("storageType", 2);
 
         try {
             settings.set("networkPort", Integer.parseInt(networkPort.getText().toString().trim()));

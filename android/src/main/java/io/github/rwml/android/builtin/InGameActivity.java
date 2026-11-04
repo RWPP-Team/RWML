@@ -67,7 +67,7 @@ public final class InGameActivity extends GameActivity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
 
         // 游戏自身的布局是空容器：每个平台上的绘制视图都会由代码创建，因为具体使用哪个视图取决于设置中的渲染模式。
         restoreMinimapRendering();
@@ -90,7 +90,7 @@ public final class InGameActivity extends GameActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         attachToEngine();
         if (gameView != null) {
             gameView.setDrawingEnabled(true);

@@ -48,7 +48,7 @@ public final class MainMenuActivity extends BuiltinActivity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
 
         // 菜单与游戏界面一样，叠加在引擎自身的绘制内容之上：引擎在后方绘制地图，布局在上方放置按钮。顺序就是全部关键，
         // 因此在此处填充容器，而不是写入布局文件。
@@ -75,7 +75,7 @@ public final class MainMenuActivity extends BuiltinActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        AndroidApp.prepare(this, true);
+        if (!AndroidApp.prepare(this, true)) { return; }
         showBackground();
         setButtonText();
         setup();
