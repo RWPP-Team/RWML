@@ -44,7 +44,12 @@ jobs:
           if ($tag.TrimStart('v') -ne $version) {
             throw "Tag $tag does not match gradle.properties version $version."
           }
+          # 版本后缀决定这是预览版还是正式版：-rc01、-beta01 等一律按预览版发布，
+          # GitHub 的 releases/latest 会因此跳过它们，站点上的下载入口仍指向正式版。
+          $prerelease = if ($version.Contains('-')) { 'true' } else { 'false' }
           "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RELEASE_PRERELEASE=$prerelease" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Releasing $tag (prerelease: $prerelease)"
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -107,6 +112,7 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
+          prerelease: ${{ env.RELEASE_PRERELEASE == 'true' }}
           fail_on_unmatched_files: true
           files: |
             build/dist/game-lib.jar
@@ -131,7 +137,7 @@ jobs:
               tag_name = $env:RELEASE_TAG
               name = $env:RELEASE_TAG
               body = 'See https://rwpp-team.top/'
-              prerelease = $false
+              prerelease = ($env:RELEASE_PRERELEASE -eq 'true')
               target_commitish = 'main'
             } | ConvertTo-Json
             $release = Invoke-RestMethod -Uri "$api/releases" -Headers $headers -Method Post -Body $body -ContentType 'application/json'

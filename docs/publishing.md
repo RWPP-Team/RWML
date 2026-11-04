@@ -30,6 +30,8 @@ The bundle is `build/rwml-1.0.2-central-bundle.zip`; the deployment ID is record
 
 For a new core release, update `version` in `gradle.properties`, the bundled descriptors and README examples. The Gradle build and PowerShell script derive the core coordinates and bundle path from that version, and save a separate deployment record per release. For the independent game library, update its version in `gradle/libs.versions.toml`; the Gradle bundle task and PowerShell publishing script derive the coordinates and output paths from it. The Python tools require explicit coordinates. Published Central versions cannot be overwritten.
 
+Preview versions carry a suffix such as `-rc01` or `-beta01` in `gradle.properties` and in the tag. The release workflow treats any suffixed version as a prerelease, so GitHub keeps `releases/latest` on the last stable build; the publish script accepts the same suffixes and uploads them to Central unchanged.
+
 This release adds host-owned native UI surfaces, dependency class-loader delegation for shared extension libraries, Android extension-archive resource access, and a safe native-library extraction API. See [the 1.0.2 release notes](release-notes-1.0.2.md) and [UI framework services](ui-framework.md).
 
 References: [Central requirements](https://central.sonatype.org/publish/requirements/) · [Publisher API](https://central.sonatype.org/publish/publish-portal-api/).

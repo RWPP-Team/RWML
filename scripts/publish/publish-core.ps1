@@ -18,7 +18,7 @@ $versionLine = Get-Content -LiteralPath (Join-Path $repo 'gradle.properties') |
     Where-Object { $_ -match '^version\s*=' } | Select-Object -First 1
 if (!$versionLine) { throw 'The project version is missing from gradle.properties.' }
 $releaseVersion = ($versionLine -split '=', 2)[1].Trim()
-if ($releaseVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Expected a release version, got $releaseVersion" }
+if ($releaseVersion -notmatch '^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc|preview)\d*)?$') { throw "Expected a release version, got $releaseVersion" }
 $deploymentFile = Join-Path $repo "build\central-deployment-rwml-core-$releaseVersion.json"
 $coordinates = "io.github.rwpp-team:rwml-core:$releaseVersion"
 $bundle = Join-Path $repo "build\rwml-$releaseVersion-central-bundle.zip"
