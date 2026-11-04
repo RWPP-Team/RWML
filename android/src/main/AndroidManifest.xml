@@ -96,6 +96,10 @@
             android:exported="false" android:screenOrientation="sensorLandscape"
             android:configChanges="screenSize|orientation|keyboardHidden" />
 
+        <activity android:name="io.github.rwml.android.builtin.ExtensionCatalogActivity"
+            android:exported="false" android:screenOrientation="sensorLandscape"
+            android:configChanges="screenSize|orientation|keyboardHidden" />
+
         <activity android:name=".RestartActivity" android:process=":restart"
             android:exported="false" android:excludeFromRecents="true"
             android:screenOrientation="sensorLandscape" />

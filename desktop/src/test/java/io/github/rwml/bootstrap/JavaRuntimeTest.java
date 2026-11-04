@@ -10,6 +10,7 @@ package io.github.rwml.bootstrap;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -68,6 +69,33 @@ class JavaRuntimeTest {
         assertNull(JavaRuntime.firstQuoted("{\"checksum\":}", "checksum"));
         assertEquals(-1L, JavaRuntime.firstNumber("{}", "size"));
         assertEquals(-1L, JavaRuntime.firstNumber("{\"size\":\"not-a-number\"}", "size"));
+    }
+
+    @Test
+    void prefersTheDomesticMirrorAndKeepsTheOfficialAddressAsFallback() {
+        List<String> sources = JavaRuntime.archiveSources(25, "windows", "x64",
+            "OpenJDK25U-jdk_x64_windows_hotspot_25.0.5_8.zip",
+            "https://github.com/adoptium/temurin25-binaries/releases/download/x/file.zip");
+
+        assertEquals(3, sources.size());
+        assertEquals("https://mirrors.tuna.tsinghua.edu.cn/Adoptium/25/jdk/x64/windows/"
+            + "OpenJDK25U-jdk_x64_windows_hotspot_25.0.5_8.zip", sources.get(0));
+        assertEquals("http://mirrors.tuna.tsinghua.edu.cn/Adoptium/25/jdk/x64/windows/"
+            + "OpenJDK25U-jdk_x64_windows_hotspot_25.0.5_8.zip", sources.get(1));
+        assertEquals("https://github.com/adoptium/temurin25-binaries/releases/download/x/file.zip",
+            sources.get(2));
+    }
+
+    @Test
+    void fallsBackToTheDirectEndpointWithoutAPackageName() {
+        List<String> sources = JavaRuntime.archiveSources(25, "linux", "aarch64", null, null);
+        assertEquals(1, sources.size());
+        assertEquals("https://api.adoptium.net/v3/binary/latest/25/ga/linux/aarch64/jdk/hotspot/"
+            + "normal/eclipse", sources.get(0));
+        assertEquals("jdk-25-linux-aarch64.tar.gz",
+            JavaRuntime.fileName(null, null, 25, "linux", "aarch64"));
+        assertEquals("jdk-25-windows-x64.zip",
+            JavaRuntime.fileName(null, null, 25, "windows", "x64"));
     }
 
     @Test

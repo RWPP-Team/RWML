@@ -24,16 +24,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -49,6 +45,8 @@ import java.util.Set;
  * 从不参与路径拼接。</p>
  *
  * <p>安装写入宿主的扩展目录，与手工导入共用 {@link ExtensionLibrary#importArchive}，因此不会绕过版本选择或启用状态。</p>
+ *
+ * <p>网络层只使用 Android API 26 与桌面 JVM 都提供的类型，因此桌面与 Android 共用同一个仓库实现。</p>
  */
 public class RepositoryClient implements ExtensionRepository {
 
@@ -61,33 +59,39 @@ public class RepositoryClient implements ExtensionRepository {
     /** 目录缓存时间；界面刷新会显式绕过缓存，因此此值只影响连续搜索的重复请求。 */
     private static final long CACHE_MILLIS = 10L * 60L * 1000L;
 
-    private static final String USER_AGENT = "RWML-Extension-Browser/1.0";
+    /** 连接与读取超时；归档下载使用更长的单次读取超时。 */
+    private static final int CONNECT_TIMEOUT_MILLIS = 15_000;
+    private static final int INDEX_READ_TIMEOUT_MILLIS = 30_000;
+    private static final int ARCHIVE_READ_TIMEOUT_MILLIS = 60_000;
 
     private final URI index;
     private final ExtensionLibrary library;
     private final String platform;
-    private final HttpClient http;
+    private final RepositoryTransport transport;
+    private final Path temporaryDirectory;
 
     private Catalog cached;
     private long cachedAt;
 
     public RepositoryClient(URI index, ExtensionLibrary library, String platform) throws RepositoryException {
-        this(index, library, platform, HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .connectTimeout(Duration.ofSeconds(15))
-            .build());
+        this(index, library, platform, RepositoryTransport.system(), null);
     }
 
-    RepositoryClient(URI index, ExtensionLibrary library, String platform, HttpClient http)
+    RepositoryClient(URI index, ExtensionLibrary library, String platform,
+                     RepositoryTransport transport, Path temporaryDirectory)
         throws RepositoryException {
         this.index = RepositoryConfig.validate(index == null ? null : index.toString());
         this.library = library;
         this.platform = normalizePlatform(platform);
-        this.http = http;
+        this.transport = transport;
+        this.temporaryDirectory = temporaryDirectory;
     }
 
     /**
      * 按宿主数据目录中的配置创建仓库。
+     *
+     * <p>归档下载时的临时文件写入宿主数据目录。Android 没有可用的 {@code java.io.tmpdir}，因此宿主必须提供可写目录；
+     * 桌面宿主使用同一路径，两个平台的安装流程保持一致。</p>
      *
      * @param library       安装目标
      * @param platform      宿主平台
@@ -97,7 +101,9 @@ public class RepositoryClient implements ExtensionRepository {
      */
     public static RepositoryClient open(ExtensionLibrary library, Platform platform, Path dataDirectory)
         throws IOException {
-        return new RepositoryClient(RepositoryConfig.index(dataDirectory), library, platformName(platform));
+        return new RepositoryClient(RepositoryConfig.index(dataDirectory), library, platformName(platform),
+            RepositoryTransport.system(),
+            dataDirectory == null ? null : dataDirectory.resolve("repository-tmp"));
     }
 
     /**
@@ -248,36 +254,32 @@ public class RepositoryClient implements ExtensionRepository {
         return new InstallReport(entry.id(), entry.version(), imported, skipped, failed);
     }
 
-    /** 读取目录文档；只接受 200 响应与 JSON 内容，大小受 {@link #MAX_INDEX_BYTES} 限制。 */
     /**
-     * 读取目录文档。
+     * 读取目录文档。只接受 200 响应，大小受 {@link #MAX_INDEX_BYTES} 限制。
      *
      * <p>子类可以覆盖此方法以提供内置目录，例如完全离线的宿主；其余流程（搜索排序、摘要校验、写入归档）保持不变。</p>
      */
     String readIndex() throws IOException {
-        HttpRequest request = HttpRequest.newBuilder(index)
-            .timeout(Duration.ofSeconds(30))
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "application/json")
-            .GET()
-            .build();
-        HttpResponse<InputStream> response;
+        try (RepositoryTransport.Response response = openIndex()) {
+            requireHttps(response.uri());
+            if (response.status() != 200) {
+                throw new RepositoryException("The extension repository returned HTTP " + response.status());
+            }
+            byte[] document = readBounded(response.body(), MAX_INDEX_BYTES,
+                "The extension repository document");
+            return new String(document, StandardCharsets.UTF_8);
+        }
+    }
+
+    private RepositoryTransport.Response openIndex() throws IOException {
         try {
-            response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new RepositoryException("Reading the extension repository was interrupted", interrupted);
+            return transport.get(index, "application/json", CONNECT_TIMEOUT_MILLIS,
+                INDEX_READ_TIMEOUT_MILLIS);
+        } catch (RepositoryException failure) {
+            throw failure;
         } catch (IOException failure) {
             throw new RepositoryException("Cannot reach the extension repository at " + index + ": "
                 + failure.getMessage(), failure);
-        }
-        try (InputStream body = response.body()) {
-            requireHttps(response.uri());
-            if (response.statusCode() != 200) {
-                throw new RepositoryException("The extension repository returned HTTP " + response.statusCode());
-            }
-            byte[] document = readBounded(body, MAX_INDEX_BYTES, "The extension repository document");
-            return new String(document, java.nio.charset.StandardCharsets.UTF_8);
         }
     }
 
@@ -298,38 +300,23 @@ public class RepositoryClient implements ExtensionRepository {
             throw new RepositoryException("The archive of " + artifact.id() + " exceeds 256 MiB");
         }
 
-        HttpRequest request = HttpRequest.newBuilder(uri)
-            .timeout(Duration.ofMinutes(10))
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "application/octet-stream")
-            .GET()
-            .build();
-        HttpResponse<InputStream> response;
-        try {
-            response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new RepositoryException("The download was interrupted", interrupted);
-        } catch (IOException failure) {
-            throw new RepositoryException("Cannot download " + artifact.url() + ": " + failure.getMessage(), failure);
-        }
-
-        Path target = Files.createTempFile("rwml-repository-", ".part");
-        try (InputStream body = response.body()) {
+        try (RepositoryTransport.Response response = openArtifact(uri)) {
             requireHttps(response.uri());
-            if (response.statusCode() != 200) {
+            if (response.status() != 200) {
                 throw new RepositoryException("Downloading " + artifact.url() + " returned HTTP "
-                    + response.statusCode());
+                    + response.status());
             }
-            long declared = response.headers().firstValueAsLong("content-length").orElse(-1L);
+            long declared = response.contentLength();
             if (declared > MAX_ARTIFACT_BYTES) {
                 throw new RepositoryException("The archive of " + artifact.id() + " exceeds 256 MiB");
             }
-            MessageDigest digest = sha256();
-            long received = 0;
-            long lastReport = 0;
-            byte[] buffer = new byte[32 * 1024];
-            try (OutputStream output = Files.newOutputStream(target)) {
+            Path target = temporaryArchive();
+            try (InputStream body = response.body();
+                 OutputStream output = Files.newOutputStream(target)) {
+                MessageDigest digest = sha256();
+                long received = 0;
+                long lastReport = 0;
+                byte[] buffer = new byte[32 * 1024];
                 while (true) {
                     if (Thread.currentThread().isInterrupted()) {
                         throw new RepositoryException("The download was interrupted");
@@ -351,22 +338,54 @@ public class RepositoryClient implements ExtensionRepository {
                         progress.onProgress(alreadyDownloaded + received, total, "Downloading " + artifact.id());
                     }
                 }
+                if (artifact.size() > 0 && received != artifact.size()) {
+                    throw new RepositoryException("The archive of " + artifact.id() + " has "
+                        + received + " bytes, but the repository declared " + artifact.size());
+                }
+                String actual = hex(digest.digest());
+                if (!actual.equalsIgnoreCase(artifact.sha256())) {
+                    throw new RepositoryException("The archive of " + artifact.id()
+                        + " failed SHA-256 verification; the download was discarded");
+                }
+                progress.onProgress(alreadyDownloaded + received, total, "Downloaded " + artifact.id());
+                return target;
+            } catch (IOException | RuntimeException failure) {
+                Files.deleteIfExists(target);
+                throw failure;
             }
-            if (artifact.size() > 0 && received != artifact.size()) {
-                throw new RepositoryException("The archive of " + artifact.id() + " has "
-                    + received + " bytes, but the repository declared " + artifact.size());
-            }
-            String actual = HexFormat.of().formatHex(digest.digest());
-            if (!actual.equalsIgnoreCase(artifact.sha256())) {
-                throw new RepositoryException("The archive of " + artifact.id()
-                    + " failed SHA-256 verification; the download was discarded");
-            }
-            progress.onProgress(alreadyDownloaded + received, total, "Downloaded " + artifact.id());
-            return target;
-        } catch (IOException | RuntimeException failure) {
-            Files.deleteIfExists(target);
-            throw failure;
         }
+    }
+
+    private RepositoryTransport.Response openArtifact(URI uri) throws IOException {
+        try {
+            return transport.get(uri, "application/octet-stream", CONNECT_TIMEOUT_MILLIS,
+                ARCHIVE_READ_TIMEOUT_MILLIS);
+        } catch (RepositoryException failure) {
+            throw failure;
+        } catch (IOException failure) {
+            throw new RepositoryException("Cannot download " + uri + ": " + failure.getMessage(), failure);
+        }
+    }
+
+    /** @return 临时归档路径；宿主提供目录时写入该目录，否则使用平台临时目录 */
+    private Path temporaryArchive() throws IOException {
+        if (temporaryDirectory == null) {
+            return Files.createTempFile("rwml-repository-", ".part");
+        }
+        Files.createDirectories(temporaryDirectory);
+        return Files.createTempFile(temporaryDirectory, "rwml-repository-", ".part");
+    }
+
+    /** Android API 26 不提供 {@code java.util.HexFormat}，因此摘要在此处编码。 */
+    private static String hex(byte[] bytes) {
+        char[] digits = "0123456789abcdef".toCharArray();
+        char[] result = new char[bytes.length * 2];
+        for (int index = 0; index < bytes.length; index++) {
+            int value = bytes[index] & 0xFF;
+            result[index * 2] = digits[value >>> 4];
+            result[index * 2 + 1] = digits[value & 0x0F];
+        }
+        return new String(result);
     }
 
     /** @return 新的 SHA-256 摘要实例；JVM 必须提供该算法，缺失时按运行时故障处理 */

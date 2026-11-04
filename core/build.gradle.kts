@@ -62,12 +62,13 @@ tasks.named<Test>("test") {
 
 val verifyPlatformBoundary = tasks.register("verifyPlatformBoundary") {
     group = "verification"
-    description = "Rejects game and host-specific references in the shared core's class files."
+    description = "Rejects host-specific and Android-unavailable JDK references in the shared core's class files."
     dependsOn(tasks.named("classes"))
     inputs.files(sourceSets["main"].output.classesDirs)
     doLast {
         val forbidden = listOf(
             "java/awt/", "javax/swing/", "java/net/URLClassLoader", "java/lang/instrument/",
+            "java/net/http/", "java/util/HexFormat",
             "android/", "io/github/rwml/desktop/", "com/corrodinggames/"
         )
         for (directory in sourceSets["main"].output.classesDirs) {

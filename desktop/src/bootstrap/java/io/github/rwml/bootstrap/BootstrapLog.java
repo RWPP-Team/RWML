@@ -7,6 +7,11 @@
 
 package io.github.rwml.bootstrap;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+
 /**
  * 启动层的日志记录。
  *
@@ -18,6 +23,7 @@ package io.github.rwml.bootstrap;
 public final class BootstrapLog {
 
     private static final String PREFIX = "[rwml] ";
+    private static final PrintWriter FILE = openLogFile();
     private static volatile java.util.function.Consumer<String> sink;
 
     /** 可选的运行环境配置窗口会同步显示诊断信息，但不改变其语言。 */
@@ -29,6 +35,7 @@ public final class BootstrapLog {
     /** 写入普通状态信息。 */
     public static void info(String message) {
         System.out.println(PREFIX + message);
+        file("INFO " + message);
         java.util.function.Consumer<String> listener = sink;
         if (listener != null) { listener.accept(message); }
     }
@@ -36,16 +43,19 @@ public final class BootstrapLog {
     /** 写入说明降级模式或可恢复问题的信息。 */
     public static void warn(String message) {
         System.out.println(PREFIX + "warning: " + message);
+        file("WARN " + message);
     }
 
     /** 将致命错误信息写入错误流。 */
     public static void error(String message) {
         System.err.println(PREFIX + "error: " + message);
+        file("ERROR " + message);
     }
 
     /** 将致命错误信息及其堆栈跟踪写入错误流。 */
     public static void error(String message, Throwable cause) {
         System.err.println(PREFIX + "error: " + message);
+        file("ERROR " + message + ": " + describe(cause));
         cause.printStackTrace(System.err);
     }
 
@@ -56,11 +66,36 @@ public final class BootstrapLog {
      */
     public static void debug(String message) {
         System.out.println(PREFIX + message);
+        file("DEBUG " + message);
     }
 
     /** 将诊断堆栈跟踪写入错误流。 */
     public static void debug(Throwable cause) {
         cause.printStackTrace(System.err);
+        file("DEBUG " + describe(cause));
+    }
+
+    /** 启动器的控制台输出在 GUI 启动方式下不可见，因此同时写入游戏目录的日志文件。 */
+    private static PrintWriter openLogFile() {
+        try {
+            File directory = new File(System.getProperty("user.dir", "."));
+            File data = new File(directory, "data");
+            File target = new File(data.isDirectory() ? data : directory, "rwml-bootstrap.log");
+            if (target.isFile() && target.length() > 2L * 1024 * 1024) {
+                target.delete();
+            }
+            return new PrintWriter(new OutputStreamWriter(
+                new FileOutputStream(target, true), "UTF-8"), true);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static synchronized void file(String line) {
+        PrintWriter writer = FILE;
+        if (writer != null) {
+            writer.println(line);
+        }
     }
 
     /** @return {@code throwable} 最深层的原因，即实际解释故障的异常 */

@@ -22,12 +22,12 @@ RWML 是 Rusted Warfare 桌面端与 Android 的 mixin 扩展加载器。它按�
 
 ## 安装
 
-桌面端使用 `rwml-setup.exe`。安装程序定位 Steam 游戏目录，也可以手动选择；确认后把原版 `game-lib.jar` 保存为 `game-lib.jar.original`，再写入 RWML 的归档。界面提供“恢复原版”按钮。
+桌面端使用 `rwml-setup.exe`。安装程序定位 Steam 游戏目录，也可以手动选择；确认后把原版 `game-lib.jar` 保存为 `game-lib.jar.original`，再写入 RWML 的归档，并把内置的 Java 25 运行时解压到 `rwml-runtime`。界面提供“恢复原版”按钮。
 
 Android 安装 `android/build/outputs/apk/debug/android-debug.apk`，要求 Android 8.0（API 26）以上。
 
 > [!IMPORTANT]
-> 安装程序会修改游戏的 `game-lib.jar`。首次运行需要联网获取 Java 运行时。
+> 安装程序会修改游戏的 `game-lib.jar`，并在游戏目录安装 Java 25 运行时。只替换 `game-lib.jar` 时，首次运行仍需联网获取运行时。
 
 ## 使用
 
@@ -92,7 +92,7 @@ git submodule update --init --recursive
 
 映射库先发布，编译另起一次 Gradle 调用；同一次调用里解析不到该坐标。
 
-安装程序由 `:setup:packageExe` 生成，产物位于 `setup/build/setup/`。
+安装程序由 `:setup:packageExe` 生成，产物位于 `setup/build/`setup/`。
 
 ## 致谢
 

@@ -42,6 +42,7 @@ public final class LauncherActivity extends Activity {
     private ProgressBar progress;
     private Button start;
     private Button extensions;
+    private Button browse;
     private Button clear;
     private Button language;
     private Button restart;
@@ -99,6 +100,7 @@ public final class LauncherActivity extends Activity {
         scroll.addView(log);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout tools = new LinearLayout(this);
+        browse = button(tools, () -> { if (services != null) { host.openScreen("extension-catalog"); } });
         clear = button(tools, () -> work(() -> {
             runtime.clear();
             runOnUiThread(() -> { ready = false; status.setText(messages.text("launcher.cleared")); });
@@ -134,6 +136,7 @@ public final class LauncherActivity extends Activity {
             : ready ? "launcher.ready" : "launcher.subtitle"));
         start.setText(messages.text(ready ? "launcher.continue" : "launcher.start"));
         extensions.setText(messages.text("extensions.title"));
+        browse.setText(messages.text("extensions.browseTab"));
         clear.setText(messages.text("launcher.clear"));
         language.setText(messages.text("language.title"));
         restart.setText(messages.text("launcher.restart"));
@@ -142,6 +145,7 @@ public final class LauncherActivity extends Activity {
         start.setEnabled(!busy && !failed && services != null && !services.extensions().restartRequired()
             && !services.extensions().versionSelectionRequired());
         extensions.setEnabled(!busy && services != null);
+        browse.setEnabled(!busy && services != null);
         clear.setEnabled(!busy);
         restart.setEnabled(!busy);
         language.setEnabled(!busy);

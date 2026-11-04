@@ -127,6 +127,9 @@ public final class AndroidUiHost implements UiHost {
         if ("extensions".equals(screen)) {
             return "io.github.rwml.android.builtin.ExtensionManagerActivity";
         }
+        if ("extension-catalog".equals(screen)) {
+            return "io.github.rwml.android.builtin.ExtensionCatalogActivity";
+        }
         if ("main-menu".equals(screen)) {
             return "io.github.rwml.android.builtin.MainMenuActivity";
         }

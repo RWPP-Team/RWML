@@ -68,12 +68,6 @@ jobs:
         with:
           packages: "platforms;android-36"
 
-      - name: Install WiX
-        shell: pwsh
-        run: |
-          dotnet tool install --global wix --version 5.0.2
-          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-
       # 模块通过坐标依赖映射后的游戏，而该坐标由 publishGameLibForIde 写入仓库；
       # 设置脚本在配置阶段读取仓库指针，因此发布与编译必须分成两次 Gradle 调用。
       - name: Publish mapped game library
@@ -82,11 +76,10 @@ jobs:
           ./gradlew.bat --no-daemon --stacktrace publishGameLibForIde
           if ($LASTEXITCODE -ne 0) { throw "Publishing the mapped game library failed with exit code $LASTEXITCODE." }
 
-      - name: Build host, installer and MSI
+      - name: Build host and installer
         shell: pwsh
         run: |
-          $wix = Join-Path $env:USERPROFILE '.dotnet\tools\wix.exe'
-          ./gradlew.bat --no-daemon --stacktrace packageGameJar :setup:checkSetup :setup:packageExe :setup:packageMsi "-Pwix=$wix"
+          ./gradlew.bat --no-daemon --stacktrace packageGameJar :setup:checkSetup :setup:packageExe
           if ($LASTEXITCODE -ne 0) { throw "Gradle build failed with exit code $LASTEXITCODE." }
 
       - name: Collect artifacts
@@ -96,8 +89,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $directory | Out-Null
           $files = @(
             'build/dist/game-lib.jar',
-            'setup/build/setup/rwml-setup.exe',
-            'setup/build/setup/rwml-setup.msi'
+            'setup/build/setup/rwml-setup.exe'
           )
           foreach ($file in $files) {
             if (-not (Test-Path $file)) { throw "Missing artifact: $file" }
@@ -117,7 +109,6 @@ jobs:
           files: |
             build/dist/game-lib.jar
             setup/build/setup/rwml-setup.exe
-            setup/build/setup/rwml-setup.msi
             build/release/SHA256SUMS.txt
 
       - name: Publish to Gitee
@@ -138,14 +129,13 @@ jobs:
               name = $env:RELEASE_TAG
               body = 'See https://rwpp-team.top/'
               prerelease = ($env:RELEASE_PRERELEASE -eq 'true')
-              target_commitish = 'main'
+              target_commitish = 'master'
             } | ConvertTo-Json
             $release = Invoke-RestMethod -Uri "$api/releases" -Headers $headers -Method Post -Body $body -ContentType 'application/json'
           }
           $files = @(
             'build/dist/game-lib.jar',
             'setup/build/setup/rwml-setup.exe',
-            'setup/build/setup/rwml-setup.msi',
             'build/release/SHA256SUMS.txt'
           )
           foreach ($file in $files) {

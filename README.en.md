@@ -22,12 +22,12 @@ RWML is a mixin extension loader for Rusted Warfare on desktop and Android. It l
 
 ## Installation
 
-Desktop builds use `rwml-setup.exe`. The installer locates the Steam game directory or accepts a manual path, keeps the original `game-lib.jar` as `game-lib.jar.original`, and writes the RWML archive. The window offers a restore action for the backup.
+Desktop builds use `rwml-setup.exe`. The installer locates the Steam game directory or accepts a manual path, keeps the original `game-lib.jar` as `game-lib.jar.original`, writes the RWML archive, and unpacks the bundled Java 25 runtime into `rwml-runtime`. The window offers a restore action for the backup.
 
 Android installs `android/build/outputs/apk/debug/android-debug.apk` and requires Android 8.0 (API 26) or newer.
 
 > [!IMPORTANT]
-> The installer modifies the game's `game-lib.jar`. The first run needs network access for the Java runtime.
+> The installer modifies the game's `game-lib.jar` and installs a Java 25 runtime beside it. Replacing only `game-lib.jar` still requires network access on the first run.
 
 ## Usage
 

@@ -83,6 +83,8 @@ public final class ExtensionManagerActivity extends Activity {
         root.addView(status);
         LinearLayout actions = new LinearLayout(this);
         button(actions, messages.text("extensions.import"), this::chooseArchive);
+        button(actions, messages.text("extensions.browseTab"),
+            () -> startActivity(new Intent(this, ExtensionCatalogActivity.class)));
         button(actions, messages.text("extensions.refresh"), this::refresh);
         button(actions, messages.text("language.title"), () -> LanguageChoice.show(this, messages, () -> {
             layout();

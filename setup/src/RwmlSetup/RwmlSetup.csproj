@@ -18,8 +18,11 @@
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
-  <!-- 宿主归档由 Gradle 任务通过 -p:GameLibPath 传入，不复制进源码目录。 -->
+  <!-- 宿主归档与 JRE 由 Gradle 任务传入，不复制进源码目录。 -->
   <ItemGroup Condition="'$(GameLibPath)' != ''">
     <EmbeddedResource Include="$(GameLibPath)" LogicalName="game-lib.jar" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(JrePath)' != ''">
+    <EmbeddedResource Include="$(JrePath)" LogicalName="rwml-jre.zip" />
   </ItemGroup>
 </Project>

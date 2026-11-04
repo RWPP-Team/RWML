@@ -272,9 +272,10 @@ public final class AndroidBootstrap implements RwmlRuntime {
                 () -> Arrays.asList(sharedExtensionsDirectory(), extensionsDirectory),
                 () -> lastReport, Dexer::validateCarriedDex, hooks), hooks);
         // 仓库只读取数据目录中的配置；目录与归档请求由界面在工作线程发起。
+        // 链接错误单列处理：设备若缺少某个 JDK 类，宿主仍应完成启动，仓库功能按不可用处理。
         try {
             ui.repository(RepositoryClient.open(ui.extensions(), Platform.ANDROID, dataDirectory));
-        } catch (IOException | RuntimeException unavailable) {
+        } catch (IOException | RuntimeException | LinkageError unavailable) {
             HostLog.error("The extension repository is unavailable", unavailable);
         }
         gameBoot = new GameBoot(new GameContextImpl(context, null, rootDirectory, HostLog::add));
