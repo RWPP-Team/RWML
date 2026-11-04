@@ -30,7 +30,7 @@ After changing mappings, run these as **separate Gradle invocations**:
 .\gradlew.bat publishGameLibForIde
 
 # Start a new invocation for compilation, or reload all Gradle projects in IDEA.
-.\gradlew.bat :api:compileKotlinJvm
+.\gradlew.bat :core:compileJava
 ```
 
 Settings reads the repository pointer when each invocation starts. Publishing and compiling in a single

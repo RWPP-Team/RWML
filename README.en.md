@@ -2,69 +2,53 @@
 
 <div align="center"><img alt="Tests: Gradle" src="https://img.shields.io/badge/tests-Gradle-blue.svg"> <img alt="License: RWPP-Team Shield" src="https://img.shields.io/badge/license-RWPP--Team%20Shield-blue.svg"> <img alt="Version: 1.0.2" src="https://img.shields.io/badge/version-1.0.2-green.svg"> <img alt="Language: Java" src="https://img.shields.io/badge/language-Java-orange.svg"></div>
 
-<p align="center">🇨🇳 <a href="./README.md">简体中文</a> | 🇺🇸 English</p>
+<p align="center">🇺🇸 English | 🇨🇳 <a href="./README.md">简体中文</a></p>
 
 ## Contents
 
-[Introduction](#introduction) · [Installation](#installation) · [Usage](#usage) · [API](#api-reference) · [Building](#building) · [Contributing](#contributing) · [License](#license)
+[Introduction](#introduction) · [Installation](#installation) · [Usage](#usage) · [Extensions](#extensions) · [Building](#building) · [Credits](#credits) · [License](#license)
 
 ## Introduction
 
-RWML is a mixin extension loader for Rusted Warfare on desktop and Android. It loads extensions in dependency order, patches game classes, and supports custom interfaces.
+RWML is a mixin extension loader for Rusted Warfare on desktop and Android. It loads extensions in dependency order, patches game classes as they load, and provides a replaceable interface layer.
 
-| Module         | Purpose                                                                          |
-|----------------|----------------------------------------------------------------------------------|
-| `core`         | Shared extension API, dependency resolution, and boot interfaces                 |
-| `game-adapter` | Shared game data, settings and language hooks, kept out of core and UI renderers |
-| `desktop`      | JVM loading, class transformation, and desktop builtin UI                        |
-| `android`      | Game dex preparation, caching, permissions, and Android builtin UI               |
-| `example`      | Sample extension                                                                 |
+| Module         | Purpose                                                     |
+|----------------|-------------------------------------------------------------|
+| `core`         | Extension API, dependency resolution, repository and boot    |
+| `game-adapter` | Game data, settings and language hooks shared by hosts       |
+| `desktop`      | JVM class transformation, launcher and built-in UI           |
+| `android`      | Game dex preparation, storage access and built-in UI         |
+| `example`      | Sample extension                                             |
 
 ## Installation
 
-Build the artifacts with the [commands below](#building).
+Desktop builds use `rwml-setup.exe`. The installer locates the Steam game directory or accepts a manual path, keeps the original `game-lib.jar` as `game-lib.jar.original`, and writes the RWML archive. The window offers a restore action for the backup.
 
-| Platform | Requirement                                 | Install                                                          |
-|----------|---------------------------------------------|------------------------------------------------------------------|
-| Desktop  | Java 8+; RWML downloads Java 25 when needed | Replace the game's `game-lib.jar` with `build/dist/game-lib.jar` |
-| Android  | Android 8.0+ (API 26)                       | Install `android/build/outputs/apk/debug/android-debug.apk`      |
+Android installs `android/build/outputs/apk/debug/android-debug.apk` and requires Android 8.0 (API 26) or newer.
 
 > [!IMPORTANT]
-> Back up the original desktop `game-lib.jar` before replacing it. The first runtime download requires network access.
+> The installer modifies the game's `game-lib.jar`. The first run needs network access for the Java runtime.
 
 ## Usage
 
-Put extension jars in `extensions/` beside the desktop game library, or in `/storage/emulated/0/rustedWarfare/extensions` on Android. Android requests storage access before loading.
+Extensions live in `extensions/` beside the game directory, or in `/storage/emulated/0/rustedWarfare/extensions` on Android. The launcher imports archives, shows dependencies, and enables or disables extensions. Removing an extension keeps its data.
 
-Extension changes and enable/disable settings take effect when the launcher next loads them. Android checks SHA-256 at that point and rebuilds changed caches.
+Restart from the launcher after changing extensions. On desktop, `--rwml-no-launcher` starts the game directly and `--rwml-manager` opens extension management on its own.
 
-On Android a rebuild ends the launch that asked for it. Applying the mixins defines game classes while the game is still an archive and the patched dex does not exist yet, and the result of that cannot be undone in the same process. The app therefore hands the launch to a fresh process as soon as the cache key is written, and continues there: the first launch after an install or an extension change restarts once instead of showing a partially patched game.
+## Extensions
 
-Both launchers offer system/English/Simplified Chinese language selection and extension management.
-Import a jar with the file picker, search installed extensions, inspect dependencies, enable/disable,
-or remove archives while retaining their data. Replacing an existing extension asks for confirmation;
-restart RWML to apply changes. Android also accepts extension files through file managers' Open with
-action. Diagnostic output keeps its original language.
-
-Desktop options: `--rwml-no-launcher` starts directly, while `--rwml-manager` opens the management
-launcher even if a UI extension is unavailable. The Java 8 bootstrap shows runtime provisioning
-progress. Android management is available before game dex preparation.
-
-## API Reference
-
-Compile extensions against core and the mapped game library (includes decompiled sources). The `v3` in `game-lib:v2-1.15` identifies the mapping revision; the game version remains 1.15:
+Extensions reference core and the mapped game library with `compileOnly`. The game library ships decompiled sources:
 
 ```kotlin
-repositories { mavenCentral() }
 dependencies {
     compileOnly("io.github.rwpp-team:rwml-core:1.0.2")
     compileOnly("io.github.rwpp-team:game-lib:v3-1.15")
 }
 ```
 
-All extension metadata lives in UTF-8 `META-INF/extension.properties`; `@ExtensionInfo` is no longer supported. Different versions of the same id can coexist. Choose one in extension management, then restart to apply it.
+The `v3` prefix identifies the mapping revision; the game version remains 1.15.
 
-Add `META-INF/extension.properties` to your jar:
+Add `META-INF/extension.properties` to the archive:
 
 ```properties
 id=com.example.hello
@@ -85,30 +69,20 @@ public final class HelloExtension implements Extension {
 }
 ```
 
-| API / descriptor key                          | Purpose                                                         |
-|-----------------------------------------------|-----------------------------------------------------------------|
-| `Extension.onLoad(ExtensionContext)`          | Entry point, called once per loaded instance                    |
-| `ExtensionContext`                            | Private data directory, logging, class loader, and mixin bridge |
-| `dependsOn` / `loadAfter` / `loadBefore`      | Required dependencies (with versions) / preferred load order    |
-| `ui-framework`                                | Class implementing `UiFramework.start(UiHost)`                  |
-| `resourcePack`                                | Marks a resource pack; `mainClass` becomes optional, one active |
-| `UiHost.gameBoot()`                           | Shared game initialization and progress reporting               |
-| `UiHost.services()` / `ExtensionContext.ui()` | Translations, archive management, events and typed services     |
-| `GameUi` / `GameSettings`                     | Portable menu data, translations, map names and typed settings  |
+Other descriptor keys:
 
-See [UI framework services](./docs/ui-framework.md) for lifecycle, hook and extension examples.
+| Key                        | Purpose                                          |
+|----------------------------|--------------------------------------------------|
+| `dependsOn`                | Hard dependency, optionally with a version range |
+| `loadAfter` / `loadBefore` | Preferred load order                             |
+| `ui-framework`             | Class implementing `UiFramework.start(UiHost)`   |
+| `resourcePack`             | Resource pack, may omit `mainClass`              |
 
-Dependencies may state a version range, as in `dependsOn=com.acme.core>=1.4, com.acme.renderer^2.0`. When several versions of an extension are installed, the resolver picks one without asking. A zip pack containing several extensions can be imported from the extension manager. See [extension packs and version constraints](./docs/extension-packs.md).
-
-Only one UI framework loads; external frameworks take priority over builtin. On Android, the selected framework starts before game dex preparation. Draw the loading screen, then start `GameBoot` on a worker; use game classes after boot succeeds.
-
-An extension may declare itself a resource pack and replace original resources with `gui/`, `units/`, `res/` and similar directories from its archive. One pack is active at a time; its content is materialised into `data/resource-pack` when it changes, and host-owned mixins take over the three paths the game reads resources through. Layout and limits are in [resource packs](./docs/resource-packs.md).
-
-Use `compileOnly` for core, game APIs, and ASM annotations; do not bundle host libraries. Android extensions also need executable `classes.dex` alongside `.class` metadata and mixins. See the [example](./example), [shared API](./core/src/main/java/io/github/rwml/api), and [ASM-Framework](https://github.com/RELAY-CN/ASM-Framework).
+See the [sample extension](./example) and the [UI framework guide](./docs/ui-framework.md).
 
 ## Building
 
-Requires a JDK 25 toolchain, Android SDK 36, the original `work/game-lib.jar`, and mappings in `work/mappings`. On Windows, replace `./gradlew` with `.\gradlew.bat`.
+Requires JDK 25, Android SDK 36, and the game archive plus Anvil mappings under `work/`.
 
 ```bash
 git submodule update --init --recursive
@@ -116,16 +90,14 @@ git submodule update --init --recursive
 ./gradlew packageGameJar :android:assembleDebug :example:jar
 ```
 
-`publishGameLibForIde` uses Vineflower to generate `build/libs/game-lib-named-sources.jar` and publishes binary/source artifacts to `build/local-maven`. Reload Gradle in IDEA or Android Studio with dependency source downloads enabled, or attach the sources jar manually.
+The installer is built by `:setup:packageExe` and written to `setup/build/setup/`.
 
-## Contributing
+## Credits
 
-Issues and pull requests are welcome. Discuss larger changes in an issue first. [QQ group 1004399208](https://qm.qq.com/q/auLINpWtr4).
+Bytecode transformation builds on [ASM-Framework](https://github.com/RELAY-CN/ASM-Framework) by [RELAY-CN](https://github.com/RELAY-CN). Thanks to its authors and maintainers for an ASM toolkit that works on both JVM and Android; class transformation and mixin registration rely on it.
 
-```bash
-./gradlew :core:check :desktop:test :android:testDebugUnitTest verifyGameSources
-```
+Game mappings are maintained in [Anvil](https://github.com/RWPP-Team/Anvil). Dex conversion uses [dalvik-dx](https://github.com/JakeWharton/dalvik-dx) (Apache 2.0).
 
 ## License
 
-[RWPP-Team Shield](./LICENSE.md); `game-lib`: [CC0](https://creativecommons.org/publicdomain/zero/1.0/). Third-party components: [ASM-Framework](https://github.com/RELAY-CN/ASM-Framework) and [dx](https://github.com/JakeWharton/dalvik-dx) — [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+[RWPP-Team Shield](./LICENSE.md). The mapped game library uses [CC0](https://creativecommons.org/publicdomain/zero/1.0/).
