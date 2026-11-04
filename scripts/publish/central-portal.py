@@ -17,7 +17,7 @@ def publish(action: str, bundle: Path, deployment_file: Path,
     token = base64.b64encode((credential['username'] + ':' + credential['password']).encode()).decode()
     headers = {'Authorization': 'Bearer ' + token, 'User-Agent': 'RWML-Publisher/1.0.0'}
     group, artifact, version = coordinates.split(':')
-    if group != 'io.github.rwpp-team' or artifact not in ('rwml-core', 'game-lib'):
+    if group != 'io.github.rwpp-team' or artifact not in ('rwml-core', 'game-lib', 'rwpp-api'):
         raise ValueError('Unexpected publication coordinates')
 
     def post(path: str, data: bytes = b'', content_type: str | None = None) -> str:
