@@ -238,7 +238,7 @@ def validate_game_lib(binary: ZipFile, sources: ZipFile) -> None:
 def verify(bundle: Path, gpg: str, homedir: str,
            coordinates: str) -> None:
     group, artifact_id, version = coordinates.split(":")
-    if group != "io.github.rwpp-team" or artifact_id not in ("rwml-core", "game-lib"):
+    if group != "io.github.rwpp-team" or artifact_id not in ("rwml-core", "game-lib", "rwml-desktop"):
         raise ValueError("Unexpected publication coordinates")
     prefix = group.replace(".", "/") + f"/{artifact_id}/{version}/"
     base = artifact_id + "-" + version

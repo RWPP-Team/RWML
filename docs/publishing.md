@@ -20,6 +20,11 @@ Requires Windows, JDK 25, Python 3.10+, GPG, a verified Central namespace, and a
 .\scripts\publish\publish-core.ps1 -Target GameLib -Action Build -Offline
 .\scripts\publish\publish-core.ps1 -Target GameLib -Action Publish -Offline
 .\scripts\publish\publish-core.ps1 -Target GameLib -Action Status
+
+# 发布同版本的桌面宿主，供 RWPP 无头服务端使用。
+.\scripts\publish\publish-core.ps1 -Target Desktop -Action Build -Offline
+.\scripts\publish\publish-core.ps1 -Target Desktop -Action Publish -Offline
+.\scripts\publish\publish-core.ps1 -Target Desktop -Action Status
 ```
 
 Credentials and the dedicated RSA-4096 signing key live outside the repository in `%USERPROFILE%\.gradle\rwml-central`. The Token and key password use Windows current-user encryption. Keep the encrypted private-key backup and a separately secured copy of its password for migration to another Windows account or computer.
@@ -28,7 +33,7 @@ The core bundle uses `build/rwml-<version>-central-bundle.zip`, with its deploym
 
 `bundleGameLibForCentral` writes `build/game-lib-<version>-central-bundle.zip`, with its deployment record in `build/central-deployment-game-lib-<version>.json`. The bundle contains the mapped binary generated from the same pinned Anvil checkout as the hosts, plus Java sources, POM, and Javadoc. Game library consumers use `compileOnly`.
 
-For a new RWML release, update `version` in `gradle.properties` and update the README examples. Build both bundles from the same release checkout. Gradle and the PowerShell script derive both coordinates and bundle paths from that one version. The Python tools require explicit coordinates. Published Central versions cannot be overwritten.
+For a new RWML release, update `version` in `gradle.properties` and update the README examples. Build the core, mapped game library, and desktop host bundles from the same release checkout. Gradle and the PowerShell script derive the coordinates and bundle paths from that one version. The Python tools require explicit coordinates. Published Central versions cannot be overwritten.
 
 Preview versions carry a suffix such as `-rc01` or `-beta01` in `gradle.properties` and in the tag. The release workflow treats any suffixed version as a prerelease, so GitHub keeps `releases/latest` on the last stable build; the publish script accepts the same suffixes and uploads them to Central unchanged.
 

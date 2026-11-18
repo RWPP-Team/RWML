@@ -22,6 +22,7 @@ import org.gradle.jvm.toolchain.JavaLanguageVersion
 plugins {
     `java-library`
     `maven-publish`
+    signing
 }
 
 description = "RWML desktop: the JVM host that turns RWML into the game's drop-in game-lib.jar."
@@ -62,6 +63,12 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
+java {
+    toolchain { languageVersion.set(JavaLanguageVersion.of(25)) }
+    withJavadocJar()
+    withSourcesJar()
+}
+
 publishing {
     publications {
         create<MavenPublication>("host") {
@@ -69,15 +76,45 @@ publishing {
             artifactId = "rwml-desktop"
             version = rootProject.version.toString()
             artifact(tasks.named<Jar>("jar"))
+            artifact(tasks.named<Jar>("sourcesJar"))
+            artifact(tasks.named<Jar>("javadocJar"))
             pom {
                 name.set("RWML desktop host")
                 description.set("The fat desktop host used by the RWML native server launcher.")
                 url.set("https://github.com/RWPP-Team/RWML")
+                licenses {
+                    license {
+                        name.set("RWPP-Team Shield License 1.0.0")
+                        url.set("https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("RWPP-Team")
+                        name.set("RWPP Team")
+                        email.set("1225327866@qq.com")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:https://github.com/RWPP-Team/RWML.git")
+                    developerConnection.set("scm:git:ssh://git@github.com/RWPP-Team/RWML.git")
+                    url.set("https://github.com/RWPP-Team/RWML")
+                }
             }
         }
     }
     repositories {
-        mavenLocal()
+        maven {
+            name = "localStaging"
+            url = uri(layout.buildDirectory.dir("central-staging"))
+        }
+    }
+}
+
+if (providers.gradleProperty("signing.gnupg.keyName").isPresent) {
+    signing {
+        useGpgCmd()
+        sign(publishing.publications["host"])
     }
 }
 
@@ -115,12 +152,6 @@ tasks.named<Jar>("jar") {
     }
 }
 
-java {
-    toolchain { languageVersion.set(JavaLanguageVersion.of(25)) }
-    withJavadocJar()
-    withSourcesJar()
-}
-
 // Java 8 引导程序属于该构件，因此其源码也包含在 sources jar 中。
 tasks.named<Jar>("sourcesJar") {
     from(bootstrap.allSource)
@@ -134,4 +165,14 @@ tasks.named<Test>("test") {
     useJUnitPlatform()
 }
 
-// Publish mapping changes before starting this build so settings selects the matching repository.
+tasks.register<Zip>("bundleForCentral") {
+    group = "publishing"
+    dependsOn("check", "publishHostPublicationToLocalStagingRepository")
+    val coordinates = "io/github/rwpp-team/rwml-desktop/$version"
+    from(layout.buildDirectory.dir("central-staging")) {
+        include("$coordinates/**")
+        exclude("**/*.asc.*")
+    }
+    archiveFileName.set("rwml-desktop-$version-central-bundle.zip")
+    destinationDirectory.set(rootProject.layout.buildDirectory)
+}

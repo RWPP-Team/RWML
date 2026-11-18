@@ -1,7 +1,7 @@
 ﻿param(
     [ValidateSet('PrepareSigning', 'SaveToken', 'Build', 'Publish', 'Status')]
     [string]$Action = 'Build',
-    [ValidateSet('Core', 'GameLib')]
+    [ValidateSet('Core', 'GameLib', 'Desktop')]
     [string]$Target = 'Core',
     [switch]$Offline
 )
@@ -28,6 +28,12 @@ if ($Target -eq 'GameLib') {
     $coordinates = "io.github.rwpp-team:game-lib:$releaseVersion"
     $bundle = Join-Path $repo "build\game-lib-$releaseVersion-central-bundle.zip"
     $bundleTask = 'bundleGameLibForCentral'
+}
+if ($Target -eq 'Desktop') {
+    $deploymentFile = Join-Path $repo "build\central-deployment-rwml-desktop-$releaseVersion.json"
+    $coordinates = "io.github.rwpp-team:rwml-desktop:$releaseVersion"
+    $bundle = Join-Path $repo "build\rwml-desktop-$releaseVersion-central-bundle.zip"
+    $bundleTask = ':desktop:bundleForCentral'
 }
 
 # 原生程序的 stderr 在 Stop 偏好下会变成终止错误，这里统一降级为输出并返回退出码。

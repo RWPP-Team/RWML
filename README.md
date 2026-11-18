@@ -94,7 +94,7 @@ git submodule update --init --recursive
 
 桌面与 Android 都使用本次构建从 `work/` 生成的映射。在本机开发扩展时，可用 `./gradlew publishGameLibForIde` 额外生成含源码的本地 Maven 构件。
 
-安装程序由 `:setup:packageExe` 生成，产物位于 `setup/build/`setup/`。
+安装程序由 `:setup:packageExe` 生成，产物位于 `setup/build/setup/`。
 
 ## 致谢
 
