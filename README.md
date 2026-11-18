@@ -1,6 +1,6 @@
 <h1 align="center">RWML</h1>
 
-<div align="center"><img alt="Tests: Gradle" src="https://img.shields.io/badge/tests-Gradle-blue.svg"> <img alt="License: RWPP-Team Shield" src="https://img.shields.io/badge/license-RWPP--Team%20Shield-blue.svg"> <img alt="Version: 1.0.2" src="https://img.shields.io/badge/version-1.0.2-green.svg"> <img alt="Language: Java" src="https://img.shields.io/badge/language-Java-orange.svg"></div>
+<div align="center"><img alt="Tests: Gradle" src="https://img.shields.io/badge/tests-Gradle-blue.svg"> <img alt="License: RWPP-Team Shield" src="https://img.shields.io/badge/license-RWPP--Team%20Shield-blue.svg"> <img alt="Version: 1.0.3" src="https://img.shields.io/badge/version-1.0.3-green.svg"> <img alt="Language: Java" src="https://img.shields.io/badge/language-Java-orange.svg"></div>
 
 <p align="center">🇨🇳 简体中文 | 🇺🇸 <a href="./README.en.md">English</a></p>
 
@@ -41,12 +41,12 @@ Android 安装 `android/build/outputs/apk/debug/android-debug.apk`，要求 Andr
 
 ```kotlin
 dependencies {
-    compileOnly("io.github.rwpp-team:rwml-core:1.0.2")
-    compileOnly("io.github.rwpp-team:game-lib:v3-1.15")
+    compileOnly("io.github.rwpp-team:rwml-core:1.0.3")
+    compileOnly("io.github.rwpp-team:game-lib:1.0.3")
 }
 ```
 
-`v3` 是映射修订号，游戏版本仍为 1.15。
+从 RWML 1.0.3 起，`game-lib` 使用对应的 RWML 版本号；游戏版本仍为 1.15。
 
 在归档中加入 `META-INF/extension.properties`：
 
@@ -74,11 +74,14 @@ public final class HelloExtension implements Extension {
 | 字段                           | 用途                                       |
 |--------------------------------|--------------------------------------------|
 | `dependsOn`                    | 硬依赖，可带版本约束                       |
+| `minRwmlVersion`               | 扩展所需的最低 RWML 版本，例如 `1.0.3`     |
 | `loadAfter` / `loadBefore`     | 推荐加载顺序                               |
 | `ui-framework`                 | 实现 `UiFramework.start(UiHost)` 的界面类  |
 | `resourcePack`                 | 资源包，可省略 `mainClass`                 |
 
 参考[示例扩展](./example)与 [UI framework](./docs/ui-framework.md)。
+
+如果扩展用到了某个 RWML 版本新增的映射，在描述符中填写该版本。版本过低时，加载器会跳过扩展及依赖它的扩展，并提示升级到所需的 RWML 版本。
 
 ## 构建
 
@@ -86,11 +89,10 @@ public final class HelloExtension implements Extension {
 
 ```bash
 git submodule update --init --recursive
-./gradlew publishGameLibForIde
 ./gradlew packageGameJar :android:assembleDebug :example:jar
 ```
 
-映射库先发布，编译另起一次 Gradle 调用；同一次调用里解析不到该坐标。
+桌面与 Android 都使用本次构建从 `work/` 生成的映射。在本机开发扩展时，可用 `./gradlew publishGameLibForIde` 额外生成含源码的本地 Maven 构件。
 
 安装程序由 `:setup:packageExe` 生成，产物位于 `setup/build/`setup/`。
 

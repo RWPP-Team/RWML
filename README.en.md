@@ -1,6 +1,6 @@
 <h1 align="center">RWML</h1>
 
-<div align="center"><img alt="Tests: Gradle" src="https://img.shields.io/badge/tests-Gradle-blue.svg"> <img alt="License: RWPP-Team Shield" src="https://img.shields.io/badge/license-RWPP--Team%20Shield-blue.svg"> <img alt="Version: 1.0.2" src="https://img.shields.io/badge/version-1.0.2-green.svg"> <img alt="Language: Java" src="https://img.shields.io/badge/language-Java-orange.svg"></div>
+<div align="center"><img alt="Tests: Gradle" src="https://img.shields.io/badge/tests-Gradle-blue.svg"> <img alt="License: RWPP-Team Shield" src="https://img.shields.io/badge/license-RWPP--Team%20Shield-blue.svg"> <img alt="Version: 1.0.3" src="https://img.shields.io/badge/version-1.0.3-green.svg"> <img alt="Language: Java" src="https://img.shields.io/badge/language-Java-orange.svg"></div>
 
 <p align="center">🇺🇸 English | 🇨🇳 <a href="./README.md">简体中文</a></p>
 
@@ -41,12 +41,12 @@ Extensions reference core and the mapped game library with `compileOnly`. The ga
 
 ```kotlin
 dependencies {
-    compileOnly("io.github.rwpp-team:rwml-core:1.0.2")
-    compileOnly("io.github.rwpp-team:game-lib:v3-1.15")
+    compileOnly("io.github.rwpp-team:rwml-core:1.0.3")
+    compileOnly("io.github.rwpp-team:game-lib:1.0.3")
 }
 ```
 
-The `v3` prefix identifies the mapping revision; the game version remains 1.15.
+Starting with RWML 1.0.3, `game-lib` uses the corresponding RWML release version. The game itself remains at version 1.15.
 
 Add `META-INF/extension.properties` to the archive:
 
@@ -74,11 +74,14 @@ Other descriptor keys:
 | Key                        | Purpose                                          |
 |----------------------------|--------------------------------------------------|
 | `dependsOn`                | Hard dependency, optionally with a version range |
+| `minRwmlVersion`           | Minimum RWML release required, such as `1.0.3`   |
 | `loadAfter` / `loadBefore` | Preferred load order                             |
 | `ui-framework`             | Class implementing `UiFramework.start(UiHost)`   |
 | `resourcePack`             | Resource pack, may omit `mainClass`              |
 
 See the [sample extension](./example) and the [UI framework guide](./docs/ui-framework.md).
+
+If an extension uses mappings introduced in a particular RWML release, declare that release in its descriptor. An older host skips the extension and its dependents and reports the required RWML upgrade.
 
 ## Building
 
@@ -86,11 +89,10 @@ Requires JDK 25, Android SDK 36, and the game archive plus Anvil mappings under 
 
 ```bash
 git submodule update --init --recursive
-./gradlew publishGameLibForIde
 ./gradlew packageGameJar :android:assembleDebug :example:jar
 ```
 
-The mapped library is published first; compile in a separate Gradle invocation, since a single run cannot resolve the coordinate it is about to write.
+Both hosts compile and package the mappings generated from `work/` in that build. Extension developers can also run `./gradlew publishGameLibForIde` to publish the mapped library and sources to the local Maven repository.
 
 The installer is built by `:setup:packageExe` and written to `setup/build/setup/`.
 
