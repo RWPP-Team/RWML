@@ -119,7 +119,7 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
 
-    compileOnly(libs.game.lib)
+    compileOnly(files(rootProject.extra["rwmlMappedGameJar"]))
 
     implementation(libs.dalvik.dx)
     implementation(libs.org.ow2.asm.asm3)
@@ -139,7 +139,7 @@ dependencies {
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
-    androidTestCompileOnly(libs.game.lib)
+    androidTestCompileOnly(files(rootProject.extra["rwmlMappedGameJar"]))
 }
 
 tasks.withType<Test>().configureEach {
@@ -204,28 +204,14 @@ androidComponents {
 // RWML 只暂存待改写的游戏归档；扩展（包括 RWPP 携带的 API）由扩展管理器按需处理。
 // ------------------------------------------------------------------------------------------------
 
-/** 通过 -PrwmlGameJar=<path> 指定其他游戏 jar，以仓库根目录为相对路径。 */
-val gameJarOverride = providers.gradleProperty("rwmlGameJar")
-
-/** `:remapFromEnigma` 生成的映射后游戏；仅在文件存在时暂存。 */
+/** 与桌面宿主和编译类路径使用同一份映射输出。 */
 @Suppress("UNCHECKED_CAST")
 val remappedGameJar = rootProject.extra["rwmlMappedGameJar"] as Provider<RegularFile>
 
 val stageAndroidAssets = tasks.register<StageAndroidAssetsTask>("stageAndroidAssets") {
     group = "rwml"
     description = "Stages the game archive, with its digest, into the app's assets."
-    if (gameJarOverride.isPresent) {
-        gameJar.from(rootProject.layout.projectDirectory.file(gameJarOverride.get()))
-    } else {
-        gameJar.from(remappedGameJar)
-
-        // 该文件由 `:remapFromEnigma` 生成，存在时本任务必须等待它，因此只在文件存在时声明依赖。映射流程需要游戏 jar
-        // 和 Anvil 子模块，但构建 debug APK 不应依赖两者：检出目录缺少这些内容时无需等待，应用仍可构建运行，
-        // 只是没有游戏类可供改写。
-        if (rootProject.file("work/game-lib.jar").isFile) {
-            dependsOn(":remapFromEnigma")
-        }
-    }
+    gameJar.from(remappedGameJar)
     outputDirectory.set(layout.buildDirectory.dir("generated/rwml-assets"))
     // 暂存归档时会一并写入垫片类：替换归档中同名条目，并补入归档未包含但有引用的条目。
     dependsOn(compileGameShim)

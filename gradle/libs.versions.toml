@@ -21,14 +21,12 @@ androidx-appcompat = "1.7.1"
 androidx-core-ktx = "1.17.0"
 junit = "5.11.3"
 junit-platform = "1.11.3"
-game-lib = "v3-1.15"
 vineflower = "1.11.2"
 
 
 [libraries]
 kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "serialization" }
 asm-framework = { module = "kim.der.relay-cn:ASM-Framework", version.ref = "asm-framework" }
-game-lib = { module = "io.github.rwpp-team:game-lib", version.ref = "game-lib" }
 vineflower = { module = "org.vineflower:vineflower", version.ref = "vineflower" }
 fabricmc-tiny-remapper = { module = "net.fabricmc:tiny-remapper", version.ref = "tiny-remapper" }
 fabricmc-mapping-io = { module = "net.fabricmc:mapping-io", version.ref = "mapping-io" }

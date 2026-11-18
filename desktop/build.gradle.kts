@@ -56,7 +56,7 @@ dependencies {
     // 桌面端通过游戏静态成员声明平台选项，并交由游戏自身启动器启动，因此需针对游戏编译，但不会打包游戏。
     // 可运行 jar 由 `:packageGameJar` 生成，负责合并映射后的游戏。依赖坐标指向构建专用仓库，其中也发布了
     // 游戏的反编译源码，供 IDE 界面查看。
-    compileOnly(libs.game.lib)
+    compileOnly(files(rootProject.extra["rwmlMappedGameJar"]))
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

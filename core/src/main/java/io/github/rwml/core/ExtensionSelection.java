@@ -19,15 +19,17 @@ public final class ExtensionSelection {
     private final List<ExtensionDescriptor> enabled;
     private final List<String> disabled;
     private final Map<String, String> excluded;
+    private final Map<String, String> incompatible;
     private final ExtensionDescriptor framework;
     private final ExtensionDescriptor resourcePack;
     private final Map<String, String> resourcePackExcluded;
 
     private ExtensionSelection(DependencyResolution resolution, Set<String> disabled,
                                ExtensionDescriptor framework, ExtensionDescriptor resourcePack,
-                               Map<String, String> resourcePackExcluded) {
+                               Map<String, String> resourcePackExcluded, Map<String, String> incompatible) {
         this.enabled = resolution.loadOrder();
         this.excluded = resolution.excluded();
+        this.incompatible = Collections.unmodifiableMap(new LinkedHashMap<>(incompatible));
         this.disabled = Collections.unmodifiableList(new ArrayList<>(disabled));
         this.framework = framework;
         this.resourcePack = resourcePack;
@@ -37,6 +39,7 @@ public final class ExtensionSelection {
     public List<ExtensionDescriptor> enabled() { return enabled; }
     public List<String> disabled() { return disabled; }
     public Map<String, String> excluded() { return excluded; }
+    public Map<String, String> incompatible() { return incompatible; }
     public ExtensionDescriptor framework() { return framework; }
 
     /** @return 本次加载生效的资源包；没有资源包被启用时返回 null */
@@ -67,8 +70,10 @@ public final class ExtensionSelection {
         for (ExtensionDescriptor descriptor : descriptors) {
             if (!disabledIds.contains(descriptor.id())) { eligible.add(descriptor); }
         }
-        DependencyResolution versions = ExtensionVersions.resolve(eligible, selectedVersions);
-        descriptors = versions.loadOrder();
+        Map<String, String> incompatible = new LinkedHashMap<>();
+        DependencyResolution versions = ExtensionVersions.resolve(eligible, selectedVersions, incompatible);
+        descriptors = new ArrayList<>(versions.loadOrder());
+        excludeIncompatibleDependents(descriptors, incompatible);
         ExtensionDependencyResolver resolver = new ExtensionDependencyResolver();
         List<ExtensionDescriptor> ordered = new ArrayList<>(resolver.resolve(descriptors).loadOrder());
         Set<String> seen = new LinkedHashSet<>();
@@ -102,6 +107,7 @@ public final class ExtensionSelection {
                 disabled.addAll(disabledIds);
                 Map<String, String> excluded = new LinkedHashMap<>(versions.excluded());
                 excluded.putAll(resolution.excluded());
+                excluded.putAll(incompatible);
 
                 // 资源包彼此替换同一批文件，同时物化两个只会让后写入的一方获胜。此处只保留一个，其余按禁用处理；
                 // 依赖它们的扩展会在重新排列依赖时一并退出。
@@ -124,10 +130,25 @@ public final class ExtensionSelection {
                     }
                 }
                 return new ExtensionSelection(new DependencyResolution(resolution.loadOrder(), excluded), disabled,
-                    candidate, pack, packsSkipped);
+                    candidate, pack, packsSkipped, incompatible);
             }
         }
         throw new AssertionError("The headless selection is always valid");
+    }
+
+    private static void excludeIncompatibleDependents(List<ExtensionDescriptor> descriptors,
+                                                       Map<String, String> incompatible) {
+        if (incompatible.isEmpty()) { return; }
+        while (descriptors.removeIf(descriptor -> {
+            for (String dependency : descriptor.dependencyIds()) {
+                String problem = incompatible.get(dependency);
+                if (problem != null) {
+                    incompatible.put(descriptor.id(), "Required extension '" + dependency + "': " + problem);
+                    return true;
+                }
+            }
+            return false;
+        })) { /* Remove transitive dependents as their requirements become unavailable. */ }
     }
 
     /**

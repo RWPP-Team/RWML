@@ -419,7 +419,10 @@ public final class ExtensionManager {
 
         uiFrameworkReservation = selection.framework() == null ? null : selection.framework().id();
         for (Map.Entry<String, String> entry : selection.excluded().entrySet()) {
-            failures.put(entry.getKey(), entry.getValue());
+            if (!selection.incompatible().containsKey(entry.getKey())) {
+                failures.put(entry.getKey(), entry.getValue());
+            }
+            progress.onProgress(30, "Skipped " + entry.getKey() + ": " + entry.getValue());
         }
 
         // ---------- 阶段 2b：物化资源包 ----------
@@ -496,9 +499,10 @@ public final class ExtensionManager {
         }
 
         progress.onProgress(100, loaded.size() + " loaded, " + disabled.size()
-            + " disabled, " + failures.size() + " skipped");
+            + " disabled, " + (failures.size() + selection.incompatible().size()) + " skipped");
         ResourcePackInstaller.Result pack = resourcePack;
-        return new LoadReport(loaded, failures, disabled, staged, pack == null ? null : pack.id());
+        return new LoadReport(loaded, failures, disabled, staged, pack == null ? null : pack.id(),
+            selection.incompatible());
     }
 
     /**
@@ -579,6 +583,10 @@ public final class ExtensionManager {
         if (stateStore.isDisabled(descriptor.id())) {
             throw new ExtensionException("Extension '" + descriptor.id()
                 + "' is disabled and will not be loaded");
+        }
+        String incompatibility = RwmlVersion.incompatibility(descriptor);
+        if (incompatibility != null) {
+            throw new ExtensionException("Extension '" + descriptor.id() + "': " + incompatibility);
         }
 
         String selectedVersion = stateStore.selectedVersions().get(descriptor.id());

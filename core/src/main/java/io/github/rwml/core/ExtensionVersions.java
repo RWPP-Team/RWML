@@ -44,19 +44,46 @@ public final class ExtensionVersions {
      * @return 每个 ID 选出一个版本时的加载顺序，以及被排除的 ID 及原因
      */
     public static DependencyResolution resolve(List<ExtensionDescriptor> descriptors, Map<String, String> choices) {
+        return resolve(descriptors, choices, new LinkedHashMap<>());
+    }
+
+    static DependencyResolution resolve(List<ExtensionDescriptor> descriptors, Map<String, String> choices,
+                                        Map<String, String> incompatible) {
         Map<String, String> selected = choices == null ? Collections.<String, String>emptyMap() : choices;
         Map<String, List<ExtensionDescriptor>> candidates = candidates(descriptors);
 
         Set<String> dropped = new LinkedHashSet<>();
         Map<String, String> excluded = new LinkedHashMap<>();
+        Set<ExtensionDescriptor> compatible = new LinkedHashSet<>();
 
         // 记录的选择必须仍然存在。只有一个候选时忽略该选择，因为更换归档不应强制用户重新确认。
         for (Map.Entry<String, List<ExtensionDescriptor>> group : candidates.entrySet()) {
-            String choice = selected.get(group.getKey());
-            if (choice == null || find(group.getValue(), choice) != null || group.getValue().size() == 1) { continue; }
-            dropped.add(group.getKey());
-            excluded.put(group.getKey(), "The selected version of '" + group.getKey()
-                + "' is no longer installed; choose another version");
+            String id = group.getKey();
+            List<ExtensionDescriptor> installed = group.getValue();
+            String choice = selected.get(id);
+            ExtensionDescriptor pinned = choice == null ? null : find(installed, choice);
+            if (choice != null && pinned == null && installed.size() > 1) {
+                dropped.add(id);
+                excluded.put(id, "The selected version of '" + id + "' is no longer installed; choose another version");
+                continue;
+            }
+
+            List<ExtensionDescriptor> supported = new ArrayList<>();
+            for (ExtensionDescriptor candidate : installed) {
+                if (RwmlVersion.incompatibility(candidate) == null) { supported.add(candidate); }
+            }
+            String problem = pinned == null ? null : RwmlVersion.incompatibility(pinned);
+            if (supported.isEmpty() && problem == null) {
+                problem = RwmlVersion.incompatibility(best(installed, null));
+            }
+            if (problem != null) {
+                dropped.add(id);
+                excluded.put(id, problem);
+                incompatible.put(id, problem);
+                continue;
+            }
+            group.setValue(supported);
+            compatible.addAll(supported);
         }
 
         Map<String, ExtensionDescriptor> picked = Collections.emptyMap();
@@ -64,7 +91,7 @@ public final class ExtensionVersions {
         for (int round = 0; round < rounds; round++) {
             List<ExtensionDescriptor> active = new ArrayList<>();
             for (ExtensionDescriptor descriptor : descriptors) {
-                if (!dropped.contains(descriptor.id())) { active.add(descriptor); }
+                if (!dropped.contains(descriptor.id()) && compatible.contains(descriptor)) { active.add(descriptor); }
             }
             picked = pick(candidates, required(active), selected, dropped);
             Map<String, String> violations = violations(active, picked);

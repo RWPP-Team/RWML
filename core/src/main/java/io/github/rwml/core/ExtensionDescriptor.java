@@ -43,14 +43,26 @@ public record ExtensionDescriptor(
     List<String> loadAfter,
     Path source,
     long sourceSize,
-    String sourceSha256) {
+    String sourceSha256,
+    String minRwmlVersion) {
+
+    /** 兼容此前不含宿主版本要求的构造函数。 */
+    public ExtensionDescriptor(String id, String name, String version, String description, List<String> authors,
+                               String license, String licenseUrl, String homepage, String icon, List<String> tags,
+                               String apiVersion, int requiredJavaVersion, String mainClass, String uiFramework,
+                               boolean resourcePack, List<String> dependsOn, List<String> loadBefore,
+                               List<String> loadAfter, Path source, long sourceSize, String sourceSha256) {
+        this(id, name, version, description, authors, license, licenseUrl, homepage, icon, tags, apiVersion,
+            requiredJavaVersion, mainClass, uiFramework, resourcePack, dependsOn, loadBefore, loadAfter,
+            source, sourceSize, sourceSha256, "");
+    }
 
     /** 返回一个副本，并替换实际 Java 版本要求。 */
     public ExtensionDescriptor withRequiredJavaVersion(int javaVersion) {
         return new ExtensionDescriptor(id, name, version, description, authors, license, licenseUrl,
             homepage, icon, tags, apiVersion, javaVersion, mainClass, uiFramework, resourcePack,
             dependsOn, loadBefore, loadAfter,
-            source, sourceSize, sourceSha256);
+            source, sourceSize, sourceSha256, minRwmlVersion);
     }
 
     /**
@@ -62,7 +74,7 @@ public record ExtensionDescriptor(
     public ExtensionDescriptor withOptionalEntryPoint() {
         return new ExtensionDescriptor(id, name, version, description, authors, license, licenseUrl,
             homepage, icon, tags, apiVersion, requiredJavaVersion, "", uiFramework, resourcePack,
-            dependsOn, loadBefore, loadAfter, source, sourceSize, sourceSha256);
+            dependsOn, loadBefore, loadAfter, source, sourceSize, sourceSha256, minRwmlVersion);
     }
 
     /**

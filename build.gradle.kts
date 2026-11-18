@@ -85,7 +85,6 @@ val mappingOutputRevision = run {
 }
 val mappedGameArchive = layout.buildDirectory.file("mapped-game/$mappingOutputRevision/game-lib-named.jar")
 val mappedGameSources = layout.buildDirectory.file("mapped-game/$mappingOutputRevision/game-lib-named-sources.jar")
-extra["rwmlMappedGameJar"] = mappedGameArchive
 
 val remapFromEnigma = tasks.register<RemapFromEnigmaTask>("remapFromEnigma") {
     group = "jar mapping"
@@ -98,14 +97,14 @@ val remapFromEnigma = tasks.register<RemapFromEnigmaTask>("remapFromEnigma") {
     tinyCache.set(layout.buildDirectory.file("temp/mappings-converted.tiny"))
     derivedReport.set(layout.buildDirectory.file("reports/mappings/derived-nested-classes.txt"))
 }
+extra["rwmlMappedGameJar"] = remapFromEnigma.flatMap { it.outputJar }
 
 // ------------------------------------------------------------------------------------------------
 // genSources：为界面查看而生成的游戏源码。
 //
 // 各模块只需针对映射后的游戏进行编译，不会运行游戏，因此构建时只需要游戏的名称信息。要追踪引擎调用、
 // 查看字段内容，界面必须能访问源码；本任务通过反编译一次并在映射后 jar 旁生成 sources jar，避免每次
-// 查阅都手动反编译。两个 jar 都会发布到构建专用的 Maven 仓库。模块随后通过坐标依赖游戏，并像其他依赖
-// 一样通过 `-sources` 分类器获取源码。
+// 查阅都手动反编译。两个 jar 可发布到构建专用的 Maven 仓库供扩展开发使用；宿主直接依赖本次映射的输出。
 //
 // 反编译器是构建工具，因此通过此脚本的配置引入，而不属于某个模块；运行时不会执行反编译。
 // ------------------------------------------------------------------------------------------------
@@ -114,11 +113,11 @@ val remapFromEnigma = tasks.register<RemapFromEnigmaTask>("remapFromEnigma") {
 val vineflower = configurations.create("vineflower")
 dependencies.add(vineflower.name, libs.vineflower)
 
-/** 游戏的依赖坐标：供各模块请求，也是此脚本发布时使用的坐标。 */
-val gameLibCoordinate = libs.game.lib.map { it.toString() }
-val gameLibVersion = libs.versions.game.lib.get()
+/** 供扩展编译的映射库使用同一宿主发行版本。 */
+val gameLibVersion = version.toString()
+val gameLibCoordinate = "$group:game-lib:$gameLibVersion"
 
-/** 游戏 jar 及其源码的发布位置，也是各模块读取它们的位置。 */
+/** 游戏 jar 及其源码的本地发布位置，供扩展开发使用。 */
 val localGameRepository = layout.buildDirectory.dir("local-maven")
 
 val genSources = tasks.register<DecompileGameSourcesTask>("genSources") {
@@ -536,20 +535,12 @@ tasks.register<Zip>("bundleForCentral") {
 // ------------------------------------------------------------------------------------------------
 // packageGameJar：构建可替换游戏 game-lib.jar 的文件。
 // ------------------------------------------------------------------------------------------------
-val gameJarOverride = providers.gradleProperty("rwmlGameJar")
-
 val packageGameJar = tasks.register<PackageGameJarTask>("packageGameJar") {
     group = "distribution"
     description = "Merges the remapped game into RWML's jar and writes the drop-in game-lib.jar " +
             "replacement to build/dist."
-    if (!gameJarOverride.isPresent) dependsOn(remapFromEnigma)
-
     rwmlJar.set(project(":desktop").tasks.named<Jar>("jar").flatMap { it.archiveFile })
-    gameJar.set(
-        gameJarOverride
-            .map { layout.projectDirectory.file(it) }
-            .orElse(remapFromEnigma.flatMap { it.outputJar })
-    )
+    gameJar.set(remapFromEnigma.flatMap { it.outputJar })
     targetJavaVersion.set(providers.gradleProperty("rwmlTargetJavaVersion").getOrElse("25"))
     outputJar.set(layout.buildDirectory.file("dist/game-lib.jar"))
 }

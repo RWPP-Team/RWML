@@ -164,10 +164,12 @@ translation resources without linking to core classes.
 
 All metadata is UTF-8 `META-INF/extension.properties`. `id` and `mainClass` are required. Supported keys
 are `name`, `version`, `description`, `authors` (or `author`), `license`, `licenseUrl`, `homepage`, `icon`,
-`tags`, `apiVersion`, `javaVersion`, `ui-framework`, `dependsOn`, `loadBefore`, and `loadAfter`.
+`tags`, `apiVersion`, `javaVersion`, `minRwmlVersion`, `ui-framework`, `dependsOn`, `loadBefore`, and `loadAfter`.
 Author lists split on commas or semicolons, preserving spaces in names. Dependency, tag and ordering
 lists also accept whitespace separators. Defaults are id as name, version `1.0.0`, API `1.0`, and Java 8;
 other optional fields are empty. Runtime bytecode checks may raise the Java requirement.
+
+When an extension needs mappings from a particular RWML release, set `minRwmlVersion` to that release. Before preparing extension classes or registering mixins, the host checks this requirement and tells the user which RWML version to install if the requirement is unmet.
 
 The `ExtensionInfo` annotation API and annotation scanning have been removed. Migrate old declarations
 into properties, including an explicit `mainClass`; annotation-only archives are shown as invalid.

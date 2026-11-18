@@ -126,7 +126,9 @@ public final class DefaultExtensionLibrary implements ExtensionLibrary {
             boolean selected = versions.loadOrder().contains(descriptor);
             boolean active = handle != null && handle.isEnabled()
                 && ExtensionVersions.identity(handle.descriptor()).equals(ExtensionVersions.identity(descriptor));
-            result.add(entry(descriptor, active, selected ? problem : "", selected,
+            String incompatibility = RwmlVersion.incompatibility(descriptor);
+            String visibleProblem = incompatibility != null ? incompatibility : selected ? problem : "";
+            result.add(entry(descriptor, active, visibleProblem, selected,
                 versions.excluded().containsKey(descriptor.id())));
         }
         result.addAll(broken);

@@ -56,6 +56,14 @@ tasks.withType<Jar>().configureEach {
     from(rootProject.file("LICENSE.md")) { into("META-INF") }
 }
 
+tasks.processResources {
+    val rwmlVersion = project.version.toString()
+    inputs.property("rwmlVersion", rwmlVersion)
+    filesMatching("META-INF/rwml/version.properties") {
+        expand("rwmlVersion" to rwmlVersion)
+    }
+}
+
 tasks.named<Test>("test") {
     useJUnitPlatform()
 }

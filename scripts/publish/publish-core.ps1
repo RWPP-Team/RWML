@@ -24,13 +24,9 @@ $coordinates = "io.github.rwpp-team:rwml-core:$releaseVersion"
 $bundle = Join-Path $repo "build\rwml-$releaseVersion-central-bundle.zip"
 $bundleTask = 'bundleForCentral'
 if ($Target -eq 'GameLib') {
-    $gameVersionLines = @(Get-Content -LiteralPath (Join-Path $repo 'gradle\libs.versions.toml') |
-        Where-Object { $_ -match '^game-lib\s*=\s*"(v[1-9][0-9]*(?:-[0-9]+(?:\.[0-9]+)*)?)"\s*$' })
-    if ($gameVersionLines.Count -ne 1) { throw 'Expected one game-lib release version in the version catalog.' }
-    $gameVersion = [regex]::Match($gameVersionLines[0], '"(v[1-9][0-9]*(?:-[0-9]+(?:\.[0-9]+)*)?)"').Groups[1].Value
-    $deploymentFile = Join-Path $repo "build\central-deployment-game-lib-$gameVersion.json"
-    $coordinates = "io.github.rwpp-team:game-lib:$gameVersion"
-    $bundle = Join-Path $repo "build\game-lib-$gameVersion-central-bundle.zip"
+    $deploymentFile = Join-Path $repo "build\central-deployment-game-lib-$releaseVersion.json"
+    $coordinates = "io.github.rwpp-team:game-lib:$releaseVersion"
+    $bundle = Join-Path $repo "build\game-lib-$releaseVersion-central-bundle.zip"
     $bundleTask = 'bundleGameLibForCentral'
 }
 

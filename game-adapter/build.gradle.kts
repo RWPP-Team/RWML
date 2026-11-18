@@ -13,7 +13,7 @@ description = "Shared game-backed UI services; core and UI frameworks do not dep
 
 dependencies {
     api(project(":core"))
-    compileOnly(libs.game.lib)
+    compileOnly(files(rootProject.extra["rwmlMappedGameJar"]))
     compileOnly(libs.asm.framework)
 }
 

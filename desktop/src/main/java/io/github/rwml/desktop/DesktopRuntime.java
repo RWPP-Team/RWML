@@ -303,11 +303,14 @@ public final class DesktopRuntime implements RwmlRuntime {
         for (Map.Entry<String, String> failure : report.failed().entrySet()) {
             System.out.println("[rwml]   ! " + failure.getKey() + ": " + failure.getValue());
         }
+        for (Map.Entry<String, String> skipped : report.incompatible().entrySet()) {
+            System.out.println("[rwml]   ! " + skipped.getKey() + ": " + skipped.getValue());
+        }
         for (String id : report.disabled()) {
             System.out.println("[rwml]   - " + id + " (disabled)");
         }
         System.out.println("[rwml] " + report.loaded().size() + " loaded, " + report.disabled().size()
-            + " disabled, " + report.failed().size() + " skipped");
+            + " disabled, " + (report.failed().size() + report.incompatible().size()) + " skipped");
     }
 
     /**

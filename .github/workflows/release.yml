@@ -5,10 +5,11 @@ on:
   push:
     tags:
       - "v*"
+      - "[0-9]*"
   workflow_dispatch:
     inputs:
       tag:
-        description: 已存在的 tag，例如 v1.0.2
+        description: 已存在的 tag，例如 1.0.3
         required: true
 
 permissions:
@@ -67,14 +68,6 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: "platforms;android-36"
-
-      # 模块通过坐标依赖映射后的游戏，而该坐标由 publishGameLibForIde 写入仓库；
-      # 设置脚本在配置阶段读取仓库指针，因此发布与编译必须分成两次 Gradle 调用。
-      - name: Publish mapped game library
-        shell: pwsh
-        run: |
-          ./gradlew.bat --no-daemon --stacktrace publishGameLibForIde
-          if ($LASTEXITCODE -ne 0) { throw "Publishing the mapped game library failed with exit code $LASTEXITCODE." }
 
       - name: Build host and installer
         shell: pwsh

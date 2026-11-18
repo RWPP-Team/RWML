@@ -9,6 +9,9 @@ package io.github.rwml;
 
 import io.github.rwml.api.MixinBridge;import io.github.rwml.core.ExtensionDescriptor;
 import io.github.rwml.core.ExtensionManager;
+import io.github.rwml.core.ExtensionDescriptorReader;
+import io.github.rwml.core.ExtensionSelection;
+import io.github.rwml.core.ExtensionVersions;
 import io.github.rwml.core.LoadReport;
 import io.github.rwml.host.HostPlatform;
 import io.github.rwml.api.Extension;
@@ -27,6 +30,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
@@ -97,6 +102,47 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
             assertThrows(io.github.rwml.api.ExtensionException.class, () -> manager.load(second, null));
             assertEquals(List.of("first"), CountingEntry.ids);
         } finally { manager.shutdown(); }
+    }
+
+    @Test void skipsAFrameworkAndItsDependentsBeforeLoadingWhenItNeedsNewerMappings() throws Exception {
+        CountingEntry.ids.clear();
+        String mainClass = "\nmainClass=" + CountingEntry.class.getName() + "\n";
+        Path future = writeExtension("future-ui", CountingEntry.class, "id=future-ui" + mainClass
+            + "minRwmlVersion=999.0.0\nui-framework=" + CustomUi.class.getName());
+        Path dependent = writeExtension("dependent", CountingEntry.class,
+            "id=dependent" + mainClass + "dependsOn=future-ui\n");
+        Path ordinary = writeExtension("ordinary", CountingEntry.class, "id=ordinary" + mainClass);
+        ExtensionDescriptor builtin = ExtensionDescriptor.builtIn("builtin", "Builtin", "1", "",
+            UiEntry.class.getName(), DefaultUi.class.getName());
+        TestHost host = new TestHost(List.of(builtin));
+        ExtensionManager manager = new ExtensionManager(root, host);
+        try {
+            LoadReport report = manager.loadAll(List.of(dependent, future, ordinary), null);
+            assertTrue(report.isClean());
+            assertEquals("builtin", manager.uiFrameworkExtensionId());
+            assertEquals(List.of("ordinary"), CountingEntry.ids);
+            assertEquals(List.of(ordinary), host.registered);
+            assertEquals(Set.of("future-ui", "dependent"), report.incompatible().keySet());
+            assertTrue(report.incompatible().get("future-ui").contains("Upgrade to RWML 999.0.0"));
+            assertTrue(report.incompatible().get("dependent").contains("future-ui"));
+            assertTrue(manager.recoveredFailures().isEmpty());
+            assertTrue(assertThrows(io.github.rwml.api.ExtensionException.class,
+                () -> manager.load(future, null)).getMessage().contains("Upgrade to RWML 999.0.0"));
+        } finally { manager.shutdown(); }
+    }
+
+    @Test void choosesACompatibleVersionUnlessTheUserPinnedAnIncompatibleArchive() throws Exception {
+        String mainClass = "\nmainClass=" + CountingEntry.class.getName() + "\n";
+        ExtensionDescriptor old = ExtensionDescriptorReader.read(writeExtension("old", CountingEntry.class,
+            "id=example\nversion=1.0.0" + mainClass));
+        ExtensionDescriptor latest = ExtensionDescriptorReader.read(writeExtension("latest", CountingEntry.class,
+            "id=example\nversion=2.0.0" + mainClass + "minRwmlVersion=999.0.0\n"));
+        List<ExtensionDescriptor> installed = List.of(old, latest);
+        assertEquals(List.of(old), ExtensionSelection.resolve(installed, Set.of()).enabled());
+        ExtensionSelection pinned = ExtensionSelection.resolve(installed, Set.of(),
+            Map.of("example", ExtensionVersions.identity(latest)));
+        assertTrue(pinned.enabled().isEmpty());
+        assertTrue(pinned.incompatible().get("example").contains("Upgrade to RWML 999.0.0"));
     }
     @Test void remainingLoadReusesEarlyUiExactlyOnceAndRejectsChangedSha() throws Exception {
         CountingEntry.ids.clear();

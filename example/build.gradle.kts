@@ -24,7 +24,7 @@ dependencies {
 
     // 示例 mixin 引用了游戏类，因此编写 mixin 时需针对游戏编译。游戏依赖仅用于编译：扩展入口由宿主加载，宿主类路径
     // 已包含游戏，所以扩展无需携带游戏。依赖坐标指向构建专用仓库，那里也发布了游戏的反编译源码。
-    compileOnly(libs.game.lib)
+    compileOnly(files(rootProject.extra["rwmlMappedGameJar"]))
 }
 
 

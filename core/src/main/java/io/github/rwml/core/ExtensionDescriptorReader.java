@@ -51,7 +51,9 @@ public final class ExtensionDescriptorReader {
     public static ExtensionDescriptor readBuiltIn(Class<?> owner, String resource) {
         try (InputStream stream = owner.getResourceAsStream(resource)) {
             if (stream == null) { throw new IOException("Missing built-in descriptor: " + resource); }
-            return descriptor(load(stream), null, 0L, "");
+            Properties properties = load(stream);
+            properties.putIfAbsent("version", RwmlVersion.current());
+            return descriptor(properties, null, 0L, "");
         } catch (IOException | ExtensionException failure) {
             throw new IllegalStateException("Cannot read built-in descriptor: " + resource, failure);
         }
@@ -75,6 +77,10 @@ public final class ExtensionDescriptorReader {
         List<String> authors = splitOnCommas(properties.getProperty("authors"));
         String author = value(properties, "author", "");
         if (authors.isEmpty() && !author.isEmpty()) { authors.add(author); }
+        String minRwmlVersion = value(properties, "minRwmlVersion", "");
+        if (!minRwmlVersion.isEmpty() && !minRwmlVersion.matches("[vV]?[0-9]+(?:\\.[0-9]+){1,2}(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?")) {
+            throw new ExtensionException("Invalid minRwmlVersion in " + DESCRIPTOR_ENTRY + ": " + minRwmlVersion);
+        }
         return new ExtensionDescriptor(id, value(properties, "name", id),
             value(properties, "version", "1.0.0"), value(properties, "description", ""),
             unmodifiable(authors), value(properties, "license", ""), value(properties, "licenseUrl", ""),
@@ -84,7 +90,7 @@ public final class ExtensionDescriptorReader {
             value(properties, "ui-framework", ""), resourcePack,
             unmodifiable(requirements(properties.getProperty("dependsOn"))),
             unmodifiable(split(properties.getProperty("loadBefore"))),
-            unmodifiable(split(properties.getProperty("loadAfter"))), source, size, digest);
+            unmodifiable(split(properties.getProperty("loadAfter"))), source, size, digest, minRwmlVersion);
     }
 
     /**
